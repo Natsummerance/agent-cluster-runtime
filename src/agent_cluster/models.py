@@ -345,6 +345,9 @@ class Skill(BaseModel):
     version: str = Field(default="0.1.0", description="技能版本（semver）")
     description: str = Field(default="", description="技能描述")
     license: str | None = Field(default=None, description="许可证，None 表示未声明")
+    compatibility: str | None = Field(
+        default=None, description="平台版本约束（如 >=0.1.0），None 表示不限制"
+    )
     allowed_tools: list[str] | None = Field(default=None, description="工具白名单，None 表示不限制")
     dir: str = Field(default="", description="技能包目录路径")
     markdown: str = Field(default="", description="SKILL.md 正文内容")

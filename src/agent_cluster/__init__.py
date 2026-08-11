@@ -1,7 +1,7 @@
 """agent_cluster — 多 agent 组织型全栈开发集群运行时（Python + LangGraph）。
 
-当前阶段提供数据模型层（models.py）；后续任务将逐步加入技能层、流程引擎、
-审批门、组织角色、运行时、会议、进化闭环与 CLI。
+当前阶段提供数据模型层（models.py）与技能层（skills.py）；后续任务将逐步
+加入流程引擎、审批门、组织角色、运行时、会议、进化闭环与 CLI。
 """
 
 from agent_cluster.models import (
@@ -39,6 +39,15 @@ from agent_cluster.models import (
     TaskStatus,
     Vote,
 )
+from agent_cluster.skills import (
+    DisclosureLevel,
+    SkillCatalog,
+    SkillError,
+    SkillFrontmatter,
+    SkillLoader,
+    SkillRegistry,
+    format_skill_context,
+)
 
 __version__ = "0.1.0"
 
@@ -52,6 +61,7 @@ __all__ = [
     "ClusterState",
     "ContextConfig",
     "Decision",
+    "DisclosureLevel",
     "Event",
     "GateKind",
     "HumanInterruptConfig",
@@ -73,8 +83,14 @@ __all__ = [
     "Role",
     "RoleKind",
     "Skill",
+    "SkillCatalog",
+    "SkillError",
+    "SkillFrontmatter",
+    "SkillLoader",
+    "SkillRegistry",
     "Task",
     "TaskStatus",
     "Vote",
     "__version__",
+    "format_skill_context",
 ]

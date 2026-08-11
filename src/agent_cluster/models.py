@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import operator
+
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -425,6 +427,9 @@ class ActionRequest(BaseModel):
     evidence: dict = Field(default_factory=dict, description="证据 / 上下文")
     risk_level: Literal["low", "medium", "high", "critical"] = Field(default="medium", description="风险级别")
     bypass_immune: bool = Field(default=False, description="无人值守时是否禁止自动放行")
+    decisions: list[ApprovalRecord] = Field(
+        default_factory=list, description="审批记录，最后一条为当前结论（Task 3 门路由契约）"
+    )
 
 
 class ApprovalRecord(BaseModel):
@@ -527,11 +532,11 @@ class ClusterState(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     project: Project | None = Field(default=None, description="当前项目")
-    iterations: list[Iteration] = Field(default_factory=list, description="迭代列表")
-    tasks: list[Task] = Field(default_factory=list, description="任务列表")
-    meetings: list[Meeting] = Field(default_factory=list, description="会议记录列表")
+    iterations: Annotated[list[Iteration], operator.add] = Field(default_factory=list, description="迭代列表")
+    tasks: Annotated[list[Task], operator.add] = Field(default_factory=list, description="任务列表")
+    meetings: Annotated[list[Meeting], operator.add] = Field(default_factory=list, description="会议记录列表")
     ledger: Ledger | None = Field(default=None, description="当前任务账本")
     gate_payloads: dict[GateKind, ActionRequest] = Field(default_factory=dict, description="待审批请求，按门类别索引")
-    decisions: list[ApprovalRecord] = Field(default_factory=list, description="审批记录")
+    decisions: Annotated[list[ApprovalRecord], operator.add] = Field(default_factory=list, description="审批记录")
     skill_catalog: dict[str, Skill] = Field(default_factory=dict, description="技能目录：name@version -> Skill")
-    messages: list[Message] = Field(default_factory=list, description="消息流")
+    messages: Annotated[list[Message], operator.add] = Field(default_factory=list, description="消息流")

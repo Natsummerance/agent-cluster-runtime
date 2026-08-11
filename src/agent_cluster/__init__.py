@@ -39,6 +39,17 @@ from agent_cluster.models import (
     TaskStatus,
     Vote,
 )
+from agent_cluster.workflow import (
+    CompiledWorkflow,
+    NodeContext,
+    NodeHandler,
+    WorkflowEdge,
+    WorkflowEngine,
+    WorkflowLoopError,
+    WorkflowNode,
+    WorkflowSpec,
+    WorkflowValidationError,
+)
 from agent_cluster.skills import (
     DisclosureLevel,
     SkillCatalog,
@@ -91,6 +102,15 @@ __all__ = [
     "Task",
     "TaskStatus",
     "Vote",
+    "CompiledWorkflow",
+    "NodeContext",
+    "NodeHandler",
+    "WorkflowEdge",
+    "WorkflowEngine",
+    "WorkflowLoopError",
+    "WorkflowNode",
+    "WorkflowSpec",
+    "WorkflowValidationError",
     "__version__",
     "format_skill_context",
 ]

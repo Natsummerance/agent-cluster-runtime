@@ -87,3 +87,88 @@ $ uv run pytest tests/test_workflow.py -q
 - Commit SHA：`4179512`（`Task 3: 流程引擎 YAML→StateGraph`）
 - 变更文件：`src/agent_cluster/workflow.py`（新增）、`tests/test_workflow.py`（新增）、`src/agent_cluster/models.py`、`src/agent_cluster/__init__.py`
 - 工作区干净；`uv run pytest -q` 全绿（73 passed）。
+
+
+---
+
+## 7. Review Fix 报告（2026-08-12，commit `18863ec`）
+
+### 7.1 Finding 1 修复：max_iterations 语义与 DSL 契约对齐
+
+- 新增编译期校验（`workflow.py` `_validate_spec`）：`max_iterations < len(nodes)` 时抛
+  `WorkflowValidationError`（消息：`max_iterations=N 小于节点总数 M：max_iterations 为总节点执行上限，编译期必须 ≥ 节点总数`）。
+  运行时守卫保持原样（累计执行节点数 > max_iterations 抛 `WorkflowLoopError`）。
+- `WorkflowSpec.max_iterations` 字段 docstring 更新为「防死循环：总节点执行上限，编译期校验必须 ≥ 节点总数」。
+- 计划 DSL 契约文档更新（`docs/superpowers/plans/implementation-plan.md` "YAML 流程 DSL" 块）：
+  - 示例 `max_iterations: 5` → `max_iterations: 20`（8 节点示例，必须 ≥ 节点总数），注释改为
+    「防死循环：总节点执行上限，编译期校验必须 ≥ 节点总数（ChatDev loop_counter 思路）」。
+  - 新增语义条目：`max_iterations` = 单次运行总节点执行上限，编译期校验必须 ≥ 节点总数；
+    线性流程节点数不得大于该值，运行时累计执行节点数超过即抛 `WorkflowLoopError`。
+
+### 7.2 Finding 2 修复：checkpointer/config 透传 + 中断/恢复契约
+
+- `run()` 签名扩展为
+  `run(initial=None, *, thread_id=None, checkpointer=None, config=None)`：
+  - `checkpointer`（如 `MemorySaver`）在 compile 时绑定（LangGraph 约束），通过
+    `_compile_graph(checkpointer=...)` 按需重建编译图；缺省用 `self._graph`（无 checkpointer）。
+  - `config` 合并到内部 config：以 `{"recursion_limit": max_iterations*4, "configurable": {"thread_id": ...}}`
+    为基，用户 config 覆盖合并（configurable 字典按 key 合并）。
+- 挂起处理：gate handler 调用 `interrupt()` 时，langgraph 1.2.11 以 `__interrupt__` 流步挂起
+  （不抛异常）；`_stream_steps` 检测到后排空事件、产出
+  `Event(type="workflow_suspended", payload={"node_id": 最近一次 node_start 的 actor, "thread_id": ...})`，
+  然后正常结束迭代（不抛异常）。兼容旧版以 `GraphInterrupt` 异常挂起的分支同样处理。
+  - 偏离说明：评审要求的「捕获 GraphInterrupt 异常」在本机 langgraph 1.2.11 实际不成立——
+    interrupt 以 `__interrupt__` 流步呈现，且 `Interrupt` 对象没有 `node` 字段；因此改为
+    「检测 `__interrupt__` 步 + 兜底捕获 GraphInterrupt」，node_id 从最近一次 `node_start`
+    事件的 actor 推导。两者都已实现并测试。
+- 新增 `resume(thread_id, response, *, checkpointer=None, config=None)`：
+  - 以 `Command(resume=response)` 重新 astream（`from langgraph.types import Command`）；
+    产出 `workflow_start`（payload 含 `resume: True`）→ 恢复节点事件 → `workflow_end`。
+  - 挂起节点恢复时会重新执行，`interrupt()` 返回 `response`（如 `HumanResponse`）。
+  - `checkpointer` 必须与 `run()` 相同（同一实例）；缺省抛 `ValueError`（文档说明）。
+- 新增 `get_compiled_graph()` 返回底层已编译 LangGraph 图（Task 4/7 可检查/驱动）。
+- 每次 `run()`/`resume()` 迭代的 `run_id`/事件缓冲/计数器保存在本地 `_RunState`
+  （`__slots__`）对象中，节点包装器经 `ContextVar` 读取，不再共享实例级可变状态；
+  `events` 属性语义改为「最近一次迭代的事件流」。
+
+### 7.3 覆盖测试（tests/test_workflow.py 新增 5 个，合计 26 个）
+
+- `test_compile_rejects_max_iterations_below_node_count`：4 节点流程配 `max_iterations: 3` 编译期抛
+  `WorkflowValidationError`（match `max_iterations=3 小于节点总数 4`）。
+- `test_run_passes_with_max_iterations_equal_to_node_count`：4 节点流程配 `max_iterations: 4`
+  编译通过且运行到 `workflow_end`。
+- `test_interrupt_suspends_then_resume_completes`：gate handler 调 `interrupt()` + `MemorySaver`；
+  `run()` 产出 `workflow_suspended`（`node_id="quality_gate"`）并正常结束；`resume(thread_id,
+  HumanResponse(type="accept"), checkpointer=...)` 恢复后 gate 重跑、accept 路由到 `end`，
+  以 `workflow_end` 结束。
+- `test_resume_requires_checkpointer`：缺 checkpointer 抛 `ValueError`。
+- `test_get_compiled_graph_exposed`：`get_compiled_graph()` 返回带 `astream`/`get_graph` 的编译图。
+
+另：`LOOP_YAML` 的 `max_iterations` 从 4 调为 5（5 节点流程须 ≥ 节点总数），loop 测试断言同步更新
+（始终 reject 的返工环在第 6 次节点执行时触发 `WorkflowLoopError`，消息 `max_iterations=5`）。
+
+### 7.4 测试命令与输出
+
+`uv run pytest tests/test_workflow.py -q`：
+
+```
+$ uv run pytest tests/test_workflow.py -q
+..........................                                               [100%]
+26 passed in 0.94s
+```
+
+`uv run pytest -q`（全量 78 = 既有 52 + 工作流 26）：
+
+```
+$ uv run pytest -q
+........................................................................ [ 92%]
+......                                                                   [100%]
+78 passed in 1.15s
+```
+
+### 7.5 提交
+
+- Commit SHA：`18863ec`（`Task 3: 修复 max_iterations 校验与 resume 契约`）
+- 变更文件：`src/agent_cluster/workflow.py`、`tests/test_workflow.py`、
+  `docs/superpowers/plans/implementation-plan.md`（+ 评审包 `review-package-task-3.md` 入库）
+- models.py 无需改动（Finding 2 不需要改模型）。

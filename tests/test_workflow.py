@@ -16,7 +16,11 @@ from agent_cluster.models import (
     ClusterState,
     Event,
     GateKind,
+    HumanResponse,
 )
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
+
 from agent_cluster.workflow import (
     CompiledWorkflow,
     NodeContext,
@@ -101,7 +105,7 @@ edges:
 
 LOOP_YAML = """
 name: loop-flow
-max_iterations: 4
+max_iterations: 5
 thread_id: "proj:demo:iter:1"
 nodes:
   - {id: start, type: start}
@@ -484,7 +488,7 @@ async def test_loop_limit_raises_workflow_loop_error():
         return {"gate_payloads": {node.gate: request}}
 
     compiled = WorkflowEngine(handlers={"gate": always_reject}).compile(LOOP_YAML)
-    with pytest.raises(WorkflowLoopError, match="max_iterations=4"):
+    with pytest.raises(WorkflowLoopError, match="max_iterations=5"):
         _ = [event async for event in compiled.run()]
 
 
@@ -507,3 +511,83 @@ def test_action_request_carries_decisions():
         decisions=[ApprovalRecord(by_role="pm", type="reject")],
     )
     assert request.decisions[-1].type == "reject"
+
+
+# ---------------------------------------------------------------------------
+# Finding 1：max_iterations 编译期校验（总节点执行上限必须 >= 节点总数）
+# ---------------------------------------------------------------------------
+
+
+def test_compile_rejects_max_iterations_below_node_count():
+    yaml_text = SIMPLE_YAML.replace("max_iterations: 10", "max_iterations: 3")
+    with pytest.raises(WorkflowValidationError, match="max_iterations=3 小于节点总数 4"):
+        WorkflowEngine().compile(yaml_text)
+
+
+async def test_run_passes_with_max_iterations_equal_to_node_count():
+    yaml_text = SIMPLE_YAML.replace("max_iterations: 10", "max_iterations: 4")
+    compiled = WorkflowEngine().compile(yaml_text)
+    events = [event async for event in compiled.run()]
+    assert events[-1].type == "workflow_end"
+
+
+# ---------------------------------------------------------------------------
+# Finding 2：checkpointer/config 透传、interrupt 挂起 + resume 恢复契约
+# ---------------------------------------------------------------------------
+
+
+async def _interrupting_gate_handler(
+    state: ClusterState, node: WorkflowNode, ctx: NodeContext
+) -> dict:
+    """gate handler：interrupt() 挂起等待审批，恢复时按响应写 gate_payloads。"""
+    decision = interrupt(ActionRequest(id="ar1", kind=node.gate, title="迭代验收审批"))
+    decision_type = decision.type if isinstance(decision, HumanResponse) else "accept"
+    request = ActionRequest(
+        id="ar1",
+        kind=node.gate,
+        title="迭代验收审批",
+        decisions=[ApprovalRecord(by_role="pm", type=decision_type)],
+    )
+    return {"gate_payloads": {node.gate: request}}
+
+
+async def test_interrupt_suspends_then_resume_completes():
+    checkpointer = MemorySaver()
+    compiled = WorkflowEngine(handlers={"gate": _interrupting_gate_handler}).compile(GATE_YAML)
+
+    run_events = [event async for event in compiled.run(checkpointer=checkpointer)]
+    # 挂起：正常结束迭代，产出 workflow_suspended，不抛异常
+    assert run_events[-1].type == "workflow_suspended"
+    assert run_events[-1].payload == {"node_id": "quality_gate", "thread_id": "proj:demo:iter:1"}
+    # gate 节点已发出 node_start 但尚未发出 node_end
+    assert [event.actor for event in run_events if event.type == "node_start"] == [
+        "start",
+        "dev",
+        "quality_gate",
+    ]
+
+    resumed = [
+        event
+        async for event in compiled.resume(
+            "proj:demo:iter:1", HumanResponse(type="accept"), checkpointer=checkpointer
+        )
+    ]
+    assert resumed[0].type == "workflow_start"
+    assert resumed[0].payload.get("resume") is True
+    assert resumed[-1].type == "workflow_end"
+    # 挂起节点恢复后重新执行，accept 路由到 end
+    assert [event.actor for event in resumed if event.type == "node_start"] == ["quality_gate", "end"]
+
+
+async def test_resume_requires_checkpointer():
+    compiled = WorkflowEngine().compile(GATE_YAML)
+    with pytest.raises(ValueError, match="checkpointer"):
+        _ = [event async for event in compiled.resume("proj:demo:iter:1", "accept")]
+
+
+def test_get_compiled_graph_exposed():
+    compiled = WorkflowEngine().compile(SIMPLE_YAML)
+    graph = compiled.get_compiled_graph()
+    assert graph is not None
+    assert hasattr(graph, "astream")
+    assert hasattr(graph, "get_graph")

@@ -38,7 +38,7 @@
 - YAML 流程 DSL（ChatDev 风格，`WorkflowEngine` 编译为图）：
   ```yaml
   name: <流程名>
-  max_iterations: 5            # 防死循环（ChatDev loop_counter）
+  max_iterations: 20           # 防死循环：总节点执行上限，编译期校验必须 ≥ 节点总数（ChatDev loop_counter 思路）
   thread_id: "proj:demo:iter:1"
   nodes:
     - {id: start, type: start}
@@ -56,6 +56,7 @@
   ```
   - 节点类型：`start/end/agent/meeting/gate/parallel`；`agent` 节点执行指定岗位（走 AgentRuntime）；`meeting` 节点跑会议子图；`gate` 节点触发 interrupt 审批；`parallel` 节点并行跑多个子节点（fan-out/fan-in）。
   - 边：`from/to`；gate 后允许 `on_accept/on_reject/on_edit/on_response` 条件路由（缺省回落到 `to`）；其余边默认顺序流转。
+  - 语义：`max_iterations` = 单次运行总节点执行上限，编译期校验必须 ≥ 节点总数；线性流程节点数不得大于该值，运行时累计执行节点数超过即抛 `WorkflowLoopError`。
   - 编译规则：非法节点引用/缺边/重复 id 一律抛 `WorkflowValidationError`（含精确报错信息）。
 - 事件模型（§5.7）：`Event{id, run_id, thread_id, type, actor, payload, ts}`；type：`node_start/node_end/meeting/approval_created/approval_resolved/tool_call/metrics/evolution_*`；EventBus 为 append-only 列表。
 - 运行方式：`WorkflowEngine.compile(yaml_text) -> CompiledWorkflow`；`CompiledWorkflow.run(initial_state) -> AsyncIterator[Event]`；审批通过 `WorkflowEngine.resume(thread_id, decision)` 恢复。

@@ -6,8 +6,14 @@
 - 节点类型：``start``/``end``/``agent``/``meeting``/``gate``/``parallel``。
 - 事件流：每次运行产出 ``workflow_start``/``node_start``/``node_end``/``workflow_end``
   事件；handler 可通过 ``ctx.events`` 追加自定义事件。
-- 防死循环：统计每次运行累计执行的节点数，超过 ``max_iterations`` 抛
-  ``WorkflowLoopError``；LangGraph ``recursion_limit = max_iterations * 4`` 兜底。
+- 防死循环：``max_iterations`` = 单次运行总节点执行上限（编译期校验必须 ≥ 节点总数），
+  运行时累计执行节点数超过即抛 ``WorkflowLoopError``；LangGraph
+  ``recursion_limit = max_iterations * 4`` 兜底。
+- 中断/恢复：gate handler 调用 ``interrupt()`` 时流程挂起，``run()`` 排空事件后产出
+  ``workflow_suspended``（payload 含 ``node_id``/``thread_id``）并正常结束迭代；
+  ``resume()`` 以 ``Command(resume=response)`` 继续（需与 run() 相同的 checkpointer）。
+- 并发安全：每次 run()/resume() 迭代的 ``run_id``/事件缓冲/计数器保存在本地
+  ``_RunState`` 对象中，节点包装器通过 ContextVar 读取，不共享可变状态。
 
 handler 契约（Task 4/5 据此注册）：
 - ``WorkflowEngine(handlers={"agent": ..., "meeting": ..., "gate": ...})`` 按
@@ -27,20 +33,25 @@ handler 契约（Task 4/5 据此注册）：
   ``accept``→``on_accept``（缺省 ``to``）；``reject``→``on_reject``（缺省 ``to``）；
   ``edit``→``on_edit``（缺省 ``to``）；``response``→``on_response``（缺省
   ``on_accept``→``to``）；``ignore`` 或未写入载荷→``on_accept``（缺省 ``to``）。
+- 中断契约（Task 4 gates.py）：gate handler 可调用
+  ``decision = interrupt(action_request)`` 挂起流程等待人工审批；恢复时
+  ``interrupt()`` 返回审批响应（如 ``HumanResponse``），handler 据此写
+  ``gate_payloads``。``run()`` 检测到挂起时产出 ``workflow_suspended`` 事件。
 - parallel 并行：编译期用 LangGraph ``Send`` API fan-out 到子节点、子节点各自
   ``add_edge(child, fan_in_target)`` 汇聚；所有子节点仍注册为图节点并产出事件。
 """
 
 from __future__ import annotations
 
+import contextvars
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, Literal
 
 import yaml
-from langgraph.errors import GraphRecursionError
+from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Command, Send
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agent_cluster.models import (
@@ -106,7 +117,11 @@ class WorkflowSpec(BaseModel):
 
     name: str = Field(description="流程名称")
     description: str = Field(default="", description="流程描述")
-    max_iterations: int = Field(default=10, gt=0, description="防死循环：单次运行最大节点执行次数")
+    max_iterations: int = Field(
+        default=10,
+        gt=0,
+        description="防死循环：总节点执行上限，编译期校验必须 ≥ 节点总数",
+    )
     thread_id: str = Field(default="", description="线程 id（缺省运行时使用）")
     nodes: list[WorkflowNode] = Field(description="节点列表")
     edges: list[WorkflowEdge] = Field(description="边列表")
@@ -127,13 +142,36 @@ class NodeContext(BaseModel):
 NodeHandler = Callable[[ClusterState, WorkflowNode, NodeContext], Awaitable[dict[str, Any]]]
 
 
+class _RunState:
+    """单次 run()/resume() 迭代的本地运行状态（事件缓冲与计数器）。
+
+    每次迭代独立持有，避免并发运行共享可变状态；节点包装器通过 ContextVar 读取。
+    """
+
+    __slots__ = ("run_id", "thread_id", "loop_count", "event_seq", "drained", "events")
+
+    def __init__(self, run_id: str, thread_id: str) -> None:
+        self.run_id = run_id
+        self.thread_id = thread_id
+        self.loop_count = 0
+        self.event_seq = 0
+        self.drained = 0
+        self.events: list[Event] = []
+
+
 def _validate_spec(spec: WorkflowSpec) -> None:
-    """编译前校验：重复 id、悬空引用、start/end 唯一性与出边、gate 出边、parallel children。"""
+    """编译前校验：重复 id、悬空引用、start/end 唯一性与出边、gate 出边、parallel children、max_iterations。"""
     nodes_by_id: dict[str, WorkflowNode] = {}
     for node in spec.nodes:
         if node.id in nodes_by_id:
             raise WorkflowValidationError(f"重复的节点 id：{node.id!r}")
         nodes_by_id[node.id] = node
+
+    if spec.max_iterations < len(spec.nodes):
+        raise WorkflowValidationError(
+            f"max_iterations={spec.max_iterations} 小于节点总数 {len(spec.nodes)}："
+            "max_iterations 为总节点执行上限，编译期必须 ≥ 节点总数"
+        )
 
     start_nodes = [node for node in spec.nodes if node.type == "start"]
     end_nodes = [node for node in spec.nodes if node.type == "end"]
@@ -179,25 +217,25 @@ def _validate_spec(spec: WorkflowSpec) -> None:
 
 
 class CompiledWorkflow:
-    """已编译的 LangGraph 流程：运行产出并累计事件流。"""
+    """已编译的 LangGraph 流程：运行/恢复产出事件流。"""
 
     def __init__(self, spec: WorkflowSpec, handlers: dict[str, NodeHandler]) -> None:
         self._spec = spec
         self._handlers = dict(handlers)
-        self._events: list[Event] = []
-        self._run_id = ""
-        self._thread_id = ""
-        self._loop_count = 0
-        self._event_seq = 0
-        self._drained = 0
         self._start_id = next(node.id for node in spec.nodes if node.type == "start")
         self._end_id = next(node.id for node in spec.nodes if node.type == "end")
-        self._graph = self._build_graph()
+        self._graph = self._compile_graph()
+        self._run_state_var: contextvars.ContextVar[_RunState | None] = contextvars.ContextVar(
+            f"agent_cluster_run_state_{id(self)}", default=None
+        )
+        self._last_run_state: _RunState | None = None
 
     @property
     def events(self) -> list[Event]:
-        """返回累计事件流（跨多次 run 累积，按 run_id 区分）。"""
-        return list(self._events)
+        """最近一次 run()/resume() 迭代的事件流（每次迭代独立持有，避免并发共享）。"""
+        if self._last_run_state is None:
+            return []
+        return list(self._last_run_state.events)
 
     def get_graph(self) -> dict:
         """返回图描述（节点/边列表），供测试与断言使用。"""
@@ -205,11 +243,15 @@ class CompiledWorkflow:
         edges = [edge.model_dump(exclude_none=True, by_alias=True, mode="json") for edge in self._spec.edges]
         return {"nodes": nodes, "edges": edges}
 
+    def get_compiled_graph(self) -> Any:
+        """返回底层已编译的 LangGraph StateGraph（供 Task 4/7 检查或驱动）。"""
+        return self._graph
+
     # ------------------------------------------------------------------
     # 图构建
     # ------------------------------------------------------------------
 
-    def _build_graph(self) -> Any:
+    def _make_state_graph(self) -> StateGraph:
         graph = StateGraph(ClusterState)
         nodes_by_id = {node.id: node for node in self._spec.nodes}
         for node in self._spec.nodes:
@@ -239,7 +281,11 @@ class CompiledWorkflow:
                     wired_parallels.add(edge.from_)
             else:
                 graph.add_edge(edge.from_, edge.to)
-        return graph.compile()
+        return graph
+
+    def _compile_graph(self, checkpointer: Any | None = None):
+        """编译 StateGraph；checkpointer 需在 compile 时绑定（LangGraph 约束）。"""
+        return self._make_state_graph().compile(checkpointer=checkpointer)
 
     def _wire_gate_edges(self, graph, node: WorkflowNode) -> None:
         """把 gate 节点的出边编译为条件路由（基于最后一次审批结论）。"""
@@ -303,19 +349,20 @@ class CompiledWorkflow:
         return wrapper
 
     async def _execute_node(self, state: ClusterState, node: WorkflowNode) -> dict[str, Any] | None:
+        run_state = self._require_run_state()
         if node.type == "start":
-            self._loop_count += 1
-        # model_construct 跳过校验，保证 ctx.events 与内部事件缓冲为同一列表引用
+            run_state.loop_count += 1
+        # model_construct 跳过校验，保证 ctx.events 与本次迭代事件缓冲为同一列表引用
         ctx = NodeContext.model_construct(
             node_id=node.id,
             spec=self._spec,
-            events=self._events,
-            run_id=self._run_id,
-            loop_count=self._loop_count,
+            events=run_state.events,
+            run_id=run_state.run_id,
+            loop_count=run_state.loop_count,
         )
         start_payload: dict[str, Any] = {"node_type": node.type, "node_id": node.id}
         if node.type == "start":
-            start_payload["loop_count"] = self._loop_count
+            start_payload["loop_count"] = run_state.loop_count
         self._emit("node_start", actor=node.id, payload=start_payload)
 
         if node.type == "start":
@@ -366,51 +413,78 @@ class CompiledWorkflow:
     # 事件与运行
     # ------------------------------------------------------------------
 
+    def _require_run_state(self) -> _RunState:
+        run_state = self._run_state_var.get()
+        if run_state is None:
+            raise RuntimeError("节点只能在 run()/resume() 迭代内执行")
+        return run_state
+
     def _emit(self, event_type: str, *, actor: str, payload: dict[str, Any]) -> Event:
-        self._event_seq += 1
+        run_state = self._require_run_state()
+        run_state.event_seq += 1
         event = Event(
-            id=f"{self._run_id}:{self._event_seq:04d}",
-            run_id=self._run_id,
-            thread_id=self._thread_id,
+            id=f"{run_state.run_id}:{run_state.event_seq:04d}",
+            run_id=run_state.run_id,
+            thread_id=run_state.thread_id,
             type=event_type,
             actor=actor,
             payload=payload,
         )
-        self._events.append(event)
+        run_state.events.append(event)
         return event
 
-    async def run(self, initial: dict | None = None, *, thread_id: str | None = None) -> AsyncIterator[Event]:
-        """运行流程：产出事件流并累计到 ``events``。
+    def _build_config(self, resolved_thread_id: str, config: dict | None) -> dict:
+        """合并运行配置：内部 recursion_limit/thread_id 为基，用户 config 覆盖合并。"""
+        merged: dict[str, Any] = {
+            "recursion_limit": self._spec.max_iterations * 4,
+            "configurable": {"thread_id": resolved_thread_id},
+        }
+        if config:
+            merged = {**merged, **config}
+            if isinstance(config.get("configurable"), dict):
+                merged["configurable"] = {**merged["configurable"], **config["configurable"]}
+        return merged
 
-        - ``initial``：初始 ClusterState 的字段字典（可含 project/iterations 等）。
-        - ``thread_id``：覆盖 spec.thread_id；缺省用 spec.thread_id 或 "default"。
-        - 防死循环：累计执行节点数超过 max_iterations 抛 WorkflowLoopError；
-          LangGraph recursion_limit（max_iterations*4）触发时同样转 WorkflowLoopError。
-        """
-        resolved_thread_id = thread_id or self._spec.thread_id or "default"
-        self._run_id = uuid.uuid4().hex[:12]
-        self._thread_id = resolved_thread_id
-        self._loop_count = 0
-        self._event_seq = 0
-        self._drained = 0
-        initial_state = ClusterState() if initial is None else ClusterState.model_validate(initial)
+    def _drain_pending(self, run_state: _RunState) -> list[Event]:
+        pending = list(run_state.events[run_state.drained :])
+        run_state.drained = len(run_state.events)
+        return pending
 
-        yield self._emit(
-            "workflow_start",
-            actor="",
-            payload={"name": self._spec.name, "thread_id": resolved_thread_id},
+    def _suspended_event(self, run_state: _RunState) -> Event:
+        """从最近一次 node_start 推导被 interrupt() 挂起的节点 id。"""
+        node_id = next(
+            (event.actor for event in reversed(run_state.events) if event.type == "node_start"),
+            "",
         )
-        self._drained = len(self._events)
+        return self._emit(
+            "workflow_suspended",
+            actor="",
+            payload={"node_id": node_id, "thread_id": run_state.thread_id},
+        )
 
+    async def _stream_steps(
+        self,
+        graph: Any,
+        astream_input: Any,
+        run_state: _RunState,
+        config: dict,
+    ) -> AsyncIterator[Event]:
+        """驱动 astream：循环守卫 + 事件排空 + 挂起/异常处理。
+
+        - 累计执行节点数超过 max_iterations 抛 WorkflowLoopError；
+          GraphRecursionError 同样转 WorkflowLoopError。
+        - langgraph 1.x 的 interrupt() 以 ``__interrupt__`` 流步挂起（不抛异常）；
+          兼容旧版以 GraphInterrupt 异常挂起。两者都排空事件并产出
+          ``workflow_suspended`` 后正常结束迭代（不向上抛）。
+        """
         executed = 0
         try:
-            async for step in self._graph.astream(
-                initial_state,
-                config={
-                    "recursion_limit": self._spec.max_iterations * 4,
-                    "configurable": {"thread_id": resolved_thread_id},
-                },
-            ):
+            async for step in graph.astream(astream_input, config=config):
+                if "__interrupt__" in step:
+                    for event in self._drain_pending(run_state):
+                        yield event
+                    yield self._suspended_event(run_state)
+                    return
                 for node_name in step:
                     executed += 1
                     if executed > self._spec.max_iterations:
@@ -418,21 +492,101 @@ class CompiledWorkflow:
                             f"流程 {self._spec.name!r} 超过最大迭代次数 max_iterations="
                             f"{self._spec.max_iterations}（已执行节点数 {executed}）"
                         )
-                pending = list(self._events[self._drained :])
-                self._drained = len(self._events)
-                for event in pending:
+                for event in self._drain_pending(run_state):
                     yield event
+        except GraphInterrupt:
+            for event in self._drain_pending(run_state):
+                yield event
+            yield self._suspended_event(run_state)
         except GraphRecursionError as exc:
             raise WorkflowLoopError(
                 f"流程 {self._spec.name!r} 超过 LangGraph recursion_limit"
                 f"（max_iterations*4={self._spec.max_iterations * 4}），疑似死循环"
             ) from exc
 
-        yield self._emit(
-            "workflow_end",
-            actor="",
-            payload={"name": self._spec.name, "thread_id": resolved_thread_id},
-        )
+    async def run(
+        self,
+        initial: dict | None = None,
+        *,
+        thread_id: str | None = None,
+        checkpointer: Any | None = None,
+        config: dict | None = None,
+    ) -> AsyncIterator[Event]:
+        """运行流程：产出事件流（最近一次迭代可从 ``events`` 属性取回）。
+
+        - ``initial``：初始 ClusterState 的字段字典（可含 project/iterations 等）。
+        - ``thread_id``：覆盖 spec.thread_id；缺省用 spec.thread_id 或 "default"。
+        - ``checkpointer``：可选，如 ``langgraph.checkpoint.memory.MemorySaver``，
+          用于 interrupt() 挂起后的 resume()；不传则无法恢复。
+        - ``config``：可选，覆盖合并到内部 config（recursion_limit/thread_id）。
+        - 挂起：gate handler 调用 interrupt() 时产出 ``workflow_suspended`` 事件并
+          正常结束迭代（不抛异常）；随后用 ``resume()`` 继续。
+        """
+        resolved_thread_id = thread_id or self._spec.thread_id or "default"
+        run_state = _RunState(run_id=uuid.uuid4().hex[:12], thread_id=resolved_thread_id)
+        token = self._run_state_var.set(run_state)
+        try:
+            self._last_run_state = run_state
+            initial_state = ClusterState() if initial is None else ClusterState.model_validate(initial)
+            yield self._emit(
+                "workflow_start",
+                actor="",
+                payload={"name": self._spec.name, "thread_id": resolved_thread_id},
+            )
+            run_state.drained = len(run_state.events)  # workflow_start 已产出
+            graph = self._graph if checkpointer is None else self._compile_graph(checkpointer=checkpointer)
+            async for event in self._stream_steps(
+                graph, initial_state, run_state, self._build_config(resolved_thread_id, config)
+            ):
+                yield event
+            if run_state.events and run_state.events[-1].type != "workflow_suspended":
+                yield self._emit(
+                    "workflow_end",
+                    actor="",
+                    payload={"name": self._spec.name, "thread_id": resolved_thread_id},
+                )
+        finally:
+            self._run_state_var.reset(token)
+
+    async def resume(
+        self,
+        thread_id: str,
+        response: Any,
+        *,
+        checkpointer: Any | None = None,
+        config: dict | None = None,
+    ) -> AsyncIterator[Event]:
+        """恢复被 interrupt() 挂起的流程：以 ``Command(resume=response)`` 重新 astream。
+
+        - 必须传入与 run() 相同的 checkpointer（LangGraph 检查点保存挂起状态）。
+        - 挂起节点在恢复时会重新执行：``interrupt()`` 返回 ``response``（如
+          HumanResponse），handler 据此继续并产出后续事件。
+        """
+        if checkpointer is None:
+            raise ValueError("resume() 需要 checkpointer（如 MemorySaver）以读取线程检查点")
+        run_state = _RunState(run_id=uuid.uuid4().hex[:12], thread_id=thread_id)
+        token = self._run_state_var.set(run_state)
+        try:
+            self._last_run_state = run_state
+            yield self._emit(
+                "workflow_start",
+                actor="",
+                payload={"name": self._spec.name, "thread_id": thread_id, "resume": True},
+            )
+            run_state.drained = len(run_state.events)  # workflow_start 已产出
+            graph = self._compile_graph(checkpointer=checkpointer)
+            async for event in self._stream_steps(
+                graph, Command(resume=response), run_state, self._build_config(thread_id, config)
+            ):
+                yield event
+            if run_state.events and run_state.events[-1].type != "workflow_suspended":
+                yield self._emit(
+                    "workflow_end",
+                    actor="",
+                    payload={"name": self._spec.name, "thread_id": thread_id},
+                )
+        finally:
+            self._run_state_var.reset(token)
 
 
 class WorkflowEngine:

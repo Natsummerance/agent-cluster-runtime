@@ -30,6 +30,8 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from agent_cluster.memory import MemoryStore
+from agent_cluster.evolution_integration import EvolutionBridge
+from agent_cluster.memory import MemoryStore
 from agent_cluster.models import TokenUsage
 from agent_cluster.pricing import CostLedger
 from agent_cluster.session import SessionDriver
@@ -469,6 +471,16 @@ class WorkbenchServer:
             return MemoryStore(self.project_workspace(project_id))
         return MemoryStore(INDEX_DIR)
 
+    def evolution_bridge(self, project_id: str | None = None) -> EvolutionBridge:
+        """进化集成桥（全局或项目工作区）。"""
+        if project_id:
+            return EvolutionBridge(self.project_workspace(project_id))
+        return EvolutionBridge(INDEX_DIR)
+    def memory_store(self, project_id: str | None = None) -> MemoryStore:
+        if project_id:
+            return MemoryStore(self.project_workspace(project_id))
+        return MemoryStore(INDEX_DIR)
+
     def metrics_snapshot(self) -> dict[str, Any]:
         total_tokens = 0
         total_cost = 0.0
@@ -576,6 +588,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 and parts[4] == "memory"
             ):
                 return self._handle_memory(parts[3])
+            if parts[:3] == ["api", "v1", "evolution"] and len(parts) == 4 and parts[3] == "proposals":
+                return self._handle_evolution_proposals()
             if (
                 parts[:3] == ["api", "v1", "sessions"]
                 and len(parts) == 5
@@ -650,6 +664,19 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 and parts[4] == "promote"
             ):
                 return self._handle_memory_promote(parts[3])
+            if parts[:3] == ["api", "v1", "evolution"] and len(parts) == 4 and parts[3] == "proposals":
+                return self._handle_evolution_proposals()
+            if (
+                parts[:3] == ["api", "v1", "evolution"]
+                and len(parts) == 6
+                and parts[3] == "proposals"
+                and parts[5] in ("apply", "rollback")
+            ):
+                return self._handle_evolution_action(parts[4], parts[5], self._read_json())
+            if parts[:3] == ["api", "v1", "evolution"] and len(parts) == 4 and parts[3] == "generate":
+                return self._handle_evolution_generate(self._read_json())
+            if parts[:3] == ["api", "v1", "evolution"] and len(parts) == 4 and parts[3] == "retro":
+                return self._handle_evolution_retro(self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
@@ -852,6 +879,53 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         store = self.server.workbench.memory_store(project_id)
         items = [item.__dict__ for item in store.list_items(limit=200)]
         _send_json(self, 200, {"ok": True, "data": {"items": items, "proposals": [p.__dict__ for p in store.list_proposals()]}})
+
+    def _handle_evolution_proposals(self) -> None:
+        project_id = self._query().get("project_id")
+        bridge = self.server.workbench.evolution_bridge(project_id)
+        _send_json(self, 200, {"ok": True, "data": {"proposals": bridge.list_proposals()}})
+
+    def _handle_evolution_generate(self, body: dict) -> None:
+        bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+        result = bridge.generate_from_memory(
+            min_evidence=int(body.get("min_evidence", 2) or 2),
+            limit=int(body.get("limit", 20) or 20),
+        )
+        _send_json(self, 200, {"ok": True, "data": result})
+
+    def _handle_evolution_action(self, proposal_id: str, action: str, body: dict) -> None:
+        bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+        if action == "apply":
+            proposal = bridge.apply_proposal(
+                proposal_id,
+                approver=str(body.get("approver", "governance")),
+                human_required=bool(body.get("human_required", False)),
+                auto_mode=str(body.get("auto_mode", "ask")),
+                reason=str(body.get("reason", "进化提案自动评审通过")),
+            )
+        else:
+            proposal = bridge.rollback_proposal(
+                proposal_id, reason=str(body.get("reason", "观察期发现回归，回滚该进化提案"))
+            )
+        _send_json(self, 200, {"ok": True, "data": {"proposal": proposal}})
+
+    def _handle_evolution_retro(self, body: dict) -> None:
+        session_id = str(body.get("session_id") or "")
+        if session_id:
+            session = self.server.workbench.get_session(session_id)
+            data = session.audit_data()
+            bridge = EvolutionBridge(session.workspace)
+            path = bridge.generate_retro_report(
+                goal=str(data.get("goal") or ""),
+                session_id=session_id,
+                token_summary=data.get("token_summary") or {},
+                gate_decisions=data.get("approvals") or [],
+                events=data.get("events") or [],
+            )
+        else:
+            bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+            path = bridge.generate_retro_report()
+        _send_json(self, 200, {"ok": True, "data": {"report": str(path)}})
 
     def _handle_memory_promote(self, item_id: str) -> None:
         # 无项目上下文时用全局记忆库

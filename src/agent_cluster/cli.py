@@ -37,6 +37,8 @@ from pydantic import BaseModel
 from agent_cluster import models
 from agent_cluster.doctor import run_doctor
 from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
+from agent_cluster.evolution_integration import EvolutionBridge
+from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import (
     StdioMCPClient,
@@ -1265,7 +1267,125 @@ def build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument("--threshold", type=float, default=0.05, help="回归判定阈值（缺省 0.05 = 相对下降 5%）")
     eval_parser.set_defaults(func=_cmd_eval)
 
+
+    evolution_parser = subparsers.add_parser("evolution", help="进化集成（记忆→提案→复盘→纪要提炼/SOP 建议）")
+    evolution_sub = evolution_parser.add_subparsers(dest="evolution_command", required=True)
+    evolution_generate = evolution_sub.add_parser("generate", help="从记忆库失败模式自动生成进化提案")
+    evolution_generate.add_argument("--workspace", default=".", help="工作区根目录（缺省当前目录）")
+    evolution_generate.add_argument("--min-evidence", type=int, default=2, help="证据数门槛（缺省 2）")
+    evolution_generate.add_argument("--limit", type=int, default=20, help="最多生成提案数（缺省 20）")
+    evolution_generate.set_defaults(func=_cmd_evolution_generate)
+    evolution_retro = evolution_sub.add_parser("retro", help="生成自动复盘报告（docs/retro-<ts>.md）")
+    evolution_retro.add_argument("--workspace", default=".")
+    evolution_retro.add_argument("--session-id", default="", help="会话 id（写复盘头）")
+    evolution_retro.add_argument("--goal", default="", help="复盘目标描述")
+    evolution_retro.set_defaults(func=_cmd_evolution_retro)
+    evolution_apply = evolution_sub.add_parser("apply", help="评审并生效进化提案")
+    evolution_apply.add_argument("--workspace", default=".")
+    evolution_apply.add_argument("--proposal", required=True, help="提案 id")
+    evolution_apply.add_argument("--approver", default="governance", help="审批人岗位（缺省 governance）")
+    evolution_apply.add_argument("--human-required", action="store_true", help="组织流程类强制人工审批（非 ask 模式自动驳回）")
+    evolution_apply.add_argument("--reason", default="进化提案自动评审通过")
+    evolution_apply.set_defaults(func=_cmd_evolution_apply)
+    evolution_rollback = evolution_sub.add_parser("rollback", help="回滚已生效提案")
+    evolution_rollback.add_argument("--workspace", default=".")
+    evolution_rollback.add_argument("--proposal", required=True, help="提案 id")
+    evolution_rollback.add_argument("--reason", default="观察期发现回归，回滚该进化提案")
+    evolution_rollback.set_defaults(func=_cmd_evolution_rollback)
+    evolution_list = evolution_sub.add_parser("list", help="列出进化提案")
+    evolution_list.add_argument("--workspace", default=".")
+    evolution_list.add_argument("--status", default=None, choices=["draft", "voting", "approved", "rejected", "applied", "rolled_back"])
+    evolution_list.set_defaults(func=_cmd_evolution_list)
+    evolution_capture = evolution_sub.add_parser("capture", help="会议纪要提炼入记忆并产 SOP 建议")
+    evolution_capture.add_argument("--workspace", default=".")
+    evolution_capture.add_argument("--notes", default="", help="纪要文本（命中 SOP/建议/应该等关键词提取建议）")
+    evolution_capture.add_argument("--session-id", default="")
+    evolution_capture.set_defaults(func=_cmd_evolution_capture)
+
     return parser
+    return parser
+
+
+
+def _cmd_evolution_generate(args: argparse.Namespace) -> int:
+    """evolution generate：从记忆库失败模式自动生成进化提案。"""
+    bridge = EvolutionBridge(args.workspace)
+    result = bridge.generate_from_memory(min_evidence=args.min_evidence, limit=args.limit)
+    for proposal in result["created"]:
+        print(
+            f"  已生成提案：{proposal['id'][:12]} | {proposal['title']} | "
+            f"类别：{proposal['category']} | 风险：{proposal['risk_level']} | 状态：{proposal['status']}"
+        )
+    for skipped in result["skipped"]:
+        print(f"  跳过：{skipped['title']}（{skipped['reason']}）", file=sys.stderr)
+    print(f"共生成 {len(result['created'])} 条进化提案，跳过 {len(result['skipped'])} 条")
+    return 0
+
+
+def _cmd_evolution_retro(args: argparse.Namespace) -> int:
+    """evolution retro：生成自动复盘报告（docs/retro-<ts>.md）。"""
+    bridge = EvolutionBridge(args.workspace)
+    path = bridge.generate_retro_report(goal=args.goal or "", session_id=args.session_id or "")
+    print(f"复盘报告已生成：{path}")
+    return 0
+
+
+def _cmd_evolution_apply(args: argparse.Namespace) -> int:
+    """evolution apply：评审并生效进化提案（process/organization 类可选强制人工）。"""
+    bridge = EvolutionBridge(args.workspace)
+    proposal = bridge.apply_proposal(
+        args.proposal,
+        approver=args.approver,
+        human_required=args.human_required,
+        auto_mode="ask" if args.human_required else "auto",
+        reason=args.reason,
+    )
+    print(
+        f"提案 {proposal['id'][:12]} 状态：{proposal['status']} | "
+        f"版本：{proposal['effective_version']} | 灰度：{proposal['gray']}"
+    )
+    if proposal["status"] == "rejected":
+        print("提示：该提案被自动驳回（bypass-immune：组织流程变更必须人工审批）", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_evolution_rollback(args: argparse.Namespace) -> int:
+    """evolution rollback：回滚已生效提案。"""
+    bridge = EvolutionBridge(args.workspace)
+    proposal = bridge.rollback_proposal(args.proposal, reason=args.reason)
+    print(f"提案 {proposal['id'][:12]} 状态：{proposal['status']}")
+    return 0
+
+
+def _cmd_evolution_list(args: argparse.Namespace) -> int:
+    """evolution list：列出进化提案。"""
+    bridge = EvolutionBridge(args.workspace)
+    proposals = bridge.list_proposals(status=args.status)
+    if not proposals:
+        print("（无进化提案）")
+        return 0
+    for proposal in proposals:
+        print(
+            f"  {proposal['id'][:12]} | {proposal['status']} | {proposal['effective_version']} | "
+            f"{proposal['category']} | {proposal['risk_level']} | {proposal['title']}"
+        )
+    return 0
+
+
+def _cmd_evolution_capture(args: argparse.Namespace) -> int:
+    """evolution capture：会议纪要提炼入记忆并产 SOP 建议候选。"""
+    bridge = EvolutionBridge(args.workspace)
+    result = bridge.capture_session_learnings(
+        meeting_notes=args.notes if args.notes else None,
+        session_id=args.session_id or "",
+        source="cli",
+    )
+    print(
+        f"纪要 {len(result['notes'])} 条 | 失败模式 {len(result['failures'])} 条 | "
+        f"SOP 建议 {len(result['sop_suggestions'])} 条 | 晋升提案 {len(result['proposals'])} 条"
+    )
+    return 0
 
 
 def _configure_utf8_stdio() -> None:

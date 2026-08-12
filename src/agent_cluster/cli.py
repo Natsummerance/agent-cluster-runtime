@@ -41,6 +41,7 @@ from agent_cluster.gates import approval_pending, make_gate_handler, resolve_aut
 from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.plugins import PluginManager, default_plugin_search_dirs
+from agent_cluster.repl import ReplSession
 from agent_cluster.metrics import MetricRules, MetricsCollector
 from agent_cluster.models import (
     ActionRequest,
@@ -826,6 +827,36 @@ def _print_build_summary(result: BuildResult, out: TextIO) -> None:
             print(f"  ... 等共 {len(artifacts)} 个", file=out)
 
 
+def _cmd_chat(args: argparse.Namespace) -> int:
+    """chat 子命令（v0.4）：连续多轮开发 REPL。
+
+    - 工具模式：每轮指令按关键词选岗 -> ReAct 工具循环（真实工作区执行）。
+    - 插件：``--plugin-dir`` 发现插件，session_start/end 等 hooks 全自动执行。
+    - token 计量：每次模型调用经 TokenLedger 记账，``/status``/``/budget`` 展示。
+    - 退出码：0 正常退出 / 1 运行失败 / 2 中断。
+    """
+    workspace = args.workspace or str(Path.cwd())
+    session = ReplSession(
+        workspace=workspace,
+        model=args.model or "codex",
+        budget=args.budget,
+        max_rounds=args.max_rounds,
+        deterministic=args.deterministic,
+        yes=args.yes,
+        skills_root=args.skills_root,
+        mcp_servers=list(args.mcp or []),
+        plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
+    )
+    try:
+        return session.run()
+    except KeyboardInterrupt:
+        print("已中断（chat 退出）。", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"chat 失败：{exc}", file=sys.stderr)
+        return 1
+
+
 # ---------------------------------------------------------------------------
 # argparse 装配与入口
 # ---------------------------------------------------------------------------
@@ -911,6 +942,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_parser.add_argument("--max-rounds", type=int, default=None, help="工具模式 ReAct 最大轮数（缺省 6）")
     build_parser.set_defaults(func=_cmd_build)
+
+    chat_parser = subparsers.add_parser(
+        "chat",
+        help="连续多轮开发 REPL（v0.4）：工具模式 + 插件 hooks + token 计量，多轮上下文保持",
+    )
+    chat_parser.add_argument("--workspace", default=None, help="工作区目录（缺省当前目录）")
+    chat_parser.add_argument("--model", default="codex", help="模型后端：codex（缺省）/ deterministic / deepseek-*")
+    chat_parser.add_argument("--budget", type=int, default=None, help="全局 token 预算（缺省 500000）")
+    chat_parser.add_argument("--max-rounds", type=int, default=None, help="单轮 ReAct 最大轮数（缺省 6）")
+    chat_parser.add_argument("--deterministic", action="store_true", help="确定性演示模式（无需 API key）")
+    chat_parser.add_argument("--yes", action="store_true", help="无人值守：危险工具自动拒绝、澄清用缺省答案")
+    chat_parser.add_argument("--skills-root", default=None, help="技能根目录（挂载岗位技能上下文）")
+    chat_parser.add_argument(
+        "--plugin-dir", action="append", default=[], metavar="DIR",
+        help="插件搜索目录（可重复；缺省包含 ~/.codex/plugins/cache），插件技能与 hooks 自动接入",
+    )
+    chat_parser.add_argument(
+        "--mcp", action="append", default=[], metavar="NAME=COMMAND",
+        help="MCP stdio 服务器（可重复），外部工具一律危险权限",
+    )
+    chat_parser.set_defaults(func=_cmd_chat)
 
     doctor_parser = subparsers.add_parser("doctor", help="环境预检（Python/git/Docker/模型/工作区/插件/MCP）")
     doctor_parser.add_argument("--model", default=None, help="检查模型配置可构造客户端（信息性）")

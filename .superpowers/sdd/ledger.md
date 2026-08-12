@@ -15,3 +15,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 
 | Task 5 组织角色与会议 | complete | 485c762..7794e58 | Approved; fix round 1/5 addressed (150 passed) | handler契约: agent→{tasks,messages,ledger}, meeting→{meetings,tasks,messages}, 事件走ctx.events。Minor: DAILY_STANDUP参与人偏离§4.1、无锁store、未类型化参数、空agenda/participants未测——记入最终评审 |
 
+| Task 6 进化闭环与度量 | complete | 49afa69..e621c56 | Approved; fix round 1/5 addressed (200 passed) | Minor: 自我扩权子串匹配过宽、voting状态无API过渡、auto_mode=ask下L3可被调用方绕过——记入最终评审 |
+

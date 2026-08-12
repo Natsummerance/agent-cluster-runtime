@@ -11,3 +11,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 
 | Task 3 流程引擎 | complete | 4179512..75240ca | Approved; fix round 1/5 addressed (78 passed) | 契约: NodeHandler返回dict; gate_payloads按GateKind键; resume(thread_id,response)+MemorySaver; max_iterations≥节点数编译校验。Minor: get_compiled_graph无checkpointer、_build_config合并无保护、并发run共享ContextVar——记入最终评审 |
 
+| Task 4 审批门 | complete | 81a1639 | Approved (87 passed) | T7 依赖①: bypass-immune 自动DENY 需由 T6/7 接线（handler 现硬编码 bypass_immune=False）; T7 依赖②: 需公开 compile_graph(checkpointer) 或 approval_pending 接收 checkpointer，避免私有 _compile_graph。Minor: role_scope 未用、approval_pending 无守卫 |
+

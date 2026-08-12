@@ -1,7 +1,9 @@
 """agent_cluster — 多 agent 组织型全栈开发集群运行时（Python + LangGraph）。
 
-当前阶段提供数据模型层（models.py）与技能层（skills.py）；后续任务将逐步
-加入流程引擎、审批门、组织角色、运行时、会议、进化闭环与 CLI。
+当前阶段覆盖：数据模型层（models.py）、技能层（skills.py）、流程引擎
+（workflow.py）、审批门（gates.py）、组织角色（roles.py）、角色执行运行时
+（runtime.py）、会议（meetings.py）与账本/任务板（ledger.py）；后续任务将
+加入进化闭环、度量与 CLI。
 """
 
 from agent_cluster.models import (
@@ -56,6 +58,18 @@ from agent_cluster.gates import (
     make_gate_handler,
     resolve_auto_response,
 )
+from agent_cluster.roles import RoleRegistry, build_role_catalog
+from agent_cluster.runtime import (
+    AgentRuntime,
+    ChatModelClient,
+    ChatModelFactory,
+    DeterministicClient,
+    EventBus,
+    OpenAIClient,
+    make_agent_handler,
+)
+from agent_cluster.meetings import MeetingHost, make_meeting_handler
+from agent_cluster.ledger import BLOCKED, COLUMNS, LedgerStore, TaskBoard, TaskBoardError
 from agent_cluster.skills import (
     DisclosureLevel,
     SkillCatalog,
@@ -108,6 +122,22 @@ __all__ = [
     "Task",
     "TaskStatus",
     "Vote",
+    "AgentRuntime",
+    "ChatModelClient",
+    "ChatModelFactory",
+    "DeterministicClient",
+    "EventBus",
+    "OpenAIClient",
+    "make_agent_handler",
+    "MeetingHost",
+    "make_meeting_handler",
+    "LedgerStore",
+    "TaskBoard",
+    "TaskBoardError",
+    "COLUMNS",
+    "BLOCKED",
+    "RoleRegistry",
+    "build_role_catalog",
     "CompiledWorkflow",
     "NodeContext",
     "NodeHandler",

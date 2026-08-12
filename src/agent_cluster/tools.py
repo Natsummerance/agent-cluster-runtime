@@ -43,6 +43,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent_cluster.tokens import estimate_tokens
+
 __all__ = [
     "ToolPermission",
     "ToolCall",
@@ -88,11 +90,13 @@ DEFAULT_TIMEOUT = 300
 
 
 class ToolPermission(StrEnum):
-    """工具权限分层（v0.2 决策：只读自动 / 写工作区自动+审计 / 危险走审批门）。"""
+    """工具权限分层（v0.2：只读自动 / 写工作区自动+审计 / 危险走审批门；
+    v0.3 新增 human_interaction：PM 需求澄清向人工提问并等待自由文本）。"""
 
     READ = "read"
     WORKSPACE_WRITE = "workspace_write"
     DANGEROUS = "dangerous"
+    HUMAN_INTERACTION = "human_interaction"
 
 
 class ToolError(Exception):
@@ -310,10 +314,11 @@ class ToolSession:
             spec = self.registry.get(call.name)
         except ToolError as exc:
             return self._fail(call, str(exc), start, needs_approval=False)
-        if spec.permission == ToolPermission.DANGEROUS and not approved:
+        if spec.permission in (ToolPermission.DANGEROUS, ToolPermission.HUMAN_INTERACTION) and not approved:
+            label = "危险工具" if spec.permission == ToolPermission.DANGEROUS else "人工交互"
             return self._fail(
                 call,
-                f"危险工具 {call.name} 需要人工审批（v0.2：--yes 自动拒绝）。",
+                f"{label} {call.name} 需要人工介入（v0.2：危险工具 --yes 自动拒绝；v0.3：ask_user 自由文本）。",
                 start,
                 needs_approval=True,
             )
@@ -684,6 +689,52 @@ async def _tool_run_python(session: ToolSession, args: dict) -> dict[str, Any]:
     return {"ok": result["ok"], "output": output, "error": None if result["ok"] else f"Python 退出码 {result['exit_code']}"}
 
 
+async def _tool_count_tokens(session: ToolSession, args: dict) -> dict[str, Any]:
+    """统计文本/文件/目录的 token 大小（交付组装与 DELIVERY.md 计量表用）。"""
+    text_arg = str(args.get("text") or "")
+    if text_arg:
+        return {"ok": True, "output": str(estimate_tokens(text_arg)), "tokens": estimate_tokens(text_arg)}
+    raw_path = str(args.get("path") or "")
+    if not raw_path:
+        raise ToolError("count_tokens 需要 text 或 path 参数")
+    target = _resolve_within(session.workspace_root, raw_path)
+    if target.is_file():
+        try:
+            content = target.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise ToolError(f"读取文件失败：{exc}") from exc
+        return {
+            "ok": True,
+            "output": f"{_relative(session.workspace_root, target)} = {estimate_tokens(content)} tokens",
+            "tokens": estimate_tokens(content),
+        }
+    if target.is_dir():
+        total = 0
+        files = 0
+        for path in target.rglob("*"):
+            if path.is_file():
+                files += 1
+                try:
+                    total += estimate_tokens(path.read_text(encoding="utf-8", errors="replace"))
+                except OSError:
+                    continue
+        return {
+            "ok": True,
+            "output": f"目录 {_relative(session.workspace_root, target)}：{files} 个文件，约 {total} tokens",
+            "tokens": total,
+        }
+    raise ToolError(f"路径不存在：{_relative(session.workspace_root, target)}")
+
+
+async def _tool_ask_user(session: ToolSession, args: dict) -> dict[str, Any]:
+    """人工交互占位 handler：真正回答由中断恢复注入（本路径仅在已批准时兜底）。"""
+    question = str(args.get("question") or "")
+    return {
+        "ok": True,
+        "output": f"[待人工回答] {question}",
+    }
+
+
 async def _tool_delete_file(session: ToolSession, args: dict) -> dict[str, Any]:
     path = _resolve_within(session.workspace_root, str(args.get("path", "")))
     if path == session.workspace_root or path == session.workspace_root.resolve():
@@ -894,5 +945,22 @@ def build_default_tools() -> ToolRegistry:
         permission=ToolPermission.DANGEROUS,
         parameters=_schema({"remote": {"type": "string"}, "branch": {"type": "string"}}),
         handler=_tool_git_push,
+    ))
+    registry.register(ToolSpec(
+        name="count_tokens",
+        description="统计文本/文件/目录的 token 大小（read 权限）。参数：text（可选）或 path（可选，相对工作区）",
+        permission=ToolPermission.READ,
+        parameters=_schema({"text": {"type": "string"}, "path": {"type": "string"}}),
+        handler=_tool_count_tokens,
+    ))
+    registry.register(ToolSpec(
+        name="ask_user",
+        description="向人工用户提出需求澄清问题并等待自由文本回答（PM/文档岗可用；回答作为工具结果返回）",
+        permission=ToolPermission.HUMAN_INTERACTION,
+        parameters=_schema({
+            "question": {"type": "string", "description": "要问的问题（简洁明确）"},
+            "hint": {"type": "string", "description": "可选提示/背景，帮助用户作答"},
+        }, required=["question"]),
+        handler=_tool_ask_user,
     ))
     return registry

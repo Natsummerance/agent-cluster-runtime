@@ -77,6 +77,7 @@ from agent_cluster.providers import (
     resolve_deepseek_defaults,
 )
 from agent_cluster.skills import DisclosureLevel, format_skill_context
+from agent_cluster.tokens import estimate_tokens, estimate_usage
 from agent_cluster.tools import (
     ToolCall,
     ToolPermission,
@@ -165,70 +166,6 @@ def parse_tool_calls_from_text(text: str) -> list[ToolCall]:
         if calls:
             return calls
     return []
-
-
-_TIKTOKEN_ENCODING: Any | None = None  # 惰性缓存：None 未探测 / False 不可用 / 对象可用
-
-
-def _tiktoken_encoding() -> Any | None:
-    """可选精确 tokenizer（tiktoken 未安装/加载失败时返回 None，走内置估算器）。"""
-    global _TIKTOKEN_ENCODING
-    if _TIKTOKEN_ENCODING is None:
-        try:
-            import tiktoken
-
-            _TIKTOKEN_ENCODING = tiktoken.get_encoding("o200k_base")
-        except Exception:  # noqa: BLE001 —— 可选依赖缺失/加载失败均回退启发式估算
-            _TIKTOKEN_ENCODING = False
-    return _TIKTOKEN_ENCODING or None
-
-
-def estimate_tokens(text: str, model: str = "") -> int:
-    """统一 token 估算器（混合口径）：tiktoken 可用时精确，否则启发式。
-
-    - 启发式：CJK 字符约 1.6 token/字（中文按比例加权避免低估），
-      其余字符按 4 字符/token，最少 1。
-    - ``model`` 仅作签名兼容（tiktoken 按模型选编码的扩展位）。
-    """
-    if not text:
-        return 0
-    encoding = _tiktoken_encoding()
-    if encoding is not None:
-        try:
-            return len(encoding.encode(text))
-        except Exception:  # noqa: BLE001 —— 编码失败回退启发式
-            pass
-    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
-    other = max(0, len(text) - cjk)
-    return max(1, int(cjk * 1.6) + (other + 3) // 4)
-
-
-def estimate_usage(
-    messages: list[dict],
-    text: str,
-    tool_calls: list[ToolCall] | None = None,
-    model: str = "",
-) -> TokenUsage:
-    """统一估算一次调用的 token 用量（无 API usage 时的回退口径）。
-
-    - prompt = 各消息内容估算 + 每消息 4 token 协议开销；
-    - completion = 回复文本 + 各工具调用参数/名称估算。
-    """
-    prompt = sum(estimate_tokens(str(message.get("content") or ""), model) for message in messages)
-    prompt += 4 * len(messages)
-    completion = estimate_tokens(text, model)
-    for call in tool_calls or []:
-        completion += estimate_tokens(
-            json.dumps(call.args, ensure_ascii=False, default=str), model
-        )
-        completion += len(call.name) // 4 + 4
-    return TokenUsage(
-        prompt_tokens=prompt,
-        completion_tokens=completion,
-        total_tokens=prompt + completion,
-        model=model,
-        estimated=True,
-    )
 
 
 class ChatModelClient(ABC):
@@ -331,6 +268,7 @@ def _extract_usage(
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
             model=model,
+            estimated_total=estimate_usage(messages, text, calls, model).total_tokens,
         )
     return estimate_usage(messages, text, calls, model)
 
@@ -508,6 +446,9 @@ class DeepSeekClient(ChatModelClient):
             choice = choices[0]
             content = (choice.get("message") or {}).get("content") or ""
             if content:
+                self.last_usage.estimated_total = estimate_usage(
+                    payload.get("messages") or [], str(content), None, self.model
+                ).total_tokens
                 return str(content)
             truncated = choice.get("finish_reason") == "length" and attempt == 0
             if truncated and payload.get("max_tokens", 0) < DEEPSEEK_MAX_TOKENS:
@@ -589,6 +530,7 @@ class DeepSeekClient(ChatModelClient):
                     completion_tokens=int(raw_usage.get("completion_tokens") or 0),
                     total_tokens=int(raw_usage.get("total_tokens") or 0),
                     model=self.model,
+                    estimated_total=estimate_usage(payload.get("messages") or [], content, calls, self.model).total_tokens,
                 )
                 self.last_usage = usage
                 return ChatResponse(text=content, tool_calls=calls, usage=usage)
@@ -713,7 +655,7 @@ class AgentRuntime:
         default_model: ModelConfig | None = None,
         tool_script: list[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
-        usage_hook: Callable[[TokenUsage], None] | None = None,
+        usage_hook: Callable[[str, TokenUsage], None] | None = None,
     ) -> None:
         self._model_factory = model_factory if model_factory is not None else ChatModelFactory()
         self.event_bus = event_bus if event_bus is not None else EventBus()
@@ -722,7 +664,7 @@ class AgentRuntime:
         self._role_tool_scripts = {
             role_id: list(script) for role_id, script in (role_tool_scripts or {}).items()
         }
-        # token 用量上报：每次模型调用后回调（TokenLedger / 预算检查），异常不中断流程
+        # token 用量上报：每次模型调用后回调（role_id, TokenUsage），供 TokenLedger 按角色记账
         self._usage_hook = usage_hook
         self.last_usage: TokenUsage | None = None
 
@@ -740,7 +682,7 @@ class AgentRuntime:
             content = message.payload.get("content") or message.payload.get("text") or ""
             model_messages.append({"role": "user", "content": str(content)})
         content = await client.complete(model_messages)
-        self._emit_usage(client.last_usage)
+        self._emit_usage(client.last_usage, agent.role_id)
         reply_message = Message(
             id=uuid.uuid4().hex,
             thread_id=thread_id,
@@ -790,7 +732,7 @@ class AgentRuntime:
         """
         client = self.client_for(role)
         content = await client.complete(_model_messages_for_task(role, task))
-        self._emit_usage(client.last_usage)
+        self._emit_usage(client.last_usage, role.id)
         return content
 
     async def complete_for_with_tools(
@@ -806,21 +748,21 @@ class AgentRuntime:
         """
         client = self.client_for(role)
         response = await client.complete_with_tools(_model_messages_for_task(role, task), tools)
-        self._emit_usage(response.usage)
+        self._emit_usage(response.usage, role.id)
         return response
 
-    def report_usage(self, usage: TokenUsage | None) -> None:
+    def report_usage(self, usage: TokenUsage | None, role: str = "") -> None:
         """上报一次模型调用用量（公开接口，供工具循环后续轮次直接调用）。"""
-        self._emit_usage(usage)
+        self._emit_usage(usage, role)
 
-    def _emit_usage(self, usage: TokenUsage | None) -> None:
+    def _emit_usage(self, usage: TokenUsage | None, role: str = "") -> None:
         """记录最近用量并回调钩子（记账异常不中断流程）。"""
         if usage is None:
             return
         self.last_usage = usage
         if self._usage_hook is not None:
             try:
-                self._usage_hook(usage)
+                self._usage_hook(role, usage)
             except Exception:  # noqa: BLE001 —— 记账钩子异常不中断流程
                 pass
 
@@ -1045,7 +987,7 @@ async def _tool_mode_agent_step(
             loop_error = f"模型调用失败：{type(exc).__name__}: {exc}"
             exhausted = False
             break
-        runtime.report_usage(response.usage)
+        runtime.report_usage(response.usage, role.id)
         if response.usage is not None:
             tokens_used += response.usage.total_tokens
         if not response.tool_calls:
@@ -1066,11 +1008,27 @@ async def _tool_mode_agent_step(
             )
             result = await session.execute(call)
             if result.needs_approval:
-                result, approval = await _approve_dangerous_tool(
-                    session, call, role, node, ctx, thread_id, interrupt_fn
-                )
-                if approval is not None:
-                    approvals.append(approval)
+                spec = session.registry.get(call.name)
+                if spec.permission == ToolPermission.HUMAN_INTERACTION:
+                    answer, approval = await _ask_user_interrupt(
+                        session, call, role, node, ctx, thread_id, interrupt_fn
+                    )
+                    if approval is not None:
+                        approvals.append(approval)
+                    result = ToolResult(
+                        id=call.id,
+                        name=call.name,
+                        ok=True,
+                        output=answer,
+                        duration=0.0,
+                        args=dict(call.args),
+                    )
+                else:
+                    result, approval = await _approve_dangerous_tool(
+                        session, call, role, node, ctx, thread_id, interrupt_fn
+                    )
+                    if approval is not None:
+                        approvals.append(approval)
             out_messages.append(
                 Message(
                     id=uuid.uuid4().hex,
@@ -1245,6 +1203,63 @@ async def _approve_dangerous_tool(
         ts=datetime.now(timezone.utc),
     )
     return denied, record
+
+
+async def _ask_user_interrupt(
+    session: ToolSession,
+    call: ToolCall,
+    role: Role,
+    node: WorkflowNode,
+    ctx: NodeContext,
+    thread_id: str,
+    interrupt_fn: Callable,
+) -> tuple[str, ApprovalRecord | None]:
+    """人工交互工具（ask_user）：interrupt 挂起 → 人工自由文本回答 → 返回回答文本。
+
+    - ``decision.type == "response"`` 且 ``args.text`` 为回答；拒绝/其他视为未回答。
+    - 节点重跑幂等：回答缓存在 ``session.approval_cache``（前缀 ``response:``）。
+    """
+    from datetime import datetime, timezone
+
+    question = str(call.args.get("question") or "需求澄清问题")
+    hint = str(call.args.get("hint") or "")
+    request = ActionRequest(
+        id=f"ask-{call.id}",
+        kind=GateKind.HUMAN_INTERACTION,
+        title=question,
+        description=hint or question,
+        evidence={"node": node.id, "tool": call.name, "run_id": ctx.run_id, "args": _safe_json_args(call.args)},
+        risk_level="low",
+        bypass_immune=False,
+    )
+    payload = {
+        "action_request": request,
+        "config": HumanInterruptConfig().model_dump(),
+        "description": request.description,
+    }
+    cached = session.cached_approval(call)
+    if cached is not None and cached.startswith("response:"):
+        answer = cached[len("response:") :]
+        decision = HumanResponse(type="response", args={"text": answer})
+    else:
+        resumed = interrupt_fn([payload])  # langgraph interrupt 同步（挂起/恢复都不 await）
+        decision = resumed[0] if isinstance(resumed, list) else resumed
+        if not isinstance(decision, HumanResponse):
+            decision = HumanResponse.model_validate(decision)
+
+    if decision.type == "response" and isinstance(decision.args, dict) and str(decision.args.get("text") or "").strip():
+        answer = str(decision.args["text"]).strip()
+        session.remember_approval(call, "response:" + answer)
+        record = ApprovalRecord(
+            by_role="human", type="response", args={"text": answer}, ts=datetime.now(timezone.utc)
+        )
+        return answer, record
+    reason = f"问题未回答（{decision.type}）"
+    session.remember_approval(call, "reject")
+    record = ApprovalRecord(
+        by_role="human", type="reject", args={"reason": reason}, ts=datetime.now(timezone.utc)
+    )
+    return reason, record
 
 
 def _safe_json_args(args: dict) -> str:

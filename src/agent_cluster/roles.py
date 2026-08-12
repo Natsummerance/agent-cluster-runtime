@@ -36,7 +36,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="产品经理负责需求收集与澄清、竞品与市场分析、PRD 编写与验收标准定义；"
             "属于决策层，可批准「需求范围冻结」「迭代验收」「发布」。",
             skills=["requirement-analysis@1.0.0", "competitor-research@0.1.0", "prd-writing@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "ask_user", "count_tokens"],
             approval_scope=[
                 GateKind.REQUIREMENT_CONFIRMATION,
                 GateKind.ITERATION_ACCEPTANCE,
@@ -124,8 +124,8 @@ def build_role_catalog() -> dict[str, Role]:
             goal="把 PRD 与设计转化为开发规格、API 文档与 README。",
             backstory="规格文档写手（SpecWriter）属于辅助层：负责把 PRD 转成开发规格、"
             "接口文档与 README，属于管理与流程辅助域。",
-            skills=["doc-writing@0.1.0", "api-docs@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob"],
+            skills=["doc-writing@0.1.0", "api-docs@0.1.0", "delivery-packaging@0.1.0"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "count_tokens", "ask_user", "git_status", "git_diff", "git_add", "git_commit"],
         ),
         Role(
             id="reviewer",

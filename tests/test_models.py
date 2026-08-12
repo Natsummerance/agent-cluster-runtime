@@ -62,7 +62,7 @@ def test_role_kind_membership():
 
 
 def test_gate_kind_membership():
-    assert len(GateKind) == 6
+    assert len(GateKind) == 7
     assert {kind.value for kind in GateKind} == {
         "requirement_confirmation",
         "design_review",
@@ -70,6 +70,7 @@ def test_gate_kind_membership():
         "release",
         "evolution_apply",
         "dangerous_tool",
+        "human_interaction",
     }
 
 

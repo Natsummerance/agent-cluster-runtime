@@ -84,6 +84,7 @@ class GateKind(StrEnum):
     RELEASE = "release"
     EVOLUTION_APPLY = "evolution_apply"
     DANGEROUS_TOOL = "dangerous_tool"
+    HUMAN_INTERACTION = "human_interaction"
 
 
 class MessageType(StrEnum):
@@ -131,6 +132,9 @@ class TokenUsage(BaseModel):
     total_tokens: int = Field(default=0, ge=0, description="总 token 数")
     model: str = Field(default="", description="模型名称")
     estimated: bool = Field(default=False, description="是否为估算值（真实 API 返回 False）")
+    estimated_total: int | None = Field(
+        default=None, description="同一次调用的启发式估算总 token（真实 usage 时附带，供 estimate_accuracy）"
+    )
 
 
 class ProposalStatus(StrEnum):

@@ -19,9 +19,9 @@ from agent_cluster.tools import ToolCall
 @pytest.fixture(autouse=True)
 def _force_heuristic_estimator(monkeypatch):
     """强制使用内置启发式估算（不依赖可选的 tiktoken 精确后端）。"""
-    import agent_cluster.runtime as runtime_mod
+    import agent_cluster.tokens as tokens_mod
 
-    monkeypatch.setattr(runtime_mod, "_TIKTOKEN_ENCODING", False)
+    monkeypatch.setattr(tokens_mod, "_TIKTOKEN_ENCODING", False)
     yield
 
 

@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -52,6 +53,7 @@ from agent_cluster.models import (
 )
 from agent_cluster.roles import RoleRegistry, build_role_catalog
 from agent_cluster.runtime import AgentRuntime, ChatModelFactory, make_agent_handler
+from agent_cluster.session import BuildResult, SessionDriver
 from agent_cluster.skills import SkillCatalog, SkillLoader
 from agent_cluster.tools import ToolSession, build_default_tools
 from agent_cluster.workflow import WorkflowEngine
@@ -639,6 +641,129 @@ def _cmd_mcp_list(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# build 子命令（v0.3 会话式产品构建）
+# ---------------------------------------------------------------------------
+
+DEFAULT_BUILD_FLOW = "examples/flows/build-product.yaml"
+
+
+def _slug(goal: str) -> str:
+    """把需求目标转成安全的目录名（保留中文/字母数字，其余转 -）。"""
+    safe = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", goal.strip())
+    return (safe or "build")[:40].strip("-") or "build"
+
+
+def _cmd_build(args: argparse.Namespace) -> int:
+    """build 子命令：输入一个需求，向导交互全生命周期产出完整交付包。
+
+    - 默认真实 LLM（--model codex 解析当前对话模型）；--deterministic 仅供演示。
+    - token 制规划与计量：--budget 全局预算、阶段预算按比例、超限升级人工。
+    - 交互命令：/status /budget /skip /abort；--resume 断点续跑。
+    - 退出码：0 成功 / 1 存在验收未通过任务 / 2 用户中止（检查点已保存）/
+      3 升级结束（保存现状）。
+    """
+    out = sys.stdout
+    if not args.goal and not args.resume:
+        print("build 需要 --goal（除非使用 --resume 续跑已有会话）", file=sys.stderr)
+        return 2
+    flow = args.flow or DEFAULT_BUILD_FLOW
+    flow_path = Path(flow)
+    if not flow_path.is_file():
+        print(f"流程文件不存在：{flow_path}（可用 --flow 指定自定义流程）", file=sys.stderr)
+        return 1
+    workspace = args.workspace or str(Path.cwd() / "build-out" / _slug(args.goal or "resume"))
+
+    qa_script: list[str] | None = None
+    if args.qa_script:
+        try:
+            raw = Path(args.qa_script).read_text(encoding="utf-8")
+            qa_script = json.loads(raw)
+            if not isinstance(qa_script, list) or not all(isinstance(x, str) for x in qa_script):
+                raise ValueError("qa_script 必须是字符串数组")
+        except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+            print(f"qa_script 加载失败（{args.qa_script}）：{exc}", file=sys.stderr)
+            return 1
+    tool_script: list[dict] | None = None
+    if args.tool_script:
+        try:
+            raw = Path(args.tool_script).read_text(encoding="utf-8")
+            tool_script = json.loads(raw)
+            if not isinstance(tool_script, list):
+                raise ValueError("tool_script 必须是 JSON 数组")
+        except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+            print(f"tool_script 加载失败（{args.tool_script}）：{exc}", file=sys.stderr)
+            return 1
+    role_tool_scripts: dict[str, list[dict]] | None = None
+    if args.role_tool_script:
+        try:
+            raw = Path(args.role_tool_script).read_text(encoding="utf-8")
+            role_tool_scripts = json.loads(raw)
+            if not isinstance(role_tool_scripts, dict):
+                raise ValueError("role_tool_script 必须是 {role: [tool_call, ...]} JSON 对象")
+        except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+            print(f"role_tool_script 加载失败（{args.role_tool_script}）：{exc}", file=sys.stderr)
+            return 1
+
+    try:
+        result: BuildResult = asyncio.run(
+            SessionDriver(
+                workspace=workspace,
+                goal=args.goal or "",
+                flow=flow_path,
+                model=args.model or "codex",
+                budget=args.budget,
+                rework_limit=args.max_rework,
+                yes=args.yes,
+                deterministic=args.deterministic,
+                resume=args.resume,
+                qa_script=qa_script,
+                tool_script=tool_script,
+                role_tool_scripts=role_tool_scripts,
+                skills_root=args.skills_root,
+                mcp_servers=list(args.mcp or []),
+                max_rounds=args.max_rounds,
+                print_fn=lambda s: print(s, file=out),
+            ).run()
+        )
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"build 失败：{exc}", file=sys.stderr)
+        return 1
+
+    _print_build_summary(result, out)
+    return result.exit_code
+
+
+def _print_build_summary(result: BuildResult, out: TextIO) -> None:
+    """打印 build 结果摘要（含 token 计量报表与交付物索引）。"""
+    print("\n===== build 结果 =====", file=out)
+    print(f"会话：{result.session_id} | 线程：{result.thread_id}", file=out)
+    print(f"目标：{result.goal}", file=out)
+    print(f"工作区：{result.workspace}", file=out)
+    print(f"挂起交互：{result.suspended_count} 次 | 事件：{len(result.events)} | 退出码：{result.exit_code}", file=out)
+    if result.token_summary:
+        summary = result.token_summary
+        print("\n--- token 计量报表 ---", file=out)
+        print(
+            f"预算 {summary['budget']} | 已用 {summary['used']} | 剩余 {summary['remaining']} | "
+            f"超限 {'是' if summary['over_budget'] else '否'}",
+            file=out,
+        )
+        print(f"按阶段：{summary['by_phase'] or '（无）'}", file=out)
+        print(f"按角色：{summary['by_role'] or '（无）'}", file=out)
+        accuracy = summary.get("estimate_accuracy")
+        print(f"预估准确率：{accuracy:.1%}" if accuracy is not None else "预估准确率：（纯估算模式）", file=out)
+    if result.delivery:
+        print("\n--- 交付包 ---", file=out)
+        print(f"交付说明：{result.delivery['delivery_path']}", file=out)
+        artifacts = result.delivery.get("artifacts") or []
+        print(f"产物 {len(artifacts)} 个：", file=out)
+        for artifact in artifacts[:20]:
+            print(f"  - {artifact}", file=out)
+        if len(artifacts) > 20:
+            print(f"  ... 等共 {len(artifacts)} 个", file=out)
+
+
+# ---------------------------------------------------------------------------
 # argparse 装配与入口
 # ---------------------------------------------------------------------------
 
@@ -691,6 +816,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="技能根目录（挂载岗位技能上下文到工具模式 system prompt）",
     )
     run_parser.set_defaults(func=_cmd_run)
+
+    build_parser = subparsers.add_parser(
+        "build",
+        help="会话式产品构建（v0.3）：一个需求 → 澄清 → 里程碑门 → 完整交付包，token 制规划与计量",
+    )
+    build_parser.add_argument("--goal", default=None, help="产品需求目标（--resume 时可省略）")
+    build_parser.add_argument("--workspace", default=None, help="工作区目录（缺省 build-out/<目标>）")
+    build_parser.add_argument("--flow", default=None, help="生命周期流程 YAML（缺省 examples/flows/build-product.yaml）")
+    build_parser.add_argument(
+        "--model",
+        default="codex",
+        help="模型后端：codex（缺省，解析当前对话模型）/ deterministic（演示）/ deepseek-*",
+    )
+    build_parser.add_argument("--resume", action="store_true", help="断点续跑（沿用已保存会话与检查点）")
+    build_parser.add_argument("--budget", type=int, default=None, help="全局 token 预算（缺省 500000）")
+    build_parser.add_argument("--max-rework", type=int, default=None, help="单门返工上限（缺省 3，超过升级人工）")
+    build_parser.add_argument("--deterministic", action="store_true", help="确定性演示模式（无需 API key）")
+    build_parser.add_argument("--yes", action="store_true", help="无人值守：门自动接受、澄清用缺省答案并留痕")
+    build_parser.add_argument("--qa-script", default=None, help="脚本化澄清问答 JSON 文件（字符串数组）")
+    build_parser.add_argument("--tool-script", default=None, help="确定性工具脚本 JSON 文件")
+    build_parser.add_argument("--role-tool-script", default=None, help="按岗位工具脚本 JSON 文件（{role: [tool_call]}）")
+    build_parser.add_argument("--skills-root", default=None, help="技能根目录（挂载岗位技能上下文）")
+    build_parser.add_argument(
+        "--mcp", action="append", default=[], metavar="NAME=COMMAND",
+        help="MCP stdio 服务器（可重复），外部工具一律危险权限",
+    )
+    build_parser.add_argument("--max-rounds", type=int, default=None, help="工具模式 ReAct 最大轮数（缺省 6）")
+    build_parser.set_defaults(func=_cmd_build)
 
     tools_parser = subparsers.add_parser("tools", help="工具管理")
     tools_sub = tools_parser.add_subparsers(dest="tools_command", required=True)

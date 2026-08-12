@@ -1018,6 +1018,11 @@ class SessionDriver:
 
     def _handle_escalation(self, escalation: tuple[str, Any]) -> HumanResponse | str:
         """处理升级（返回 HumanResponse 或 "end"/"abort"）。"""
+        if self.yes:
+            # --yes 无人值守：升级（预算超限/返工上限）一律结束保存现状（退出码 3），
+            # 避免在非交互模式下卡住等待人工输入。
+            self.print_fn("  --yes 无人值守：升级自动结束（保存现状，使用 --resume 继续）")
+            return "end"
         kind, context = escalation
         ledger = self.store.record.token_ledger
         if kind in ("budget", "budget_phase"):

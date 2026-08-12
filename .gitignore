@@ -22,3 +22,7 @@ desktop/dist/
 desktop/dist-frontend/
 desktop/logs/
 desktop/resources/agent-cluster-backend.exe
+# 桌面图标正式资产（desktop/build）作为版本化资产，仅 tools 工具产物忽略
+!desktop/build/
+!desktop/build/**
+desktop/build/tools/

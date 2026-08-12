@@ -70,6 +70,14 @@ def test_approval_scope_contract():
     assert GateKind.EVOLUTION_APPLY in catalog["governance"].approval_scope
 
 
+def test_algorithm_role_approval_scope_consistent_with_backstory():
+    role = build_role_catalog()["algorithm"]
+    assert role.approval_scope == []
+    # backstory 不再声称算法可批准（审批范围为空，经设计评审门把关）
+    assert "可批准" not in role.backstory
+    assert "设计评审门" in role.backstory
+
+
 def test_registry_get_and_list():
     registry = RoleRegistry()
     role = registry.get("architect")

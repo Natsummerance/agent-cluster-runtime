@@ -100,6 +100,32 @@ async def test_code_review_transcript_exercises_lgtm_and_lbtm_verdicts():
     assert any("LBTM" in content for content in contents)
 
 
+async def test_code_review_decision_matches_verdict():
+    host = MeetingHost()
+    # 3 位参与者：第 3 位发言者给出 LBTM -> 决策为未通过
+    fail_meeting = await host.run(
+        MeetingKind.CODE_REVIEW,
+        agenda=["代码可读性与结构", "安全性"],
+        participants=["backend", "frontend", "reviewer"],
+        project_id="proj1",
+        state=None,
+    )
+    assert len(fail_meeting.decisions) == 2
+    assert all("LBTM" in decision.conclusion for decision in fail_meeting.decisions)
+    assert all("未通过" in decision.conclusion for decision in fail_meeting.decisions)
+
+    # 2 位参与者：无 LBTM 发言者 -> 决策为通过
+    pass_meeting = await host.run(
+        MeetingKind.CODE_REVIEW,
+        agenda=["代码可读性与结构"],
+        participants=["backend", "reviewer"],
+        project_id="proj1",
+        state=None,
+    )
+    assert all("LGTM" in decision.conclusion for decision in pass_meeting.decisions)
+    assert all("通过" in decision.conclusion for decision in pass_meeting.decisions)
+
+
 async def test_select_speaker_round_robin():
     host = MeetingHost()
     await host.run(

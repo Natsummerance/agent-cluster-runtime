@@ -14,7 +14,9 @@
   ``query(thread_id=..., type=...)`` 过滤查询（可选条件）。
 - ``AgentRuntime``：``reply(agent, messages)`` 经模型客户端产出 ``Message(text)`` 并
   发布 ``agent_reply`` 事件；``observe(agent, messages)`` 把观察到的消息摘要写入
-  ``agent.state``（``AgentState.messages`` 记忆，按 ``context.max_messages`` 截断）。
+  ``agent.state``（``AgentState.messages`` 记忆，按 ``context.max_messages`` 截断）；
+  ``complete_for(role, task=None)`` 为公开模型入口（经工厂构造客户端返回完成文本），
+  ``make_agent_handler`` 通过它执行岗位任务，不触碰运行时私有成员。
 - ``make_agent_handler(runtime, role_registry, catalog=None)``：注册进
   ``WorkflowEngine`` 的 "agent" 节点 handler，执行确定性岗位步骤。
 
@@ -235,9 +237,26 @@ class AgentRuntime:
         merged = list(agent.state.messages) + list(messages)
         agent.state.messages = merged[-max_messages:]
 
+    async def complete_for(self, role: Role, task: Task | None = None) -> str:
+        """公开模型入口：经公开工厂构造客户端，返回岗位任务的模型完成文本。
 
-def _model_messages_for_task(role: Role, task: Task) -> list[dict]:
-    """构造 deterministic 模型输入：角色画像 + 任务上下文。"""
+        - ``task`` 缺省时按角色画像生成提示；否则附任务标题/描述上下文。
+        - 角色 ``model`` 缺省走 deterministic 后端（无 API key）。
+        - ``make_agent_handler`` 通过本方法执行岗位步骤，避免触碰私有成员。
+        """
+        client = self._model_factory.create(
+            AgentConfig(model=ModelConfig(model_name=role.model or "deterministic"))
+        )
+        return await client.complete(_model_messages_for_task(role, task))
+
+
+def _model_messages_for_task(role: Role, task: Task | None) -> list[dict]:
+    """构造 deterministic 模型输入：角色画像 + 任务上下文（task 可缺省）。"""
+    if task is None:
+        return [
+            {"role": "system", "content": f"{role.name}：{role.goal}"},
+            {"role": "user", "content": f"请以 {role.name} 身份输出确定性执行摘要。"},
+        ]
     return [
         {"role": "system", "content": f"{role.name}：{role.goal}"},
         {"role": "user", "content": f"执行任务 {task.id}：{task.title}（{task.desc}）"},
@@ -281,11 +300,8 @@ def make_agent_handler(
             status=TaskStatus.DOING,
         )
 
-        # 2) 经运行时模型工厂产出确定性执行摘要（role.model 缺省走 deterministic）
-        client = runtime._model_factory.create(
-            AgentConfig(model=ModelConfig(model_name=role.model or "deterministic"))
-        )
-        content = await client.complete(_model_messages_for_task(role, task))
+        # 2) 经运行时公开方法 complete_for 产出确定性执行摘要（不触碰私有成员）
+        content = await runtime.complete_for(role, task)
         output = f"{role.name} 完成节点 {ctx.node_id} 的执行：{content}"
 
         # 3) 追加 text 消息

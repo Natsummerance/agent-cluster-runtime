@@ -49,12 +49,18 @@ __all__ = ["MeetingHost", "make_meeting_handler"]
 
 @dataclass(frozen=True)
 class _MeetingTemplate:
-    """会议模板：发言模板 + 决策结论模板（占位符 {agenda}/{participant}/{owner}）。"""
+    """会议模板：发言模板 + 决策结论模板（占位符 {agenda}/{participant}/{owner}）。
+
+    ``decision_conclusion_reject`` / ``decision_reason_reject`` 为未通过变体
+    （当前仅 code_review 使用，如 3 位以上参与者时第 3 位发言者给出 LBTM）。
+    """
 
     speech: str
     decision_conclusion: str
     decision_reason: str
     decision_owner: str
+    decision_conclusion_reject: str | None = None
+    decision_reason_reject: str | None = None
 
 
 # 7 类会议模板（§4.1：议程/决策门/产物）
@@ -88,6 +94,8 @@ _TEMPLATES: dict[MeetingKind, _MeetingTemplate] = {
         decision_conclusion="「{agenda}」评审通过（LGTM）：无 P0/P1，注释完整且测试通过。",
         decision_reason="按 6 条评审规范逐条检查通过（通过=无 P0/P1+注释完整+测试过）。",
         decision_owner="reviewer",
+        decision_conclusion_reject="「{agenda}」评审未通过（LBTM）：需修复高优问题后复审。",
+        decision_reason_reject="存在 LBTM 意见：按 6 条评审规范未通过（存在高优问题）。",
     ),
     MeetingKind.RETRO: _MeetingTemplate(
         speech="【复盘】{participant} 复盘「{agenda}」：进展良好=完成项达标，不足=存在返工，"
@@ -130,6 +138,16 @@ def _default_agenda(kind: MeetingKind) -> list[str]:
     return list(_DEFAULT_AGENDAS[kind])
 
 
+def _speech_verdict(participant_index: int) -> str:
+    """code_review 发言裁决（确定性）：第 3 位（index%3==2）发言者给出 LBTM，其余 LGTM。"""
+    return "LBTM（需修复高优问题）" if participant_index % 3 == 2 else "LGTM（通过）"
+
+
+def _review_passed(participants: list[str]) -> bool:
+    """code_review 是否通过：参与者 < 3 时无 LBTM 发言者，判定通过。"""
+    return len(participants) < 3
+
+
 def _now_stamp() -> str:
     """时间戳（会议 id / 纪要 id 用）。"""
     return datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -166,7 +184,7 @@ class MeetingHost:
         transcript: list[Message] = []
         for item in agenda:
             for index, participant in enumerate(participants):
-                verdict = "LBTM（需修复高优问题）" if meeting_kind == MeetingKind.CODE_REVIEW and index % 3 == 2 else "LGTM（通过）"
+                verdict = _speech_verdict(index) if meeting_kind == MeetingKind.CODE_REVIEW else ""
                 content = template.speech.format(agenda=item, participant=participant, verdict=verdict)
                 transcript.append(
                     Message(
@@ -180,15 +198,21 @@ class MeetingHost:
                 )
 
         # decisions：每个议程条目一条，owner 由参与者轮转推导（确定性）
+        # code_review 的结论与 transcript 实际裁决一致（LGTM 通过 / LBTM 未通过）
         decisions: list[Decision] = []
         for index, item in enumerate(agenda):
             owner = participants[index % len(participants)] if participants else template.decision_owner
+            conclusion = template.decision_conclusion.format(agenda=item, owner=owner)
+            reason = template.decision_reason
+            if meeting_kind == MeetingKind.CODE_REVIEW and not _review_passed(participants):
+                conclusion = (template.decision_conclusion_reject or conclusion).format(agenda=item, owner=owner)
+                reason = template.decision_reason_reject or reason
             decisions.append(
                 Decision(
                     id=uuid.uuid4().hex,
                     topic=item,
-                    conclusion=template.decision_conclusion.format(agenda=item, owner=owner),
-                    reason=template.decision_reason,
+                    conclusion=conclusion,
+                    reason=reason,
                     owner=owner,
                 )
             )

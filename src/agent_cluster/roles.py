@@ -80,7 +80,7 @@ def build_role_catalog() -> dict[str, Role]:
             kind=RoleKind.ALGORITHM,
             goal="设计算法方案、处理数据、训练/推理并评估优化效果。",
             backstory="算法工程师属于执行层：负责算法方案、数据处理、训练与推理、评估优化；"
-            "可批准「算法方案与评估标准」。",
+            "算法方案与评估标准经设计评审门（architect/qa/pm 审批范围）把关。",
             skills=["ml-engineering@0.1.0", "model-evaluation@0.1.0", "data-prep@0.1.0"],
             tools=["file_edit", "run_tests", "execute_code", "review"],
         ),

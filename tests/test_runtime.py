@@ -13,6 +13,7 @@ from agent_cluster.models import (
     MessageType,
     ModelConfig,
     Project,
+    Task,
     TaskStatus,
 )
 from agent_cluster.roles import RoleRegistry
@@ -143,6 +144,31 @@ async def test_observe_updates_agent_state():
     assert [message.payload["content"] for message in agent.state.messages] == ["观察内容 A", "观察内容 B"]
 
 
+async def test_complete_for_returns_deterministic_completion_with_task():
+    runtime = AgentRuntime()
+    role = RoleRegistry().get("architect")
+    task = Task(
+        id="t1",
+        project_id="proj1",
+        iteration_id="iter1",
+        title="系统设计",
+        desc="设计",
+        assignee_role="architect",
+    )
+    content = await runtime.complete_for(role, task)
+    # 确定性后端回显最后一条用户消息（含任务上下文）
+    assert "执行任务 t1" in content
+    assert "系统设计" in content
+
+
+async def test_complete_for_works_without_task():
+    runtime = AgentRuntime()
+    role = RoleRegistry().get("pm")
+    content = await runtime.complete_for(role)
+    # 无任务时按角色画像生成提示，回显中包含角色名
+    assert "产品经理" in content
+
+
 # ---------------------------------------------------------------------------
 # make_agent_handler（agent 节点 handler 契约）
 # ---------------------------------------------------------------------------
@@ -206,6 +232,43 @@ async def test_agent_handler_updates_tasks_messages_and_ledger():
     assert event.type == "agent_step"
     assert event.actor == "architect"
     assert event.payload["task"] == task.id
+
+
+class _PoisonFactory:
+    """一旦被访问即失败的工厂：证明 handler 不触碰运行时私有 _model_factory。"""
+
+    def create(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("handler 不得直接访问 _model_factory")
+
+
+class _PublicApiRuntime(AgentRuntime):
+    """记录 complete_for 调用的运行时（私有工厂被毒化，handler 只能走公开 API）。"""
+
+    def __init__(self) -> None:
+        super().__init__(model_factory=_PoisonFactory())  # type: ignore[arg-type]
+        self.completed: list[tuple[str, str | None]] = []
+
+    async def complete_for(self, role, task=None) -> str:  # noqa: ANN001
+        self.completed.append((role.id, task.id if task is not None else None))
+        return "确定性完成摘要"
+
+
+async def test_agent_handler_uses_public_complete_for_method():
+    runtime = _PublicApiRuntime()
+    registry = RoleRegistry()
+    handler = make_agent_handler(runtime, registry)
+    state = ClusterState(project=Project(id="proj1", name="演示项目"))
+    node = WorkflowNode(id="design", type="agent", role="architect")
+    ctx = _make_context(node)
+
+    updates = await handler(state, node, ctx)
+
+    # handler 只经公开方法获取模型完成（毒化工厂未触发）
+    assert len(runtime.completed) == 1
+    role_id, task_id = runtime.completed[0]
+    assert role_id == "architect"
+    assert task_id == updates["tasks"][0].id
+    assert updates["messages"][0].payload["content"].endswith("确定性完成摘要")
 
 
 async def test_agent_handler_creates_fresh_task_per_invocation():

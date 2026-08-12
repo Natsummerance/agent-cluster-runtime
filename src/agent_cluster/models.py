@@ -411,7 +411,7 @@ class HumanResponse(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    type: Literal["accept", "ignore", "response", "edit"] = Field(description="响应类型")
+    type: Literal["accept", "ignore", "response", "edit", "reject"] = Field(description="响应类型")
     args: Any = Field(default=None, description="响应参数，任意类型")
 
 

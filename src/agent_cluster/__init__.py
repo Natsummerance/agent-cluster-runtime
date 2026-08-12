@@ -50,6 +50,12 @@ from agent_cluster.workflow import (
     WorkflowSpec,
     WorkflowValidationError,
 )
+from agent_cluster.gates import (
+    GateError,
+    approval_pending,
+    make_gate_handler,
+    resolve_auto_response,
+)
 from agent_cluster.skills import (
     DisclosureLevel,
     SkillCatalog,
@@ -113,4 +119,8 @@ __all__ = [
     "WorkflowValidationError",
     "__version__",
     "format_skill_context",
+    "GateError",
+    "approval_pending",
+    "make_gate_handler",
+    "resolve_auto_response",
 ]

@@ -1,16 +1,8 @@
-"""CLI 占位入口：``python -m agent_cluster`` 打印版本与用法。
+"""CLI 入口：``python -m agent_cluster`` 等价于 ``agent-cluster`` 命令。"""
 
-完整 CLI（agent-cluster 命令）由后续任务（Task 7）实现。
-"""
+import sys
 
-from agent_cluster import __version__
-
-
-def main() -> None:
-    """打印版本与用法占位。"""
-    print(f"agent_cluster {__version__}")
-    print("用法：后续任务将提供 agent-cluster 命令（run / skills / roles / proposals / metrics）。")
-
+from agent_cluster.cli import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -522,6 +522,15 @@ class Iteration(BaseModel):
     )
 
 
+def _last_ledger(current: Ledger | None, update: Ledger | None) -> Ledger | None:
+    """``ledger`` 通道 reducer：保留最后一次写入的账本。
+
+    parallel 并行子节点在同一超步并发写 ``ledger``（LangGraph 要求带 reducer 的
+    通道才能并发更新），取最后一次写入（后写者胜），顺序执行时等价于整体替换。
+    """
+    return update if update is not None else current
+
+
 class ClusterState(BaseModel):
     """LangGraph 共享状态（§5.3），list/dict 字段默认空。
 
@@ -535,7 +544,7 @@ class ClusterState(BaseModel):
     iterations: Annotated[list[Iteration], operator.add] = Field(default_factory=list, description="迭代列表")
     tasks: Annotated[list[Task], operator.add] = Field(default_factory=list, description="任务列表")
     meetings: Annotated[list[Meeting], operator.add] = Field(default_factory=list, description="会议记录列表")
-    ledger: Ledger | None = Field(default=None, description="当前任务账本")
+    ledger: Annotated[Ledger | None, _last_ledger] = Field(default=None, description="当前任务账本")
     gate_payloads: dict[GateKind, ActionRequest] = Field(default_factory=dict, description="待审批请求，按门类别索引")
     decisions: Annotated[list[ApprovalRecord], operator.add] = Field(default_factory=list, description="审批记录")
     skill_catalog: dict[str, Skill] = Field(default_factory=dict, description="技能目录：name@version -> Skill")

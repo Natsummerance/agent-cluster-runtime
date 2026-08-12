@@ -92,6 +92,9 @@ class WorkflowNode(BaseModel):
     id: str = Field(description="节点唯一标识")
     type: Literal["start", "end", "agent", "meeting", "gate", "parallel"] = Field(description="节点类型")
     meeting: MeetingKind | None = Field(default=None, description="meeting 节点会议类型")
+    participants: list[str] | None = Field(
+        default=None, description="meeting 节点参与岗位 id 列表（用角色 id），缺省用 RoleRegistry 默认参与岗位"
+    )
     role: str | None = Field(default=None, description="agent 节点岗位 id")
     gate: GateKind | None = Field(default=None, description="gate 节点审批门类别")
     children: list[str] | None = Field(default=None, description="parallel 节点子节点 id 列表")
@@ -247,6 +250,15 @@ class CompiledWorkflow:
         """返回底层已编译的 LangGraph StateGraph（供 Task 4/7 检查或驱动）。"""
         return self._graph
 
+    def compile_graph(self, checkpointer: Any | None = None) -> Any:
+        """公开方法：返回绑定 checkpointer 的全新编译图（等价于 run()/resume() 内部使用）。
+
+        - 供 CLI/外部在 run() 之外获得带 checkpointer 的图，从而配合
+          ``gates.approval_pending(graph, thread_id)`` 查询挂起审批。
+        - 每次调用返回全新编译实例；checkpointer 需在 compile 时绑定（LangGraph 约束）。
+        """
+        return self._compile_graph(checkpointer=checkpointer)
+
     # ------------------------------------------------------------------
     # 图构建
     # ------------------------------------------------------------------
@@ -350,6 +362,10 @@ class CompiledWorkflow:
 
     async def _execute_node(self, state: ClusterState, node: WorkflowNode) -> dict[str, Any] | None:
         run_state = self._require_run_state()
+        # LangGraph 的 Send 并行子节点传入 dict 状态，统一归一化为 ClusterState，
+        # 保证 handler 以模型实例访问 state.project/iterations/ledger 等字段。
+        if not isinstance(state, ClusterState):
+            state = ClusterState.model_validate(state)
         if node.type == "start":
             run_state.loop_count += 1
         # model_construct 跳过校验，保证 ctx.events 与本次迭代事件缓冲为同一列表引用

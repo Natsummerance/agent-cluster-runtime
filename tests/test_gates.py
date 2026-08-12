@@ -70,7 +70,7 @@ def _compile_flow(
 
 def _graph_with_checkpointer(compiled, checkpointer):
     """构造绑定 checkpointer 的已编译图（approval_pending / 读取终态需要）。"""
-    return compiled._compile_graph(checkpointer=checkpointer)
+    return compiled.compile_graph(checkpointer=checkpointer)
 
 
 def _final_state(compiled, checkpointer) -> ClusterState:
@@ -294,6 +294,129 @@ edges:
     with pytest.raises(GateError, match="缺少 gate 类别"):
         _ = [event async for event in compiled.run()]
 
+
+async def test_bypass_immune_derived_from_gate_kind():
+    """Task 7：dangerous_tool / evolution_apply 缺省 bypass_immune=True 且 risk_level=high。"""
+    checkpointer = MemorySaver()
+    dangerous_yaml = """
+name: dangerous-gate-flow
+max_iterations: 10
+thread_id: "proj:demo:iter:1"
+nodes:
+  - {id: start, type: start}
+  - {id: tool_gate, type: gate, gate: dangerous_tool}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: tool_gate}
+  - {from: tool_gate, to: end, on_accept: end, on_reject: end}
+"""
+    compiled = _compile_flow(dangerous_yaml)
+    _ = [event async for event in compiled.run(checkpointer=checkpointer)]
+    request = approval_pending(_graph_with_checkpointer(compiled, checkpointer), THREAD_ID)
+    assert request is not None
+    assert request.bypass_immune is True
+    assert request.risk_level == "high"
+
+    evolution_yaml = dangerous_yaml.replace("dangerous_tool", "evolution_apply")
+    compiled_evo = _compile_flow(evolution_yaml)
+    _ = [event async for event in compiled_evo.run(checkpointer=checkpointer)]
+    evo_request = approval_pending(_graph_with_checkpointer(compiled_evo, checkpointer), THREAD_ID)
+    assert evo_request is not None
+    assert evo_request.bypass_immune is True
+    assert evo_request.risk_level == "high"
+
+
+async def test_auto_mode_accept_plain_gate_completes_without_suspending():
+    """Task 7：auto_mode='accept' 的普通门不挂起，自动 accept 并走完流程。"""
+    checkpointer = MemorySaver()
+    handler = make_gate_handler(gate={"kind": "release"}, auto_mode="accept")
+    compiled = WorkflowEngine(handlers={"gate": handler}).compile(SIMPLE_GATE_YAML)
+
+    events = [event async for event in compiled.run(checkpointer=checkpointer)]
+    assert events[-1].type == "workflow_end"
+    assert not any(event.type == "workflow_suspended" for event in events)
+
+    state = _final_state(compiled, checkpointer)
+    assert [record.type for record in state.decisions] == ["accept"]
+    assert state.decisions[0].by_role == "system"
+    assert state.gate_payloads[GateKind.RELEASE].decisions[-1].type == "accept"
+
+
+async def test_auto_mode_accept_bypass_immune_gate_auto_rejects():
+    """Task 7：auto_mode='accept' 遇 bypass-immune 高风险门自动转为拒绝，且不挂起。"""
+    checkpointer = MemorySaver()
+    dangerous_yaml = """
+name: dangerous-gate-flow
+max_iterations: 10
+thread_id: "proj:demo:iter:1"
+nodes:
+  - {id: start, type: start}
+  - {id: tool_gate, type: gate, gate: dangerous_tool}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: tool_gate}
+  - {from: tool_gate, to: end, on_accept: end, on_reject: end}
+"""
+    handler = make_gate_handler(auto_mode="accept")
+    compiled = WorkflowEngine(handlers={"gate": handler}).compile(dangerous_yaml)
+
+    events = [event async for event in compiled.run(checkpointer=checkpointer)]
+    assert events[-1].type == "workflow_end"
+    assert not any(event.type == "workflow_suspended" for event in events)
+
+    state = _final_state(compiled, checkpointer)
+    assert [record.type for record in state.decisions] == ["reject"]
+    assert state.decisions[0].by_role == "system"
+    assert state.decisions[0].args == {"reason": "bypass-immune: 无人值守自动拒绝"}
+
+
+async def test_auto_mode_reject_rejects_plain_gate():
+    """Task 7：auto_mode='reject' 一律自动拒绝且不挂起。"""
+    checkpointer = MemorySaver()
+    handler = make_gate_handler(auto_mode="reject")
+    compiled = WorkflowEngine(handlers={"gate": handler}).compile(SIMPLE_GATE_YAML)
+
+    events = [event async for event in compiled.run(checkpointer=checkpointer)]
+    assert events[-1].type == "workflow_end"
+    assert not any(event.type == "workflow_suspended" for event in events)
+
+    state = _final_state(compiled, checkpointer)
+    assert [record.type for record in state.decisions] == ["reject"]
+
+
+async def test_gate_override_dict_can_clear_bypass_immune():
+    """Task 7：dict 覆盖可将高风险门 bypass_immune 置 False，无人值守 accept 放行。"""
+    checkpointer = MemorySaver()
+    dangerous_yaml = """
+name: dangerous-gate-flow
+max_iterations: 10
+thread_id: "proj:demo:iter:1"
+nodes:
+  - {id: start, type: start}
+  - {id: tool_gate, type: gate, gate: dangerous_tool}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: tool_gate}
+  - {from: tool_gate, to: end, on_accept: end, on_reject: end}
+"""
+    handler = make_gate_handler(gate={"kind": "dangerous_tool", "bypass_immune": False}, auto_mode="accept")
+    compiled = WorkflowEngine(handlers={"gate": handler}).compile(dangerous_yaml)
+    events = [event async for event in compiled.run(checkpointer=checkpointer)]
+    assert events[-1].type == "workflow_end"
+    state = _final_state(compiled, checkpointer)
+    assert [record.type for record in state.decisions] == ["accept"]
+
+
+def test_make_gate_handler_rejects_unknown_auto_mode():
+    with pytest.raises(GateError, match="未知的无人值守模式"):
+        make_gate_handler(auto_mode="maybe")
+
+
+async def test_gate_override_dict_kind_mismatch_raises():
+    handler = make_gate_handler(gate={"kind": "release"})
+    compiled = WorkflowEngine(handlers={"gate": handler}).compile(ROUTING_GATE_YAML)
+    with pytest.raises(GateError, match="不一致"):
+        _ = [event async for event in compiled.run()]
 
 async def test_gate_factory_uses_provided_interrupt_config():
     checkpointer = MemorySaver()

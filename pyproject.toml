@@ -16,6 +16,9 @@ dev = [
     "pytest-asyncio",
 ]
 
+[project.scripts]
+agent-cluster = "agent_cluster.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

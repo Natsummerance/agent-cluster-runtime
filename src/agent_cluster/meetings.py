@@ -261,7 +261,8 @@ def make_meeting_handler(host: MeetingHost, role_registry: Any) -> NodeHandler:
     async def handler(state: ClusterState, node: WorkflowNode, ctx: NodeContext) -> dict[str, Any]:
         if node.meeting is None:
             raise ValueError(f"meeting 节点 {node.id!r} 缺少 meeting 配置（node.meeting 为 None）")
-        participants = role_registry.default_role_ids(node.meeting)
+        # 参与岗位：节点显式声明优先（用角色 id），缺省用 RoleRegistry 默认参与岗位
+        participants = node.participants or role_registry.default_role_ids(node.meeting)
         project_id = state.project.id if state.project is not None else "demo"
         iteration_id = state.iterations[0].id if state.iterations else "iter:1"
         agenda = _default_agenda(node.meeting)

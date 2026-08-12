@@ -562,10 +562,16 @@ class ChatModelFactory:
             return DeterministicClient()
         cfg = config if isinstance(config, AgentConfig) else AgentConfig.model_validate(config)
         model_name = (cfg.model.model_name or "").strip().lower()
+        wire_api = (cfg.model.wire_api or "chat").lower()
+        if wire_api not in ("chat", "responses", "anthropic"):
+            raise ValueError(f"未知 wire_api：{wire_api!r}（支持 chat / responses / anthropic）")
         if not model_name or model_name == "deterministic":
             if cfg.react.tool_script:
                 return DeterministicClient(tool_script=list(cfg.react.tool_script))
             return DeterministicClient()
+        if wire_api != "chat":
+            # T11.1 守卫：responses/anthropic 客户端由 T11.2 接入
+            raise ValueError(f"wire_api={wire_api} 客户端尚未接入（T11.2 提供）")
         if model_name in ("codex", "custom"):
             return self._client_from_codex_config(cfg)
         if model_name == "deepseek" or model_name.startswith("deepseek-"):

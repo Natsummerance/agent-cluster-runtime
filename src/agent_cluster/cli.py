@@ -35,6 +35,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel
 
 from agent_cluster import models
+from agent_cluster.doctor import run_doctor
 from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
@@ -606,6 +607,25 @@ def _cmd_metrics_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """doctor 子命令：环境预检（Python/git/Docker 硬依赖 + 模型/工作区/插件/MCP 信息性）。"""
+    report = run_doctor(
+        model=args.model,
+        workspace=args.workspace,
+        plugin_dirs=list(args.plugin_dir or []),
+        mcp_servers=list(args.mcp or []),
+        skip_docker_check=args.skip_docker_check,
+    )
+    print(report.render())
+    if not report.ok:
+        print(
+            "存在阻塞项：请按上方指引修复（Docker 缺失可 --skip-docker-check 临时跳过）。",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def _cmd_tools_list(args: argparse.Namespace) -> int:
     """tools list 子命令：列出内置工具与权限分层。"""
     registry = build_default_tools()
@@ -844,6 +864,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_parser.add_argument("--max-rounds", type=int, default=None, help="工具模式 ReAct 最大轮数（缺省 6）")
     build_parser.set_defaults(func=_cmd_build)
+
+    doctor_parser = subparsers.add_parser("doctor", help="环境预检（Python/git/Docker/模型/工作区/插件/MCP）")
+    doctor_parser.add_argument("--model", default=None, help="检查模型配置可构造客户端（信息性）")
+    doctor_parser.add_argument("--workspace", default=None, help="检查工作区目录可写（信息性）")
+    doctor_parser.add_argument(
+        "--plugin-dir", action="append", default=[], metavar="DIR",
+        help="检查插件目录存在（信息性，可重复）",
+    )
+    doctor_parser.add_argument(
+        "--mcp", action="append", default=[], metavar="NAME=COMMAND",
+        help="检查 MCP 服务器参数可解析（信息性，可重复）",
+    )
+    doctor_parser.add_argument(
+        "--skip-docker-check", action="store_true",
+        help="跳过 Docker 硬依赖检查（沙箱功能将不可用）",
+    )
+    doctor_parser.set_defaults(func=_cmd_doctor)
 
     tools_parser = subparsers.add_parser("tools", help="工具管理")
     tools_sub = tools_parser.add_subparsers(dest="tools_command", required=True)

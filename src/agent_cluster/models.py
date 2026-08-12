@@ -175,6 +175,10 @@ class ModelConfig(BaseModel):
     max_tokens: int = Field(default=2048, gt=0, description="单次生成最大 token 数")
     api_base: str | None = Field(default=None, description="API 地址覆盖，None 表示使用默认")
     api_key_env: str | None = Field(default=None, description="读取 API key 的环境变量名")
+    wire_api: Literal["chat", "responses", "anthropic"] = Field(
+        default="chat",
+        description="模型接入协议：chat=chat/completions、responses=OpenAI Responses、anthropic=Anthropic Messages",
+    )
 
 
 class ReActConfig(BaseModel):

@@ -63,6 +63,7 @@ from agent_cluster.runtime import (
     AgentRuntime,
     ChatModelClient,
     ChatModelFactory,
+    DeepSeekClient,
     DeterministicClient,
     EventBus,
     OpenAIClient,

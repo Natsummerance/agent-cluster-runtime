@@ -7,8 +7,11 @@
 - ``OpenAIClient``：可选 OpenAI ``chat.completions`` 实现；构造时若环境变量
   ``OPENAI_API_KEY`` 缺失立即抛 ``RuntimeError``（构造期检查），
   ``openai`` 包未安装时在 ``complete()`` 内抛清晰错误，确保测试永不崩溃。
+- ``DeepSeekClient``：DeepSeek ``chat.completions`` 直连实现（stdlib urllib + 线程池，
+  无新依赖）；默认 base_url / env_key 解析自 Codex 配置或回落官方默认值。
 - ``ChatModelFactory``：按 ``AgentConfig`` 的 ``model.model_name`` 选择后端；
   缺省/``deterministic`` -> ``DeterministicClient``，``openai``/``gpt-*`` -> ``OpenAIClient``，
+  ``deepseek-*`` -> ``DeepSeekClient``，``codex``/``custom`` -> 解析当前 Codex 配置，
   其他未知名称抛 ``ValueError``。
 - ``EventBus``：append-only 事件列表：``publish(event)`` 追加，
   ``query(thread_id=..., type=...)`` 过滤查询（可选条件）。
@@ -37,6 +40,7 @@ agent handler 通道契约（Task 7 CLI 依赖，勿变更）：
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 from abc import ABC, abstractmethod
@@ -56,12 +60,14 @@ from agent_cluster.models import (
     Task,
     TaskStatus,
 )
+from agent_cluster.providers import CodexProviderConfig, load_codex_model_config, resolve_deepseek_defaults
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowNode
 
 __all__ = [
     "ChatModelClient",
     "DeterministicClient",
     "OpenAIClient",
+    "DeepSeekClient",
     "ChatModelFactory",
     "EventBus",
     "AgentRuntime",
@@ -135,10 +141,91 @@ class OpenAIClient(ChatModelClient):
         return response.choices[0].message.content or ""
 
 
+class DeepSeekClient(ChatModelClient):
+    """DeepSeek 后端：``chat.completions`` 直连实现（stdlib urllib + 线程池，无新依赖）。
+
+    - 构造期检查：环境变量（缺省 ``DEEPSEEK_API_KEY``）缺失立即抛 ``RuntimeError``。
+    - 默认 base_url / env_key 优先取 Codex 配置（DeepSeek 供应商），否则回落
+      ``https://api.deepseek.com`` + ``DEEPSEEK_API_KEY``。
+    - 请求经 ``asyncio.to_thread`` 在后台线程执行，不阻塞事件循环；回复取
+      ``choices[0].message.content``，content 为空时回落 ``reasoning_content``。
+    - API key 只从环境变量读取，绝不写入仓库、日志或检查点。
+    """
+
+    def __init__(
+        self,
+        model: str = "deepseek-v4-flash",
+        api_key_env: str | None = None,
+        api_base: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
+    ) -> None:
+        codex = load_codex_model_config()
+        default_base, default_env = resolve_deepseek_defaults(codex)
+        env_key = api_key_env or default_env
+        api_key = os.environ.get(env_key, "")
+        if not api_key:
+            raise RuntimeError(
+                f"DeepSeekClient 需要环境变量 {env_key}（当前未设置）；"
+                "无 API key 环境请使用 DeterministicClient。"
+            )
+        self.model = model
+        self.api_key_env = env_key
+        self.api_base = (api_base or default_base).rstrip("/")
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._api_key = api_key
+
+    async def complete(self, messages: list[dict]) -> str:
+        """调用 DeepSeek chat.completions（线程池内同步请求）并返回首个回复文本。"""
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+        }
+        return await asyncio.to_thread(self._post_chat_completion, payload)
+
+    def _post_chat_completion(self, payload: dict) -> str:
+        """同步 POST chat/completions（urllib），返回回复文本或抛 ``RuntimeError``。"""
+        import json
+        import urllib.error
+        import urllib.request
+
+        url = f"{self.api_base}/chat/completions"
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._api_key}",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise RuntimeError(f"DeepSeek API 请求失败（HTTP {exc.code}）：{detail}") from exc
+        except OSError as exc:
+            raise RuntimeError(f"DeepSeek API 请求失败：{exc}") from exc
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"DeepSeek API 响应缺少 choices：{str(data)[:500]}")
+        message = choices[0].get("message") or {}
+        content = message.get("content") or message.get("reasoning_content") or ""
+        return str(content)
+
+
 class ChatModelFactory:
     """按 ``AgentConfig`` 选择模型后端。
 
     - ``create(None)`` / ``model_name`` 为空或 ``"deterministic"`` -> ``DeterministicClient``。
+    - ``model_name`` 以 ``deepseek`` 开头或等于 ``"deepseek"`` -> ``DeepSeekClient``。
+    - ``model_name`` 等于 ``"codex"``/``"custom"`` -> 解析当前 Codex 配置（config.toml），
+      DeepSeek 供应商接入 ``DeepSeekClient``，OpenAI 系接入 ``OpenAIClient``。
     - ``model_name`` 以 ``gpt-``/``o1``/``o3`` 开头或等于 ``"openai"`` -> ``OpenAIClient``。
     - 其他未知 ``model_name`` 抛 ``ValueError``（明确提示改用 deterministic）。
     """
@@ -151,6 +238,10 @@ class ChatModelFactory:
         model_name = (cfg.model.model_name or "").strip().lower()
         if not model_name or model_name == "deterministic":
             return DeterministicClient()
+        if model_name in ("codex", "custom"):
+            return self._client_from_codex_config(cfg)
+        if model_name == "deepseek" or model_name.startswith("deepseek-"):
+            return self._deepseek_client(cfg, load_codex_model_config())
         if model_name == "openai" or model_name.startswith(("gpt-", "o1", "o3")):
             return OpenAIClient(
                 model=cfg.model.model_name,
@@ -158,8 +249,46 @@ class ChatModelFactory:
                 api_base=cfg.model.api_base,
             )
         raise ValueError(
-            f"未知模型名称：{cfg.model.model_name!r}（支持 deterministic / openai / gpt-*）；"
-            "无 API key 环境请使用 deterministic。"
+            f"未知模型名称：{cfg.model.model_name!r}（支持 deterministic / openai / gpt-* / "
+            "deepseek-* / codex）；无 API key 环境请使用 deterministic。"
+        )
+
+    def _deepseek_client(self, cfg: AgentConfig, codex: CodexProviderConfig | None) -> DeepSeekClient:
+        """构造 DeepSeek 客户端：显式配置优先，否则取 Codex 配置或官方默认值。"""
+        base_url, env_key = resolve_deepseek_defaults(codex)
+        return DeepSeekClient(
+            model=cfg.model.model_name,
+            api_key_env=cfg.model.api_key_env or env_key,
+            api_base=cfg.model.api_base or base_url,
+            temperature=cfg.model.temperature,
+            max_tokens=cfg.model.max_tokens,
+        )
+
+    def _client_from_codex_config(self, cfg: AgentConfig) -> ChatModelClient:
+        """按当前 Codex 配置（config.toml）接入对话所用模型。"""
+        codex = load_codex_model_config()
+        if codex is None:
+            raise ValueError(
+                "无法解析 Codex 配置（~/.codex/config.toml 缺失或未配置 model_providers）；"
+                "请直接指定模型名，例如 deepseek-v4-flash 或 openai/gpt-4o-mini。"
+            )
+        if codex.is_deepseek or codex.model_name.lower().startswith("deepseek"):
+            return DeepSeekClient(
+                model=codex.model_name or "deepseek-v4-flash",
+                api_key_env=cfg.model.api_key_env or codex.api_key_env,
+                api_base=cfg.model.api_base or codex.base_url or None,
+                temperature=cfg.model.temperature,
+                max_tokens=cfg.model.max_tokens,
+            )
+        if codex.model_name.startswith(("gpt-", "o1", "o3")):
+            return OpenAIClient(
+                model=codex.model_name,
+                api_key_env=cfg.model.api_key_env or codex.api_key_env or "OPENAI_API_KEY",
+                api_base=cfg.model.api_base or codex.base_url or None,
+            )
+        raise ValueError(
+            f"Codex 配置的模型 {codex.model_name!r} 暂不支持自动接入；"
+            "请直接指定模型名（deepseek-* / openai / gpt-*）。"
         )
 
 
@@ -195,9 +324,11 @@ class AgentRuntime:
         self,
         model_factory: ChatModelFactory | None = None,
         event_bus: EventBus | None = None,
+        default_model: ModelConfig | None = None,
     ) -> None:
         self._model_factory = model_factory if model_factory is not None else ChatModelFactory()
         self.event_bus = event_bus if event_bus is not None else EventBus()
+        self._default_model = default_model
 
     async def reply(self, agent: Agent, messages: list[Message]) -> Message:
         """调用 Agent 的模型客户端，产出 ``Message(text)`` 并发布 ``agent_reply`` 事件。
@@ -243,13 +374,19 @@ class AgentRuntime:
         """公开模型入口：经公开工厂构造客户端，返回岗位任务的模型完成文本。
 
         - ``task`` 缺省时按角色画像生成提示；否则附任务标题/描述上下文。
-        - 角色 ``model`` 缺省走 deterministic 后端（无 API key）。
+        - 模型选择优先级：岗位偏好模型 > 运行时 ``default_model`` > deterministic。
         - ``make_agent_handler`` 通过本方法执行岗位步骤，避免触碰私有成员。
         """
-        client = self._model_factory.create(
-            AgentConfig(model=ModelConfig(model_name=role.model or "deterministic"))
-        )
+        client = self._model_factory.create(AgentConfig(model=self._model_config_for(role)))
         return await client.complete(_model_messages_for_task(role, task))
+
+    def _model_config_for(self, role: Role) -> ModelConfig:
+        """确定岗位模型配置：岗位偏好 > 运行时默认 > deterministic。"""
+        if role.model:
+            return ModelConfig(model_name=role.model)
+        if self._default_model is not None:
+            return self._default_model
+        return ModelConfig(model_name="deterministic")
 
 
 def _model_messages_for_task(role: Role, task: Task | None) -> list[dict]:

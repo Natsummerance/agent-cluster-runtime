@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from agent_cluster.cli import main, run_flow
-from agent_cluster.models import GateKind, MeetingKind, TaskStatus
+from agent_cluster.models import GateKind, MeetingKind, ModelConfig, TaskStatus
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FLOW_PATH = REPO_ROOT / "examples" / "flows" / "fullstack-sprint.yaml"
@@ -167,3 +167,56 @@ def test_cli_help_via_python_module_subprocess():
     combined = (result.stdout + result.stderr).lower()
     assert "usage:" in combined
     assert "run" in combined and "skills" in combined and "roles" in combined
+
+# ---------------------------------------------------------------------------
+# --model 模型接入（模型接入子任务）
+# ---------------------------------------------------------------------------
+
+
+_FAKE_RUNTIME_DEFAULTS: list = []
+
+
+class _FakeRuntime:
+    """记录 default_model 的假运行时（每次构造追加记录，避免真实调用 API）。"""
+
+    def __init__(self, model_factory=None, event_bus=None, default_model=None):
+        _FAKE_RUNTIME_DEFAULTS.append(default_model)
+
+    async def complete_for(self, role, task=None):  # noqa: ANN001
+        return f"{role.name} 完成摘要"
+
+
+def _patch_fake_runtime(monkeypatch) -> None:
+    """把 cli.AgentRuntime 替换为记录 default_model 的假实现。"""
+    _FAKE_RUNTIME_DEFAULTS.clear()
+    monkeypatch.setattr("agent_cluster.cli.AgentRuntime", lambda **kw: _FakeRuntime(**kw))
+
+
+def test_cli_run_model_param_wires_runtime_default_model(monkeypatch):
+    """--model deepseek-v4-flash 注入运行时 default_model（不真实调用 API）。"""
+    _patch_fake_runtime(monkeypatch)
+    summary = asyncio.run(run_flow(FLOW_PATH, yes=True, model="deepseek-v4-flash"))
+    assert summary.events[-1].type == "workflow_end"
+    assert _FAKE_RUNTIME_DEFAULTS == [
+        ModelConfig(model_name="deepseek-v4-flash")
+    ]
+
+
+def test_cli_run_model_from_env_var(monkeypatch):
+    """未传 --model 时用环境变量 DEEPSEEK_MODEL 兜底。"""
+    _patch_fake_runtime(monkeypatch)
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    summary = asyncio.run(run_flow(FLOW_PATH, yes=True))
+    assert summary.events[-1].type == "workflow_end"
+    assert _FAKE_RUNTIME_DEFAULTS == [
+        ModelConfig(model_name="deepseek-v4-flash")
+    ]
+
+
+def test_cli_run_default_model_none_without_model(monkeypatch):
+    """未指定模型：default_model 为 None（保持确定性后端，零 API 依赖）。"""
+    _patch_fake_runtime(monkeypatch)
+    monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    summary = asyncio.run(run_flow(FLOW_PATH, yes=True))
+    assert summary.events[-1].type == "workflow_end"
+    assert _FAKE_RUNTIME_DEFAULTS == [None]

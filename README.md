@@ -60,14 +60,37 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples
 ```
 
-> 默认确定性模型后端（`DeterministicClient`），无需任何 API key；接入真实 LLM 时替换
-> `AgentConfig.model.model_name`（如 `openai/gpt-4o-mini`）并提供对应环境变量。
+> 默认确定性模型后端（`DeterministicClient`），无需任何 API key；接入真实 LLM 见下方
+> 「接入真实 LLM」一节（DeepSeek / 当前 Codex 模型 / OpenAI）。
+
+### 接入真实 LLM（DeepSeek / 当前 Codex 模型）
+
+运行时支持把岗位执行接入真实 LLM，API key 只从环境变量读取，绝不写入仓库、日志或检查点：
+
+```bash
+# 方式一：DeepSeek（cc-switch / DeepSeek 官方端点，模型名 deepseek-*）
+#   - 读取环境变量 DEEPSEEK_API_KEY（可从 Codex config.toml 的
+#     [model_providers.custom] 自动解析 base_url 与 env_key）
+uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples   --model deepseek-v4-flash --yes
+
+# 方式二：直接复用「当前 Codex 对话所用模型」（解析 ~/.codex/config.toml，
+#   本机配置为 DeepSeek 供应商时自动接入 DeepSeekClient）
+uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples   --model codex --yes
+
+# 方式三：环境变量兜底（未传 --model 时读取 DEEPSEEK_MODEL）
+set DEEPSEEK_MODEL=deepseek-v4-flash   # PowerShell：$env:DEEPSEEK_MODEL='deepseek-v4-flash'
+uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples --yes
+```
+
+- 模型选择优先级：岗位 `Role.model` 偏好 > 运行时 `--model`/`DEEPSEEK_MODEL` 默认模型 > deterministic。
+- `deepseek-*` / `codex` 走 `DeepSeekClient`（stdlib urllib 直连 `chat/completions`，无新增依赖）；
+  `openai` / `gpt-*` 走 `OpenAIClient`；`deterministic` 走确定性后端（默认，零 API 依赖）。
 
 ## CLI 用法
 
 | 命令 | 说明 |
 |---|---|
-| `agent-cluster run --flow <yaml> [--project <dir>] [--yes] [--thread <id>]` | 编译并运行 YAML 流程；`--yes` 无人值守自动审批 |
+| `agent-cluster run --flow <yaml> [--project <dir>] [--yes] [--thread <id>] [--model <name>]` | 编译并运行 YAML 流程；`--yes` 无人值守自动审批；`--model` 指定岗位模型后端（deterministic/deepseek-*/codex，缺省可经 `DEEPSEEK_MODEL`） |
 | `agent-cluster skills list --root <dir>` | 列出技能目录（name/version/description） |
 | `agent-cluster roles list` | 列出 12 岗位（id/name/kind/approval_scope） |
 | `agent-cluster proposals demo` | 六步进化闭环演示（collect→distill→propose→review→apply→rollback） |

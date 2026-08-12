@@ -4,6 +4,8 @@
 - ``run``：编译并运行 YAML 流程；遇审批门打印 ActionRequest 并交互读取
   ``accept/reject/response <内容>/edit <内容>`` 恢复运行；``--yes`` 无人值守
   模式自动接受（bypass-immune 高风险门自动转为拒绝），结束后打印运行摘要。
+  ``--model`` 指定岗位模型后端：``deterministic``（缺省）/ ``deepseek-*`` /
+  ``codex``（解析当前 Codex 配置）；缺省时也可用环境变量 ``DEEPSEEK_MODEL``。
 - ``skills list``：列出技能目录（name/version/description）。
 - ``roles list``：列出 12 岗位（id/name/kind/approval_scope）。
 - ``proposals demo``：进化闭环演示（collect→distill→propose→review→apply→rollback）。
@@ -100,6 +102,7 @@ async def run_flow(
     project: str | None = None,
     yes: bool = False,
     thread_id: str | None = None,
+    model: str | None = None,
     print_event: Callable[[Event], None] | None = None,
     print_request: Callable[[ActionRequest], None] | None = None,
     prompt: Callable[[str], str] | None = None,
@@ -122,7 +125,11 @@ async def run_flow(
     resolved_thread = thread_id or spec_thread or "default"
 
     role_registry = RoleRegistry()
-    runtime = AgentRuntime()
+    resolved_model = model or os.environ.get("DEEPSEEK_MODEL") or None
+    default_model = (
+        models.ModelConfig(model_name=resolved_model) if resolved_model else None
+    )
+    runtime = AgentRuntime(default_model=default_model)
     host = MeetingHost()
     engine = WorkflowEngine(
         handlers={
@@ -309,6 +316,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 project=args.project,
                 yes=args.yes,
                 thread_id=args.thread,
+                model=args.model,
                 print_event=lambda event: _print_event(event, out),
                 print_request=lambda request: _print_request(request, out),
             )
@@ -520,6 +528,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--project", default=None, help="项目目录（生成项目名，缺省用流程名）")
     run_parser.add_argument("--yes", action="store_true", help="无人值守：自动接受全部审批（bypass-immune 自动拒绝）")
     run_parser.add_argument("--thread", default=None, help="线程 id（缺省用流程 YAML 的 thread_id）")
+    run_parser.add_argument(
+        "--model",
+        default=None,
+        help="岗位模型后端：deterministic（缺省，无需 key）/ deepseek-*（DeepSeek API，"
+        "读取 DEEPSEEK_API_KEY）/ codex（解析当前 Codex 配置）；缺省也可用环境变量 DEEPSEEK_MODEL",
+    )
     run_parser.set_defaults(func=_cmd_run)
 
     skills_parser = subparsers.add_parser("skills", help="技能管理")

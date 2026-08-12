@@ -17,9 +17,11 @@ from agent_cluster.models import (
     TaskStatus,
 )
 from agent_cluster.roles import RoleRegistry
+from agent_cluster.providers import CodexProviderConfig
 from agent_cluster.runtime import (
     AgentRuntime,
     ChatModelFactory,
+    DeepSeekClient,
     DeterministicClient,
     EventBus,
     OpenAIClient,
@@ -286,3 +288,80 @@ async def test_agent_handler_creates_fresh_task_per_invocation():
     assert second["tasks"][0].status == TaskStatus.DONE
     # 通道内既有任务不受影响，返回的任务为新增实例
     assert state.tasks == []
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek 模型接入（模型接入子任务）
+# ---------------------------------------------------------------------------
+
+
+def test_factory_creates_deepseek_client_for_deepseek_model(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-not-real")
+    client = ChatModelFactory().create(
+        AgentConfig(model=ModelConfig(model_name="deepseek-v4-flash"))
+    )
+    assert isinstance(client, DeepSeekClient)
+    assert client.model == "deepseek-v4-flash"
+
+
+def test_factory_codex_name_resolves_deepseek_from_codex_config(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-not-real")
+    monkeypatch.setattr(
+        "agent_cluster.runtime.load_codex_model_config",
+        lambda *a, **k: CodexProviderConfig(
+            name="DeepSeek",
+            base_url="https://api.deepseek.com",
+            api_key_env="DEEPSEEK_API_KEY",
+            model_name="deepseek-v4-flash",
+            provider="custom",
+        ),
+    )
+    client = ChatModelFactory().create(AgentConfig(model=ModelConfig(model_name="codex")))
+    assert isinstance(client, DeepSeekClient)
+    assert client.model == "deepseek-v4-flash"
+    assert client.api_base == "https://api.deepseek.com"
+
+
+def test_factory_codex_name_without_config_raises_value_error(monkeypatch):
+    monkeypatch.setattr("agent_cluster.runtime.load_codex_model_config", lambda *a, **k: None)
+    with pytest.raises(ValueError, match="无法解析 Codex 配置"):
+        ChatModelFactory().create(AgentConfig(model=ModelConfig(model_name="codex")))
+
+
+class _RecordingFactory:
+    """记录 create 收到的 AgentConfig，返回确定性客户端（不真实调用 API）。"""
+
+    def __init__(self) -> None:
+        self.created: list[AgentConfig] = []
+
+    def create(self, config):  # noqa: ANN001
+        self.created.append(config)
+        return DeterministicClient()
+
+
+async def test_complete_for_uses_runtime_default_model_when_role_model_none():
+    factory = _RecordingFactory()
+    runtime = AgentRuntime(
+        model_factory=factory,  # type: ignore[arg-type]
+        default_model=ModelConfig(model_name="deepseek-v4-flash"),
+    )
+    role = RoleRegistry().get("pm")
+    assert role.model is None  # 岗位未显式指定模型
+    content = await runtime.complete_for(role)
+    assert factory.created[0].model.model_name == "deepseek-v4-flash"
+    assert "产品经理" in content  # 仍按角色画像生成提示
+
+
+async def test_complete_for_role_model_takes_precedence_over_default():
+    factory = _RecordingFactory()
+    runtime = AgentRuntime(
+        model_factory=factory,  # type: ignore[arg-type]
+        default_model=ModelConfig(model_name="deepseek-v4-flash"),
+    )
+    role = RoleRegistry().get("pm").model_copy(update={"model": "gpt-4o-mini"})
+    await runtime.complete_for(role)
+    assert factory.created[0].model.model_name == "gpt-4o-mini"
+
+
+def test_agent_runtime_default_model_defaults_to_none():
+    assert AgentRuntime()._default_model is None

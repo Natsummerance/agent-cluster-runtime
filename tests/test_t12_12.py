@@ -10,12 +10,13 @@
 - c) Electron 冒烟可重复性：desktop/node_modules/.bin/electron 存在时以
   subprocess 跑 `electron . --smoke`（120s 超时）；不存在则 pytest.skip。
 
-已知发现（如实汇报，本文件按任务约束不改动 src/）：serve 的 approve/reject/
-edit/response 的 POST 路由存在历史 bug——server.py do_POST 分支要求
-len(parts)==4 且 sid, action = parts[2], parts[3]（正确应为 len(parts)==5、
-parts[3]/parts[4]），导致前端契约的 POST /api/v1/sessions/{id}/approve 等
-5 段路径实测返回 404；HITL 门在当前版本只能经 interrupt 的 reject 语义与
-yes 自动审批走通。
+回归（T12.12 修复）：serve 的 approve/reject/edit/response 的 POST 路由曾存在
+历史 bug——server.py do_POST 分支误用 len(parts)==4 且 sid, action =
+parts[2], parts[3]（正确为 len(parts)==5、parts[3]/parts[4]），导致前端契约
+的 POST /api/v1/sessions/{id}/approve 等 5 段路径返回 404；本文件下方
+test_serve_post_approve_resumes_session 与
+test_serve_post_reject_edit_response_routes 为回归用例（approve 返回 200
+且会话越过首道审批门继续；reject/edit/response 按契约返回 submitted）。
 """
 
 from __future__ import annotations
@@ -224,6 +225,96 @@ def test_serve_session_completes_with_yes(serve_process, tmp_path):
     status, body = _request("POST", f"{base}/api/v1/sessions/{session_id}/audit/export")
     assert status == 200, body
     assert body["data"]["files"].get("json")
+
+
+def test_serve_post_approve_resumes_session(serve_process, tmp_path):
+    """回归 T12.12：POST approve 应 200（submitted=accept）且会话越过首道审批门继续。"""
+    base = serve_process
+    workspace = tmp_path / "workspace-approve"
+    workspace.mkdir()
+
+    status, body = _request("POST", f"{base}/api/v1/projects", {"name": "t12-12-approve", "workspace": str(workspace)})
+    assert status == 201, body
+    project_id = body["data"]["id"]
+
+    status, body = _request(
+        "POST",
+        f"{base}/api/v1/projects/{project_id}/sessions",
+        {"goal": "验收：确定性构建最小 CLI 工具（人工审批）", "deterministic": True, "model": "deterministic"},
+    )
+    assert status == 201, body
+    session_id = body["data"]["session_id"]
+
+    snapshot = _wait_session(base, session_id, {"waiting_approval"}, timeout=60)
+    assert snapshot["status"] == "waiting_approval"
+    assert snapshot["gate_count"] >= 1, snapshot
+
+    status, body = _request("POST", f"{base}/api/v1/sessions/{session_id}/approve")
+    assert status == 200, body
+    assert body["ok"] is True
+    assert body["data"]["submitted"] == "accept"
+
+    # 会话继续：approve 被消费后应推进到下一道审批门（requirement → design_review）
+    deadline = time.time() + 90
+    last = snapshot
+    while time.time() < deadline:
+        status, body = _request("GET", f"{base}/api/v1/sessions/{session_id}")
+        last = body["data"]
+        if last["gate_count"] >= 2 or last["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.3)
+    assert last["gate_count"] >= 2, f"approve 后未推进到下一道审批门：{last}"
+    assert "requirement_confirmation" not in (last["pending_hint"] or "")
+
+
+def test_serve_post_reject_edit_response_routes(serve_process, tmp_path):
+    """回归 T12.12：reject/edit/response 的 5 段路径应 200 且按契约提交答案（不再 404）。"""
+    base = serve_process
+    workspace = tmp_path / "workspace-answers"
+    workspace.mkdir()
+
+    status, body = _request("POST", f"{base}/api/v1/projects", {"name": "t12-12-answers", "workspace": str(workspace)})
+    assert status == 201, body
+    project_id = body["data"]["id"]
+
+    status, body = _request(
+        "POST",
+        f"{base}/api/v1/projects/{project_id}/sessions",
+        {"goal": "验收：确定性构建最小 CLI 工具（答案路由）", "deterministic": True, "model": "deterministic"},
+    )
+    assert status == 201, body
+    session_id = body["data"]["session_id"]
+
+    snapshot = _wait_session(base, session_id, {"waiting_approval"}, timeout=60)
+    assert snapshot["status"] == "waiting_approval"
+
+    # response 携带 text → 200 且 submitted 为 "response <text>"，并推进到下一道门
+    status, body = _request(
+        "POST", f"{base}/api/v1/sessions/{session_id}/response", {"text": "补充验收标准"}
+    )
+    assert status == 200, body
+    assert body["data"]["submitted"] == "response 补充验收标准"
+    deadline = time.time() + 90
+    last = snapshot
+    while time.time() < deadline:
+        status, body = _request("GET", f"{base}/api/v1/sessions/{session_id}")
+        last = body["data"]
+        if last["gate_count"] >= 2 or last["status"] in ("completed", "failed"):
+            break
+        time.sleep(0.3)
+    assert last["gate_count"] >= 2, f"response 后未推进到下一道审批门：{last}"
+
+    # edit 携带 text → 200 且 submitted 为 "edit <text>"（编辑触发返工，不做推进断言）
+    status, body = _request(
+        "POST", f"{base}/api/v1/sessions/{session_id}/edit", {"text": "调整输出格式"}
+    )
+    assert status == 200, body
+    assert body["data"]["submitted"] == "edit 调整输出格式"
+
+    # reject → 200 且 submitted 为 "reject"
+    status, body = _request("POST", f"{base}/api/v1/sessions/{session_id}/reject")
+    assert status == 200, body
+    assert body["data"]["submitted"] == "reject"
 
 
 # ---------------------------------------------------------------------------

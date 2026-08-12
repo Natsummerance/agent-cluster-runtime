@@ -678,8 +678,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 and parts[4] == "sessions"
             ):
                 return self._handle_start_session(parts[3], self._read_json())
-            if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 4:
-                sid, action = parts[2], parts[3]
+            if (
+                parts[:3] == ["api", "v1", "sessions"]
+                and len(parts) == 5
+                and parts[4] in ("approve", "reject", "edit", "response")
+            ):
+                sid, action = parts[3], parts[4]
                 if action == "approve":
                     return self._handle_answer(sid, "accept")
                 if action == "reject":

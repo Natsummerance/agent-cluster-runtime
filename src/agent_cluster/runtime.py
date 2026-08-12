@@ -60,7 +60,12 @@ from agent_cluster.models import (
     Task,
     TaskStatus,
 )
-from agent_cluster.providers import CodexProviderConfig, load_codex_model_config, resolve_deepseek_defaults
+from agent_cluster.providers import (
+    CodexProviderConfig,
+    DEEPSEEK_MAX_TOKENS,
+    load_codex_model_config,
+    resolve_deepseek_defaults,
+)
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowNode
 
 __all__ = [
@@ -147,8 +152,9 @@ class DeepSeekClient(ChatModelClient):
     - 构造期检查：环境变量（缺省 ``DEEPSEEK_API_KEY``）缺失立即抛 ``RuntimeError``。
     - 默认 base_url / env_key 优先取 Codex 配置（DeepSeek 供应商），否则回落
       ``https://api.deepseek.com`` + ``DEEPSEEK_API_KEY``。
-    - 请求经 ``asyncio.to_thread`` 在后台线程执行，不阻塞事件循环；回复取
-      ``choices[0].message.content``，content 为空时回落 ``reasoning_content``。
+    - 请求经 ``asyncio.to_thread`` 在后台线程执行，不阻塞事件循环；回复只取
+      ``choices[0].message.content``（不回退思维链）；content 为空且因 token 预算
+      截断时自动扩容重试一次。
     - API key 只从环境变量读取，绝不写入仓库、日志或检查点。
     """
 
@@ -158,9 +164,10 @@ class DeepSeekClient(ChatModelClient):
         api_key_env: str | None = None,
         api_base: str | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 2048,
+        max_tokens: int = DEEPSEEK_MAX_TOKENS,
     ) -> None:
-        codex = load_codex_model_config()
+        # 仅当调用方未显式给出 api_base/api_key_env 时才解析 Codex 配置（避免重复 I/O）
+        codex = load_codex_model_config() if (api_base is None or api_key_env is None) else None
         default_base, default_env = resolve_deepseek_defaults(codex)
         env_key = api_key_env or default_env
         api_key = os.environ.get(env_key, "")
@@ -177,7 +184,11 @@ class DeepSeekClient(ChatModelClient):
         self._api_key = api_key
 
     async def complete(self, messages: list[dict]) -> str:
-        """调用 DeepSeek chat.completions（线程池内同步请求）并返回首个回复文本。"""
+        """调用 DeepSeek chat.completions（线程池内同步请求）并返回首个回复文本。
+
+        - content 为空且因 token 预算截断（finish_reason="length"）时，在
+          ``_post_chat_completion`` 内自动扩容重试一次（最多 ``DEEPSEEK_MAX_TOKENS``）。
+        """
         payload = {
             "model": self.model,
             "messages": messages,
@@ -188,35 +199,56 @@ class DeepSeekClient(ChatModelClient):
         return await asyncio.to_thread(self._post_chat_completion, payload)
 
     def _post_chat_completion(self, payload: dict) -> str:
-        """同步 POST chat/completions（urllib），返回回复文本或抛 ``RuntimeError``。"""
+        """同步 POST chat/completions（urllib），返回回复文本或抛 ``RuntimeError``。
+
+        - HTTP/网络/JSON 解码错误统一转为 ``RuntimeError``（遵守本模块「清晰错误」约定）。
+        - 只返回 ``choices[0].message.content``：reasoning 模型的 ``reasoning_content``
+          （思维链）不作为任务输出返回。
+        - content 为空且因 token 预算截断（``finish_reason="length"``，reasoning 模型
+          推理吃满预算）时扩容重试一次；重试后仍为空才抛 ``RuntimeError``。
+        """
         import json
         import urllib.error
         import urllib.request
 
         url = f"{self.api_base}/chat/completions"
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self._api_key}",
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=180) as response:
-                data = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
-            raise RuntimeError(f"DeepSeek API 请求失败（HTTP {exc.code}）：{detail}") from exc
-        except OSError as exc:
-            raise RuntimeError(f"DeepSeek API 请求失败：{exc}") from exc
-        choices = data.get("choices") or []
-        if not choices:
-            raise RuntimeError(f"DeepSeek API 响应缺少 choices：{str(data)[:500]}")
-        message = choices[0].get("message") or {}
-        content = message.get("content") or message.get("reasoning_content") or ""
-        return str(content)
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        for attempt in range(2):
+            request = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+                headers=headers,
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"DeepSeek API 请求失败（HTTP {exc.code}）：{detail}") from exc
+            except OSError as exc:
+                raise RuntimeError(f"DeepSeek API 请求失败：{exc}") from exc
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise RuntimeError(f"DeepSeek API 响应不是合法 JSON：{exc}") from exc
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError(f"DeepSeek API 响应缺少 choices：{str(data)[:500]}")
+            choice = choices[0]
+            content = (choice.get("message") or {}).get("content") or ""
+            if content:
+                return str(content)
+            truncated = choice.get("finish_reason") == "length" and attempt == 0
+            if truncated and payload.get("max_tokens", 0) < DEEPSEEK_MAX_TOKENS:
+                payload["max_tokens"] = min(payload["max_tokens"] * 4, DEEPSEEK_MAX_TOKENS)
+                continue
+            raise RuntimeError(
+                "DeepSeek API 回复 content 为空（reasoning 模型的思维链不作为任务输出）；"
+                "请检查模型名、增大 max_tokens 或改用非推理模型。"
+            )
+        raise RuntimeError("DeepSeek API 回复 content 为空：扩容重试后仍未产出最终回答。")
 
 
 class ChatModelFactory:

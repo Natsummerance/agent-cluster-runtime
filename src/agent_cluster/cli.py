@@ -49,7 +49,7 @@ from agent_cluster.models import (
     TaskStatus,
 )
 from agent_cluster.roles import RoleRegistry, build_role_catalog
-from agent_cluster.runtime import AgentRuntime, make_agent_handler
+from agent_cluster.runtime import AgentRuntime, ChatModelFactory, make_agent_handler
 from agent_cluster.skills import SkillLoader
 from agent_cluster.workflow import WorkflowEngine
 
@@ -307,8 +307,22 @@ def _print_summary(summary: RunSummary, out: TextIO) -> None:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    """run 子命令：编译并运行流程。"""
+    """run 子命令：编译并运行流程。
+
+    - 若指定了 ``--model``/``DEEPSEEK_MODEL``，先构造一次模型客户端做启动校验
+      （fail-fast）：key 缺失、Codex 配置无法解析、模型名未知时立即报错返回 1，
+      而不是等首个岗位节点才暴露。
+    """
     out = sys.stdout
+    model_name = args.model or os.environ.get("DEEPSEEK_MODEL") or None
+    if model_name:
+        try:
+            ChatModelFactory().create(
+                models.AgentConfig(model=models.ModelConfig(model_name=model_name))
+            )
+        except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+            print(f"模型配置无效（{model_name}）：{exc}", file=sys.stderr)
+            return 1
     try:
         summary = asyncio.run(
             run_flow(

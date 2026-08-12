@@ -9,8 +9,9 @@
   ——优先取 Codex 配置中 DeepSeek 供应商的值，否则回落 ``https://api.deepseek.com`` +
   ``DEEPSEEK_API_KEY``。
 
-本模块不依赖运行时任何组件（避免循环导入），供 ``runtime.ChatModelFactory`` 使用。
-API key 只从环境变量或 Codex 配置读取，绝不写入仓库或日志。
+本模块对应设计文档 §5.1 模型接入层，不依赖运行时任何组件（避免循环导入），
+供 ``runtime.ChatModelFactory`` 使用。API key 只从环境变量或 Codex 配置读取，
+绝不写入仓库或日志。
 """
 
 from __future__ import annotations
@@ -24,12 +25,15 @@ __all__ = [
     "CodexProviderConfig",
     "DEEPSEEK_DEFAULT_BASE_URL",
     "DEEPSEEK_DEFAULT_ENV_KEY",
+    "DEEPSEEK_MAX_TOKENS",
     "load_codex_model_config",
     "resolve_deepseek_defaults",
 ]
 
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_DEFAULT_ENV_KEY = "DEEPSEEK_API_KEY"
+# chat/completions 单次输出上限（reasoning 模型总 token 含思维链与最终回答）
+DEEPSEEK_MAX_TOKENS = 8192
 
 
 @dataclass(frozen=True)

@@ -153,6 +153,13 @@ def test_cli_metrics_demo_exit_zero():
     assert main(["metrics", "demo"]) == 0
 
 
+
+
+def test_cli_run_unknown_model_returns_one(monkeypatch):
+    """--model 无效：启动即报错（fail-fast），退出码 1，不进入流程执行。"""
+    monkeypatch.delenv("DEEPSEEK_MODEL", raising=False)
+    assert main(["run", "--flow", str(FLOW_PATH), "--model", "llama-3"]) == 1
+
 def test_cli_help_via_python_module_subprocess():
     """子进程冒烟：python -m agent_cluster --help 退出码 0。"""
     result = subprocess.run(

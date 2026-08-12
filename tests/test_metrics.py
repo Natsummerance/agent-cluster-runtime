@@ -87,29 +87,79 @@ def test_review_pass_rate_below_threshold_triggers_signal():
     assert signal.evidence == ["review_pass_rate=0.4"]
 
 
-def test_rework_rate_above_threshold_triggers_signal():
+def test_rework_rate_single_window_breach_does_not_fire():
+    # 无迭代标签：单点（单窗口）即使 >0.3 也不触发，需连续 2 个窗口
     collector = MetricsCollector()
+    collector.record("rework_rate", 0.5)
+    assert MetricRules.evaluate(collector.snapshot()) == []
+
+
+def test_rework_rate_single_iteration_breach_does_not_fire():
+    # 单个迭代越界属于噪音，不得触发进化信号
+    collector = MetricsCollector()
+    collector.record("rework_rate", 0.5, tags={"iteration": "iter-1"})
+    assert MetricRules.evaluate(collector.snapshot()) == []
+
+
+def test_rework_rate_two_consecutive_windows_trigger_signal():
+    collector = MetricsCollector()
+    collector.record("rework_rate", 0.4)
     collector.record("rework_rate", 0.5)
     signals = MetricRules.evaluate(collector.snapshot())
     assert len(signals) == 1
     assert signals[0].severity == "high"
-    assert signals[0].evidence == ["rework_rate=0.5"]
+    assert signals[0].evidence == ["rework_rate=0.4", "rework_rate=0.5"]
 
 
-def test_rework_rate_uses_latest_iteration_window():
+def test_rework_rate_two_consecutive_iterations_trigger_signal():
     collector = MetricsCollector()
     collector.record("rework_rate", 0.4, tags={"iteration": "iter-1"})
     collector.record("rework_rate", 0.5, tags={"iteration": "iter-2"})
     signals = MetricRules.evaluate(collector.snapshot())
     assert len(signals) == 1
-    # 仅最新迭代窗口（iter-2）进入证据
-    assert signals[0].evidence == ["rework_rate=0.5"]
+    # 两个迭代窗口的实际值都进入证据（含迭代标签）
+    assert signals[0].evidence == [
+        "rework_rate=0.4@iter=iter-1",
+        "rework_rate=0.5@iter=iter-2",
+    ]
+
+
+def test_rework_rate_previous_window_healthy_no_signal():
+    collector = MetricsCollector()
+    collector.record("rework_rate", 0.1, tags={"iteration": "iter-1"})
+    collector.record("rework_rate", 0.5, tags={"iteration": "iter-2"})
+    assert MetricRules.evaluate(collector.snapshot()) == []
 
 
 def test_rework_rate_latest_window_healthy_no_signal():
     collector = MetricsCollector()
     collector.record("rework_rate", 0.4, tags={"iteration": "iter-1"})
     collector.record("rework_rate", 0.1, tags={"iteration": "iter-2"})
+    assert MetricRules.evaluate(collector.snapshot()) == []
+
+
+def test_rework_rate_uses_natural_iteration_order():
+    # 迭代标签按数值自然排序：iter-10 才是最新窗口（字典序会误判 iter-9）
+    collector = MetricsCollector()
+    for iteration in (
+        "iter-1", "iter-2", "iter-3", "iter-4", "iter-5",
+        "iter-6", "iter-7", "iter-8", "iter-9", "iter-10",
+    ):
+        value = 0.5 if iteration in ("iter-9", "iter-10") else 0.1
+        collector.record("rework_rate", value, tags={"iteration": iteration})
+    signals = MetricRules.evaluate(collector.snapshot())
+    assert len(signals) == 1
+    assert signals[0].evidence == [
+        "rework_rate=0.5@iter=iter-9",
+        "rework_rate=0.5@iter=iter-10",
+    ]
+
+
+def test_rework_rate_latest_iteration_selected_naturally():
+    # 回归：字典序会误选 iter-9 为"最新"而误报；数值序选 iter-10（健康）→ 不触发
+    collector = MetricsCollector()
+    collector.record("rework_rate", 0.5, tags={"iteration": "iter-9"})
+    collector.record("rework_rate", 0.1, tags={"iteration": "iter-10"})
     assert MetricRules.evaluate(collector.snapshot()) == []
 
 
@@ -162,6 +212,7 @@ def test_evaluate_returns_signals_for_each_breach():
     collector = MetricsCollector()
     collector.record("review_pass_rate", 0.4)
     collector.record("rework_rate", 0.5)
+    collector.record("rework_rate", 0.6)
     collector.record("action_item_close_rate", 0.3)
     collector.record("loop_iterations", 1, ts=datetime(2026, 8, 1, 10, 0, 0))
     collector.record("loop_iterations", 2, ts=datetime(2026, 8, 1, 10, 1, 0))
@@ -189,9 +240,42 @@ def test_review_pass_rate_boundary():
 
 
 def test_rework_rate_boundary():
-    healthy = MetricsSnapshot(metrics={"rework_rate": [MetricPoint(name="rework_rate", value=0.3)]})
-    assert MetricRules.evaluate(healthy) == []
-    breach = MetricsSnapshot(metrics={"rework_rate": [MetricPoint(name="rework_rate", value=0.301)]})
+    # 严格 > 0.3：任一窗口恰为 0.3 不构成越界
+    both_at_threshold = MetricsSnapshot(
+        metrics={
+            "rework_rate": [
+                MetricPoint(name="rework_rate", value=0.3, tags={"iteration": "iter-1"}),
+                MetricPoint(name="rework_rate", value=0.3, tags={"iteration": "iter-2"}),
+            ]
+        }
+    )
+    assert MetricRules.evaluate(both_at_threshold) == []
+    previous_at_threshold = MetricsSnapshot(
+        metrics={
+            "rework_rate": [
+                MetricPoint(name="rework_rate", value=0.3, tags={"iteration": "iter-1"}),
+                MetricPoint(name="rework_rate", value=0.5, tags={"iteration": "iter-2"}),
+            ]
+        }
+    )
+    assert MetricRules.evaluate(previous_at_threshold) == []
+    latest_at_threshold = MetricsSnapshot(
+        metrics={
+            "rework_rate": [
+                MetricPoint(name="rework_rate", value=0.4, tags={"iteration": "iter-1"}),
+                MetricPoint(name="rework_rate", value=0.3, tags={"iteration": "iter-2"}),
+            ]
+        }
+    )
+    assert MetricRules.evaluate(latest_at_threshold) == []
+    breach = MetricsSnapshot(
+        metrics={
+            "rework_rate": [
+                MetricPoint(name="rework_rate", value=0.301, tags={"iteration": "iter-1"}),
+                MetricPoint(name="rework_rate", value=0.4, tags={"iteration": "iter-2"}),
+            ]
+        }
+    )
     assert len(MetricRules.evaluate(breach)) == 1
 
 

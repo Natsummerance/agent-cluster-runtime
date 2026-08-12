@@ -13,8 +13,8 @@
 阈值规则（每条产出 ``type="metric_threshold"`` 信号，evidence 取自真实度量点）：
 
 - ``review_pass_rate < 0.6``：评审通过率过低（high）；
-- ``rework_rate > 0.3``：返工率过高（high），取"最新迭代窗口"
-  （有 ``iteration`` 标签时取最新迭代的一组点，否则取最新一个点）；
+- ``rework_rate`` 最新连续 2 个迭代窗口均 ``> 0.3``：返工率过高（high），
+  单个迭代噪音不触发（无 ``iteration`` 标签时取最新连续 2 个点作为窗口）；
 - ``action_item_close_rate < 0.5``：行动项关闭率过低（medium）；
 - ``loop_iterations`` 最新值 > 3 × 历史均值：循环次数激增（medium）；
 - ``gate_wait_seconds > 86400``：审批门等待超时（medium）。
@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -126,9 +127,9 @@ class MetricRules:
             )
 
         rework_points = metrics.get("rework_rate", [])
-        rework_window = MetricRules._latest_window(rework_points)
-        if rework_window and MetricRules._latest_value(rework_window) > REWORK_RATE_THRESHOLD:
-            signals.append(MetricRules._build_signal("rework_rate", rework_window, "high"))
+        rework_signal = MetricRules._rework_breach_signal(rework_points)
+        if rework_signal is not None:
+            signals.append(rework_signal)
 
         close_points = metrics.get("action_item_close_rate", [])
         if close_points and MetricRules._latest_value(close_points) < ACTION_ITEM_CLOSE_RATE_THRESHOLD:
@@ -159,15 +160,55 @@ class MetricRules:
         return sorted(points, key=lambda point: point.ts)[-1].value
 
     @staticmethod
-    def _latest_window(points: list[MetricPoint]) -> list[MetricPoint]:
-        """最新迭代窗口：有 ``iteration`` 标签时取最新迭代的全部点，否则取最新一个点。"""
+    def _iteration_sort_key(iteration: str) -> tuple[int, int, str]:
+        """迭代标签自然排序键：``iter-10 > iter-9 > iter-2``（数字后缀按数值比较，
+        避免字典序 ``iter-10 < iter-2`` 的误判）；无数字后缀回退字符串并排最前。"""
+        match = re.search(r"(\d+)\s*$", iteration)
+        if match:
+            return (1, int(match.group(1)), iteration)
+        return (0, 0, iteration)
+
+    @staticmethod
+    def _windows(points: list[MetricPoint]) -> list[list[MetricPoint]]:
+        """把度量点分组为迭代窗口（按迭代标签自然排序升序）；无迭代标签时每个点视为一个窗口。"""
         if not points:
             return []
         tagged = [point for point in points if point.tags.get("iteration")]
         if tagged:
-            latest_iteration = max(point.tags["iteration"] for point in tagged)
-            return [point for point in points if point.tags.get("iteration") == latest_iteration]
-        return [sorted(points, key=lambda point: point.ts)[-1]]
+            grouped: dict[str, list[MetricPoint]] = {}
+            for point in points:
+                grouped.setdefault(point.tags.get("iteration", ""), []).append(point)
+            ordered = sorted(grouped.items(), key=lambda item: MetricRules._iteration_sort_key(item[0]))
+            return [window for _, window in ordered]
+        return [[point] for point in sorted(points, key=lambda point: point.ts)]
+
+    @staticmethod
+    def _rework_breach_signal(points: list[MetricPoint]) -> Signal | None:
+        """返工率规则：最新连续 2 个窗口（迭代）均严格 ``> 0.3`` 才触发；
+        evidence 同时包含两个窗口的实际度量值（含迭代标签）。"""
+        windows = MetricRules._windows(points)
+        if len(windows) < 2:
+            return None
+        latest_windows = windows[-2:]
+        for window in latest_windows:
+            if MetricRules._latest_value(window) <= REWORK_RATE_THRESHOLD:
+                return None
+        evidence: list[str] = []
+        for window in latest_windows:
+            for point in window:
+                iteration = point.tags.get("iteration")
+                if iteration:
+                    evidence.append(f"{point.name}={point.value}@iter={iteration}")
+                else:
+                    evidence.append(f"{point.name}={point.value}")
+        return Signal(
+            id=uuid.uuid4().hex,
+            type="metric_threshold",
+            source="metric_rules",
+            evidence=evidence,
+            severity="high",
+            ts=sorted(points, key=lambda point: point.ts)[-1].ts,
+        )
 
     @staticmethod
     def _build_signal(name: str, points: list[MetricPoint], severity: Literal["medium", "high"]) -> Signal:

@@ -30,7 +30,15 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 from agent_cluster.memory import MemoryStore
+from agent_cluster.models import TokenUsage
+from agent_cluster.pricing import CostLedger
 from agent_cluster.session import SessionDriver
+from agent_cluster.trace import (
+    JsonlExporter,
+    Tracer,
+    build_audit_package,
+    compute_health,
+)
 
 __all__ = [
     "SessionEventLog",
@@ -180,6 +188,7 @@ class ServerSession:
         self._change_queue: queue.Queue[str] = queue.Queue()
         self.token_summary: dict[str, Any] = {}
         self.delivery: dict | None = None
+        self.tracer = Tracer(JsonlExporter(workspace))
 
     # ------------------------------------------------------------------
     # HITL 桥接（driver.prompt_fn）
@@ -190,12 +199,16 @@ class ServerSession:
         self.pending_hint = hint
         self.status = "waiting_approval"
         self.log.append({"type": "approval.pending", "session_id": self.session_id, "payload": {"hint": hint}})
-        while True:
-            try:
-                answer = self._answer_queue.get(timeout=30)
-            except queue.Empty:
-                continue
-            return answer
+        span = self.tracer.start_span("approval.wait", kind="approval", hint=hint)
+        try:
+            while True:
+                try:
+                    answer = self._answer_queue.get(timeout=30)
+                except queue.Empty:
+                    continue
+                return answer
+        finally:
+            self.tracer.end_span(span)
 
     def _print_fn(self, text: str) -> None:
         self.log.append({"type": "log", "session_id": self.session_id, "payload": {"text": text}})
@@ -234,6 +247,9 @@ class ServerSession:
 
     def start(self) -> None:
         def _run() -> None:
+            span = self.tracer.start_span(
+                "session.run", kind="session", goal=str(self.spec.get("goal") or "")
+            )
             try:
                 driver = SessionDriver(
                     workspace=self.workspace,
@@ -264,6 +280,8 @@ class ServerSession:
                 self.log.append(
                     {"type": "session.error", "session_id": self.session_id, "payload": {"error": str(exc)}}
                 )
+            finally:
+                self.tracer.end_span(span)
 
         self.thread = threading.Thread(target=_run, name=f"session-{self.session_id}", daemon=True)
         self.thread.start()
@@ -304,9 +322,81 @@ class ServerSession:
             "phases": phases,
             "transcript_count": transcript_count,
             "gate_count": gate_count,
+            "health": self.health_snapshot(),
             "error": self.error,
             "exit_code": self.exit_code,
         }
+
+
+    # ------------------------------------------------------------------
+    # 可观测性：审计数据 + 健康指标
+    # ------------------------------------------------------------------
+
+    def audit_data(self) -> dict[str, Any]:
+        """收集审计数据（事件/审批/token/变更/span/成本），供 GET 与导出。"""
+        driver = self.driver
+        events = self.log.replay()
+        approvals: list[Any] = []
+        token_summary: dict[str, Any] = {}
+        changes: list[Any] = []
+        spans = self.tracer.spans()
+        cost: dict[str, Any] = {"by_model": {}, "total": 0.0, "currency": "USD"}
+        if driver is not None:
+            record = driver.store.record
+            approvals = [item.model_dump() for item in record.gate_decisions]
+            token_summary = record.token_ledger.summary()
+            changes = [item.model_dump() for item in driver.change_history.list()]
+            ledger = CostLedger()
+            for entry in record.token_ledger.entries:
+                ledger.record(
+                    TokenUsage(
+                        model=entry.model,
+                        prompt_tokens=entry.prompt_tokens,
+                        completion_tokens=entry.completion_tokens,
+                        total_tokens=entry.total_tokens,
+                        estimated=entry.estimated,
+                    )
+                )
+            cost = ledger.summary()
+        return {
+            "session_id": self.session_id,
+            "goal": str(self.spec.get("goal") or ""),
+            "events": events,
+            "approvals": approvals,
+            "token_summary": token_summary,
+            "changes": changes,
+            "spans": [span.to_dict() for span in spans],
+            "cost": cost,
+        }
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """四类健康指标（eval 趋势 / token 成本 / 预估准确率 / 返工率）。"""
+        driver = self.driver
+        empty = {
+            "eval_pass_rate_trend": None,
+            "token_cost": {"used": 0, "budget": 0, "cost": 0.0, "currency": "USD"},
+            "estimate_accuracy": None,
+            "rework_rate": 0.0,
+        }
+        if driver is None:
+            return empty
+        record = driver.store.record
+        ledger = CostLedger()
+        for entry in record.token_ledger.entries:
+            ledger.record(
+                TokenUsage(
+                    model=entry.model,
+                    prompt_tokens=entry.prompt_tokens,
+                    completion_tokens=entry.completion_tokens,
+                    total_tokens=entry.total_tokens,
+                    estimated=entry.estimated,
+                )
+            )
+        return compute_health(
+            token_ledger=record.token_ledger,
+            gate_decisions=record.gate_decisions,
+            cost=ledger.summary(),
+        )
 
 
 class WorkbenchServer:
@@ -383,17 +473,24 @@ class WorkbenchServer:
         total_tokens = 0
         total_cost = 0.0
         sessions_info: list[dict] = []
+        health: list[dict] = []
         for session in self.sessions.values():
             token = session.token_summary or {}
             total_tokens += int(token.get("used", 0) or 0)
+            data = session.audit_data()
+            total_cost += float((data["cost"] or {}).get("total", 0.0) or 0.0)
             sessions_info.append(
                 {"session_id": session.session_id, "status": session.status, "goal": session.spec.get("goal", "")}
+            )
+            health.append(
+                {"session_id": session.session_id, "status": session.status, **session.health_snapshot()}
             )
         return {
             "sessions": sessions_info,
             "active": sum(1 for s in self.sessions.values() if s.status in ("running", "waiting_approval")),
             "total_tokens": total_tokens,
-            "total_cost": total_cost,
+            "total_cost": round(total_cost, 6),
+            "health": health,
             "updated_at": _now_iso(),
         }
 
@@ -489,6 +586,9 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_session_detail(parts[3])
             if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "changes":
                 return self._handle_changes(parts[3])
+            if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "audit":
+                return self._handle_audit(parts[3])
+                return self._handle_changes(parts[3])
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -537,6 +637,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 and parts[4] == "rollback"
             ):
                 return self._handle_rollback(parts[3], self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "sessions"]
+                and len(parts) == 6
+                and parts[4] == "audit"
+                and parts[5] == "export"
+            ):
+                return self._handle_audit_export(parts[3])
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "memory"]
@@ -751,6 +858,27 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         store = self.server.workbench.memory_store(None)
         ok = store.promote(item_id, human_confirm=True)
         _send_json(self, 200, {"ok": ok, "data": {"promoted": ok}})
+
+    def _handle_audit(self, session_id: str) -> None:
+        session = self.server.workbench.get_session(session_id)
+        _send_json(self, 200, {"ok": True, "data": session.audit_data()})
+
+    def _handle_audit_export(self, session_id: str) -> None:
+        session = self.server.workbench.get_session(session_id)
+        data = session.audit_data()
+        files = build_audit_package(
+            workspace=session.workspace,
+            session_id=session.session_id,
+            goal=data["goal"],
+            events=data["events"],
+            approvals=data["approvals"],
+            token_summary=data["token_summary"],
+            change_records=data["changes"],
+            spans=session.tracer.spans(),
+            cost=data["cost"],
+        )
+        session.log.append({"type": "audit.exported", "session_id": session.session_id, "payload": files})
+        _send_json(self, 200, {"ok": True, "data": {"files": files}})
 
     def _handle_plugins(self) -> None:
         _send_json(self, 200, {"ok": True, "data": {"note": "插件列表由 CLI plugins list 提供（T12.11 接线面板）"}})

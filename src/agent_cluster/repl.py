@@ -20,7 +20,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_resource_tool, register_mcp_tools
+from agent_cluster.mcp_client import (
+    StdioMCPClient,
+    StreamableHTTPMCPClient,
+    parse_http_server,
+    parse_server_command,
+    register_mcp_resource_tool,
+    register_mcp_tools,
+)
 from agent_cluster.models import AgentConfig, ModelConfig, Role, TokenUsage
 from agent_cluster.runtime import ChatModelFactory
 from agent_cluster.session import DEFAULT_TOKEN_BUDGET, TokenLedger
@@ -94,6 +101,7 @@ class ReplSession:
         yes: bool = False,
         skills_root: str | None = None,
         mcp_servers: Sequence[str] | None = None,
+        mcp_http_servers: Sequence[str] | None = None,
         tool_script: Sequence[dict] | None = None,
         sandbox: Any | None = None,
         plugin_manager: Any | None = None,
@@ -134,11 +142,13 @@ class ReplSession:
 
         # 工具会话（工作区 + MCP）：MCP 连接延迟到 _setup（单一事件循环内）
         self.mcp_servers = list(mcp_servers or [])
+        self.mcp_http_servers = list(mcp_http_servers or [])
         self.tool_script = list(tool_script or [])
         self.sandbox = sandbox
         self.tool_session: ToolSession | None = None
         self.client: Any | None = None
         self._mcp_clients: list[StdioMCPClient] = []
+        self._mcp_http_clients: list[StreamableHTTPMCPClient] = []
 
     # ------------------------------------------------------------------
     # 初始化（单一事件循环内执行）
@@ -151,6 +161,13 @@ class ReplSession:
             server_name, argv = parse_server_command(server_spec)
             client = StdioMCPClient(server_name, argv)
             self._mcp_clients.append(client)
+            await client.connect()  # 连接失败 fail-fast（与 run/build 一致）
+            await register_mcp_tools(registry, client, server_name)
+            await register_mcp_resource_tool(registry, client, server_name)
+        for server_spec in self.mcp_http_servers:
+            server_name, url, token = parse_http_server(server_spec)
+            client = StreamableHTTPMCPClient(server_name, url, token=token)
+            self._mcp_http_clients.append(client)
             await client.connect()  # 连接失败 fail-fast（与 run/build 一致）
             await register_mcp_tools(registry, client, server_name)
             await register_mcp_resource_tool(registry, client, server_name)

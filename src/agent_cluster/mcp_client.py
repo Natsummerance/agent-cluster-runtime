@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import urllib.error
+import urllib.request
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -36,9 +38,11 @@ from agent_cluster.tools import (
 __all__ = [
     "MCPError",
     "StdioMCPClient",
+    "StreamableHTTPMCPClient",
     "register_mcp_resource_tool",
     "register_mcp_tools",
     "parse_server_command",
+    "parse_http_server",
 ]
 
 DEFAULT_MCP_TIMEOUT = 30.0
@@ -90,6 +94,153 @@ def parse_server_command(spec: str) -> tuple[str, list[str]]:
     if not name or not command:
         raise MCPError(f"非法 MCP 服务器参数：{spec!r}（格式 name=command）")
     return name, _split_command(command)
+
+
+def parse_http_server(spec: str) -> tuple[str, str, str]:
+    """解析 ``name=url[#token=...]`` -> (name, url, token)。
+
+    - ``url`` 必须是 http(s):// 开头的 MCP Streamable HTTP 端点；
+    - 静态 bearer token 经 URL fragment ``#token=...`` 传入（不落库到命令行历史）。
+    """
+    name, _, rest = spec.partition("=")
+    name = name.strip()
+    rest = rest.strip()
+    if not name or not rest.startswith(("http://", "https://")):
+        raise MCPError(
+            f"非法 MCP HTTP 服务器参数：{spec!r}（格式 name=http(s)://host/path，可选 #token=...）"
+        )
+    token = ""
+    if "#token=" in rest:
+        rest, _, token = rest.partition("#token=")
+        token = token.strip()
+    return name, rest, token
+
+
+class StreamableHTTPMCPClient:
+    """MCP Streamable HTTP 客户端：stdlib urllib 一次性 POST，JSON-RPC 2.0。
+
+    - 静态 bearer token（可选）；``initialize`` -> ``notifications/initialized``
+      -> ``tools/list`` -> ``tools/call`` / ``resources/list`` -> ``resources/read``。
+    - 响应兼容 ``application/json`` 与 ``text/event-stream``（SSE 取 ``data:`` 行）。
+    - 所有请求经 ``asyncio.to_thread`` 执行，可在会话事件循环内安全调用。
+    """
+
+    def __init__(
+        self,
+        server_name: str,
+        url: str,
+        *,
+        token: str = "",
+        timeout: float = DEFAULT_MCP_TIMEOUT,
+    ) -> None:
+        self.server_name = server_name
+        self.url = url
+        self.token = token
+        self.timeout = timeout
+        self._next_id = 0
+        self.server_info: dict[str, Any] = {}
+        self._connected = False
+
+    def _post_sync(self, payload: dict) -> tuple[int, str, str]:
+        """同步 POST（在 to_thread 内执行）。"""
+        data = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": PROTOCOL_VERSION,
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        req = urllib.request.Request(self.url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                return resp.status, resp.headers.get("Content-Type", ""), body
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            return exc.code, exc.headers.get("Content-Type", ""), body
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise MCPError(f"MCP HTTP 服务器 {self.server_name} 请求失败：{exc}") from exc
+
+    @staticmethod
+    def _parse_body(content_type: str, body: str) -> dict:
+        if "text/event-stream" in (content_type or "").lower():
+            for line in body.splitlines():
+                line = line.strip()
+                if line.startswith("data:"):
+                    payload = line[5:].strip()
+                    if payload:
+                        try:
+                            return json.loads(payload)
+                        except json.JSONDecodeError as exc:
+                            raise MCPError(f"MCP HTTP SSE data 载荷非 JSON：{payload[:200]!r}") from exc
+            raise MCPError("MCP HTTP 服务器 SSE 响应中未找到 data 载荷")
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise MCPError(f"MCP HTTP 服务器返回非 JSON 响应：{body[:200]!r}") from exc
+        if not isinstance(data, dict):
+            raise MCPError(f"MCP HTTP 响应不是 JSON 对象：{str(data)[:200]!r}")
+        return data
+
+    async def _post(self, payload: dict) -> tuple[int, str, str]:
+        return await asyncio.to_thread(self._post_sync, payload)
+
+    async def request(self, method: str, params: dict | None = None) -> dict:
+        """发送一次 JSON-RPC 请求并返回 result。"""
+        self._next_id += 1
+        payload: dict[str, Any] = {
+            "jsonrpc": "2.0",
+            "id": self._next_id,
+            "method": method,
+            "params": params or {},
+        }
+        status, content_type, body = await self._post(payload)
+        if status >= 400:
+            raise MCPError(f"MCP HTTP {method} 失败：HTTP {status} {body[:300]}")
+        result = self._parse_body(content_type, body)
+        if "error" in result and result.get("error") is not None:
+            err = result["error"]
+            raise MCPError(f"MCP HTTP {method} RPC 错误：{err.get('message', err)}")
+        if "result" not in result:
+            raise MCPError(f"MCP HTTP {method} 响应缺少 result：{str(result)[:200]}")
+        value = result["result"]
+        return value if isinstance(value, dict) else {"value": value}
+
+    async def connect(self) -> dict[str, Any]:
+        """完成 initialize 握手，返回 serverInfo。"""
+        if self._connected:
+            return self.server_info
+        info = await self.request(
+            "initialize",
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "agent-cluster", "version": "0.5.0"},
+            },
+        )
+        self.server_info = dict(info or {})
+        # notifications/initialized（无 id 的通知，错误可忽略）
+        try:
+            await self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except MCPError:
+            pass
+        self._connected = True
+        return self.server_info
+
+    async def list_tools(self) -> list[dict]:
+        result = await self.request("tools/list")
+        return list(result.get("tools") or [])
+
+    async def list_resources(self) -> list[dict]:
+        result = await self.request("resources/list")
+        return list(result.get("resources") or [])
+
+    async def read_resource(self, uri: str) -> dict:
+        return await self.request("resources/read", {"uri": uri})
+
+    async def call_tool(self, name: str, args: dict | None = None) -> dict:
+        return await self.request("tools/call", {"name": name, "arguments": dict(args or {})})
 
 
 class StdioMCPClient:

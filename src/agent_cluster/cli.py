@@ -40,6 +40,8 @@ from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import (
     StdioMCPClient,
+    StreamableHTTPMCPClient,
+    parse_http_server,
     parse_server_command,
     register_mcp_resource_tool,
     register_mcp_tools,
@@ -122,6 +124,7 @@ async def run_flow(
     prompt: Callable[[str], str] | None = None,
     workspace: str | None = None,
     mcp_servers: Sequence[str] | None = None,
+    mcp_http_servers: Sequence[str] | None = None,
     max_rounds: int | None = None,
     tool_script: list[dict] | None = None,
     skills_root: str | None = None,
@@ -176,6 +179,12 @@ async def run_flow(
         for server_spec in mcp_servers or []:
             server_name, argv = parse_server_command(server_spec)
             mcp_client = StdioMCPClient(server_name, argv)
+            await mcp_client.connect()  # fail-fast：连不上立即报错
+            await register_mcp_tools(registry, mcp_client, server_name)
+            await register_mcp_resource_tool(registry, mcp_client, server_name)
+        for server_spec in mcp_http_servers or []:
+            server_name, url, token = parse_http_server(server_spec)
+            mcp_client = StreamableHTTPMCPClient(server_name, url, token=token)
             await mcp_client.connect()  # fail-fast：连不上立即报错
             await register_mcp_tools(registry, mcp_client, server_name)
             await register_mcp_resource_tool(registry, mcp_client, server_name)
@@ -443,6 +452,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 print_request=lambda request: _print_request(request, out),
                 workspace=args.workspace,
                 mcp_servers=list(args.mcp or []),
+                mcp_http_servers=list(args.mcp_http or []),
                 max_rounds=args.max_rounds,
                 tool_script=tool_script,
                 skills_root=args.skills_root,
@@ -674,6 +684,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         workspace=args.workspace,
         plugin_dirs=list(args.plugin_dir or []),
         mcp_servers=list(args.mcp or []),
+        mcp_http_servers=list(args.mcp_http or []),
         skip_docker_check=args.skip_docker_check,
     )
     print(report.render())
@@ -879,6 +890,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 role_tool_scripts=role_tool_scripts,
                 skills_root=args.skills_root,
                 mcp_servers=list(args.mcp or []),
+                mcp_http_servers=list(args.mcp_http or []),
                 max_rounds=args.max_rounds,
                 print_fn=lambda s: print(s, file=out),
                 plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
@@ -1004,6 +1016,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         yes=args.yes,
         skills_root=args.skills_root,
         mcp_servers=list(args.mcp or []),
+        mcp_http_servers=list(args.mcp_http or []),
         plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
         sandbox=_sandbox,
     )
@@ -1065,6 +1078,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="MCP stdio 服务器（可重复）：name=command，工具注册为 mcp_<name>_<tool>（危险权限）",
     )
     run_parser.add_argument(
+        "--mcp-http",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help="MCP Streamable HTTP 服务器（可重复）：name=http(s)://host/path，可选 #token=...（危险权限）",
+    )
+    run_parser.add_argument(
         "--max-rounds",
         type=int,
         default=None,
@@ -1116,6 +1136,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--mcp", action="append", default=[], metavar="NAME=COMMAND",
         help="MCP stdio 服务器（可重复），外部工具一律危险权限",
     )
+    build_parser.add_argument(
+        "--mcp-http", action="append", default=[], metavar="NAME=URL",
+        help="MCP Streamable HTTP 服务器（可重复，可选 #token=...），外部工具一律危险权限",
+    )
     build_parser.add_argument("--max-rounds", type=int, default=None, help="工具模式 ReAct 最大轮数（缺省 6）")
     build_parser.set_defaults(func=_cmd_build)
 
@@ -1139,6 +1163,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--mcp", action="append", default=[], metavar="NAME=COMMAND",
         help="MCP stdio 服务器（可重复），外部工具一律危险权限",
     )
+    chat_parser.add_argument(
+        "--mcp-http", action="append", default=[], metavar="NAME=URL",
+        help="MCP Streamable HTTP 服务器（可重复，可选 #token=...），外部工具一律危险权限",
+    )
     chat_parser.set_defaults(func=_cmd_chat)
 
     serve_parser = subparsers.add_parser(
@@ -1160,6 +1188,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument(
         "--mcp", action="append", default=[], metavar="NAME=COMMAND",
         help="检查 MCP 服务器参数可解析（信息性，可重复）",
+    )
+    doctor_parser.add_argument(
+        "--mcp-http", action="append", default=[], metavar="NAME=URL",
+        help="检查 MCP Streamable HTTP 服务器参数可解析（信息性，可重复）",
     )
     doctor_parser.add_argument(
         "--skip-docker-check", action="store_true",

@@ -41,7 +41,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent_cluster.changes import ChangeHistory
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
-from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_resource_tool, register_mcp_tools
+from agent_cluster.mcp_client import (
+    StdioMCPClient,
+    StreamableHTTPMCPClient,
+    parse_http_server,
+    parse_server_command,
+    register_mcp_resource_tool,
+    register_mcp_tools,
+)
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.models import (
     ActionRequest,
@@ -712,6 +719,7 @@ class SessionDriver:
         role_tool_scripts: dict[str, list[dict]] | None = None,
         skills_root: str | None = None,
         mcp_servers: Sequence[str] | None = None,
+        mcp_http_servers: Sequence[str] | None = None,
         max_rounds: int | None = None,
         prompt_fn: Callable[[str], str] | None = None,
         print_fn: Callable[[str], None] | None = None,
@@ -733,6 +741,7 @@ class SessionDriver:
         self.role_tool_scripts = {k: list(v) for k, v in (role_tool_scripts or {}).items()}
         self.skills_root = skills_root
         self.mcp_servers = list(mcp_servers or [])
+        self.mcp_http_servers = list(mcp_http_servers or [])
         self.max_rounds = max_rounds
         self.prompt_fn = prompt_fn if prompt_fn is not None else input
         self.print_fn = print_fn if print_fn is not None else print
@@ -1233,6 +1242,12 @@ class SessionDriver:
             for server_spec in self.mcp_servers:
                 server_name, argv = parse_server_command(server_spec)
                 mcp_client = StdioMCPClient(server_name, argv)
+                await mcp_client.connect()
+                await register_mcp_tools(registry, mcp_client, server_name)
+                await register_mcp_resource_tool(registry, mcp_client, server_name)
+            for server_spec in self.mcp_http_servers:
+                server_name, url, token = parse_http_server(server_spec)
+                mcp_client = StreamableHTTPMCPClient(server_name, url, token=token)
                 await mcp_client.connect()
                 await register_mcp_tools(registry, mcp_client, server_name)
                 await register_mcp_resource_tool(registry, mcp_client, server_name)

@@ -110,6 +110,23 @@ def _check_git() -> CheckResult:
     return CheckResult(name="git", ok=result.returncode == 0, detail=version or "git 可用", required=True)
 
 
+def _check_node() -> CheckResult:
+    """Node.js 是否可用（v0.5 前端工作台/Electron 打包链；信息性）。"""
+    if shutil.which("node") is None:
+        return CheckResult(
+            name="node",
+            ok=False,
+            detail="Node.js 未安装（v0.5 前端工作台/Electron 打包需要；后端 CLI 不依赖）",
+            required=False,
+        )
+    try:
+        result = subprocess.run(["node", "--version"], capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return CheckResult(name="node", ok=False, detail=f"node 执行失败：{exc}", required=False)
+    version = (result.stdout or result.stderr).decode("utf-8", errors="replace").strip()
+    return CheckResult(name="node", ok=result.returncode == 0, detail=version or "Node.js 可用", required=False)
+
+
 def _check_docker(skip: bool) -> CheckResult:
     if skip:
         return CheckResult(name="docker", ok=True, detail="已跳过（--skip-docker-check）", required=False)
@@ -211,15 +228,34 @@ def _check_mcp(specs: Sequence[str]) -> CheckResult:
     return CheckResult(name="mcp", ok=all_ok, detail="；".join(details), required=False)
 
 
+def _check_mcp_http(specs: Sequence[str]) -> CheckResult:
+    """MCP Streamable HTTP 服务器参数可解析（信息性）。"""
+    if not specs:
+        return CheckResult(name="mcp_http", ok=True, detail="未指定 MCP HTTP 服务器", required=False)
+    from agent_cluster.mcp_client import MCPError, parse_http_server
+
+    details: list[str] = []
+    all_ok = True
+    for spec in specs:
+        try:
+            name, url, _token = parse_http_server(spec)
+            details.append(f"{name} -> {url}")
+        except MCPError as exc:
+            all_ok = False
+            details.append(f"{spec}（{exc}）")
+    return CheckResult(name="mcp_http", ok=all_ok, detail="；".join(details), required=False)
+
+
 def run_doctor(
     *,
     model: str | None = None,
     workspace: str | None = None,
     plugin_dirs: Sequence[str] | None = None,
     mcp_servers: Sequence[str] | None = None,
+    mcp_http_servers: Sequence[str] | None = None,
     skip_docker_check: bool = False,
 ) -> DoctorReport:
-    """执行全部预检并返回报告（按固定顺序 python/git/docker/model/workspace/plugins/mcp）。"""
+    """执行全部预检并返回报告（python/git/docker/model/workspace/plugins/mcp/mcp_http/node）。"""
     report = DoctorReport()
     report.checks.append(_check_python())
     report.checks.append(_check_git())
@@ -228,4 +264,6 @@ def run_doctor(
     report.checks.append(_check_workspace(workspace))
     report.checks.append(_check_plugin_dirs(plugin_dirs or []))
     report.checks.append(_check_mcp(mcp_servers or []))
+    report.checks.append(_check_mcp_http(mcp_http_servers or []))
+    report.checks.append(_check_node())
     return report

@@ -9,3 +9,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 | Task 2 技能层 | complete | 9b8e68c..245c458 | Approved (52 passed) | Minor: 兼容性 <= 语义、anchor 转义、allowed_tools union（Task 7 注意）、@ 退化源；记入最终评审 |
 | Task 3 流程引擎 YAML→StateGraph | complete | 4179512 | 73 passed（52 既有 + 21 新增） | gate 载荷契约：gate_payloads[node.gate].decisions[-1]；max_iterations=总节点执行数上限（线性流程需 ≥ 节点数）；NodeHandler 返回 dict channel updates |
 
+| Task 3 流程引擎 | complete | 4179512..75240ca | Approved; fix round 1/5 addressed (78 passed) | 契约: NodeHandler返回dict; gate_payloads按GateKind键; resume(thread_id,response)+MemorySaver; max_iterations≥节点数编译校验。Minor: get_compiled_graph无checkpointer、_build_config合并无保护、并发run共享ContextVar——记入最终评审 |
+

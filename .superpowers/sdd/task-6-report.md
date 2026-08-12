@@ -57,3 +57,53 @@ uv run pytest -q tests/test_evolution.py tests/test_metrics.py
 
 - 提交信息：`Task 6: 进化闭环与度量`
 - 提交 SHA：49afa69
+
+
+## Review 修复报告（2026-08-12）：返工率连续窗口与迭代排序
+
+### 背景
+
+Task 6 review 在 `src/agent_cluster/metrics.py` 发现 2 个 Important 问题：
+
+1. **返工率规则丢失"连续 2 迭代"限定**：原规则取最新一个迭代窗口、>0.3 即触发；单个噪音迭代会产生误报信号并引出无谓提案。设计文档 §6.3 要求连续 2 个迭代越界才触发进化。
+2. **迭代窗口按字典序选择**：`max(point.tags["iteration"])` 为字典序，导致 `iter-10 < iter-2 < iter-9`；迭代数达到 10 后"最新"窗口会静默选错标签。
+
+### 改动内容（仅 metrics.py + tests/test_metrics.py）
+
+- **Finding 1**：`evaluate` 中返工率规则改为调用新增的 `_rework_breach_signal`：按迭代标签分组为窗口（无迭代标签时每个度量点视为一个窗口），取最新连续 2 个窗口，**两个窗口都必须严格 `> 0.3`** 才产出信号；任一窗口 `<= 0.3` 不触发。证据同时包含两个窗口的实际度量值（有迭代标签时形如 `rework_rate=0.4@iter=iter-1`）。
+- **Finding 2**：新增 `_iteration_sort_key`（正则提取尾部数字后缀按数值比较，`iter-10 > iter-9 > iter-2`；无数字后缀回退字符串并排最前）与 `_windows`（按该键自然排序分组）。删除了字典序实现 `_latest_window`。
+- 文档：模块 docstring 的返工率规则描述同步更新。
+
+### 覆盖测试（tests/test_metrics.py 新增/改写 5 个，共 23 个）
+
+- `test_rework_rate_single_window_breach_does_not_fire`：无标签单点 >0.3 不触发。
+- `test_rework_rate_single_iteration_breach_does_not_fire`：单个迭代越界不触发。
+- `test_rework_rate_two_consecutive_windows_trigger_signal` / `test_rework_rate_two_consecutive_iterations_trigger_signal`：连续 2 个窗口越界触发，证据含两窗口值。
+- `test_rework_rate_previous_window_healthy_no_signal` / `test_rework_rate_latest_window_healthy_no_signal`：任一窗口健康不触发。
+- `test_rework_rate_uses_natural_iteration_order`：iter-1..iter-10 中仅 iter-9/iter-10 越界 → 触发且证据为 iter-9/iter-10。
+- `test_rework_rate_latest_iteration_selected_naturally`：回归测试，字典序会误选 iter-9 而误报；数值序选 iter-10（健康）→ 不触发。
+- `test_rework_rate_boundary`：任一窗口恰为 0.3（严格 > 边界）不触发；两窗口 0.301/0.4 触发。
+- `test_evaluate_returns_signals_for_each_breach`：返工率补录 2 个窗口值，仍期望 5 条信号。
+
+### 测试命令与输出
+
+全量套件：
+
+```
+uv run pytest -q
+........................................................................ [ 72%]
+........................................................                 [100%]
+200 passed in 1.74s
+```
+
+度量模块单测：
+
+```
+uv run pytest -q tests/test_metrics.py
+.......................                                                  [100%]
+23 passed in 0.66s
+```
+
+### 提交
+
+- `git add -A && git commit -m "Task 6: 修复返工率连续窗口与迭代排序"`：a48ee88

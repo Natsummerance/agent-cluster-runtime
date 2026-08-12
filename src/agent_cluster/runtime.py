@@ -91,6 +91,8 @@ __all__ = [
     "DeterministicClient",
     "OpenAIClient",
     "DeepSeekClient",
+    "OpenAIResponsesClient",
+    "AnthropicClient",
     "ChatModelFactory",
     "EventBus",
     "AgentRuntime",
@@ -545,6 +547,333 @@ class DeepSeekClient(ChatModelClient):
         raise RuntimeError("DeepSeek API 回复为空：扩容重试后仍未产出最终回答。")
 
 
+
+class OpenAIResponsesClient(ChatModelClient):
+    """OpenAI Responses API 后端（``/v1/responses``），stdlib urllib，零新依赖。
+
+    - 构造期检查 API key（缺省 ``OPENAI_API_KEY``）；无 key 环境请用 DeterministicClient。
+    - 请求负载：``{model, input: messages, tools, temperature, max_output_tokens}``；
+      ``input`` 接受 chat 风格 ``{role, content}`` 数组（兼容最广）。
+    - 响应 ``output[]``：``type="message"`` -> ``content[].text`` 拼接；
+      ``type="function_call"`` -> ``ToolCall(id, name, arguments)``（arguments 兼容
+      字符串/对象两种形态）。``type="reasoning"`` 思维链输出一律跳过（不外泄）。
+    - usage：``input_tokens`` / ``output_tokens`` / ``total_tokens``。
+    - 空回复（无文本且无调用）时扩容 ``max_output_tokens`` 重试一次。
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        api_key_env: str = "OPENAI_API_KEY",
+        api_base: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 2048,
+    ) -> None:
+        super().__init__()
+        api_key = os.environ.get(api_key_env, "")
+        if not api_key:
+            raise RuntimeError(
+                f"OpenAIResponsesClient 需要环境变量 {api_key_env}（当前未设置）；"
+                "无 API key 环境请使用 DeterministicClient。"
+            )
+        self.model = model
+        self.api_key_env = api_key_env
+        self.api_base = (api_base or "https://api.openai.com/v1").rstrip("/")
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._api_key = api_key
+
+    async def complete(self, messages: list[dict]) -> str:
+        response = await asyncio.to_thread(
+            self._post_responses,
+            {
+                "model": self.model,
+                "input": messages,
+                "temperature": self.temperature,
+                "max_output_tokens": self.max_tokens,
+                "stream": False,
+            },
+        )
+        return response.text
+
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        payload = {
+            "model": self.model,
+            "input": messages,
+            "temperature": self.temperature,
+            "max_output_tokens": self.max_tokens,
+            "stream": False,
+            "tools": tools,
+        }
+        return await asyncio.to_thread(self._post_responses, payload)
+
+    def _post_responses(self, payload: dict) -> ChatResponse:
+        """同步 POST /v1/responses（urllib），解析文本与 function_call。"""
+        import urllib.error
+        import urllib.request
+
+        url = f"{self.api_base}/responses"
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self._api_key}"}
+        for attempt in range(2):
+            request = urllib.request.Request(
+                url, data=json.dumps(payload).encode("utf-8"), method="POST", headers=headers
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"OpenAI Responses API 请求失败（HTTP {exc.code}）：{detail}") from exc
+            except OSError as exc:
+                raise RuntimeError(f"OpenAI Responses API 请求失败：{exc}") from exc
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise RuntimeError(f"OpenAI Responses API 响应不是合法 JSON：{exc}") from exc
+
+            text_parts: list[str] = []
+            calls: list[ToolCall] = []
+            for item in data.get("output") or []:
+                item_type = item.get("type")
+                if item_type == "message":
+                    for block in item.get("content") or []:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") in ("output_text", "text"):
+                            text_parts.append(str(block.get("text", "")))
+                elif item_type == "function_call":
+                    name = str(item.get("name") or "")
+                    if not name:
+                        continue
+                    raw_args = item.get("arguments") or "{}"
+                    try:
+                        parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                    except json.JSONDecodeError:
+                        parsed_args = {}
+                    calls.append(
+                        ToolCall(id=str(item.get("id") or uuid.uuid4().hex), name=name, args=dict(parsed_args))
+                    )
+                # type="reasoning"（思维链）与其余类型一律跳过，不外泄
+            content = "".join(text_parts)
+            if content or calls:
+                raw_usage = data.get("usage") or {}
+                input_tokens = int(raw_usage.get("input_tokens") or 0)
+                output_tokens = int(raw_usage.get("output_tokens") or 0)
+                usage = TokenUsage(
+                    prompt_tokens=input_tokens,
+                    completion_tokens=output_tokens,
+                    total_tokens=int(raw_usage.get("total_tokens") or 0) or (input_tokens + output_tokens),
+                    model=self.model,
+                    estimated_total=estimate_usage(payload.get("input") or [], content, calls, self.model).total_tokens,
+                )
+                self.last_usage = usage
+                return ChatResponse(text=content, tool_calls=calls, usage=usage)
+            incomplete = (data.get("incomplete_details") or {}).get("reason") == "max_output_tokens"
+            truncated = incomplete and attempt == 0
+            if truncated:
+                payload["max_output_tokens"] = min(payload.get("max_output_tokens", 0) * 4, 65536)
+                continue
+            raise RuntimeError(
+                "OpenAI Responses API 回复 text/function_call 均为空（reasoning 模型的思维链不作为输出）；"
+                "请检查模型名、增大 max_output_tokens 或改用非推理模型。"
+            )
+        raise RuntimeError("OpenAI Responses API 回复为空：扩容重试后仍未产出最终回答。")
+
+
+class AnthropicClient(ChatModelClient):
+    """Anthropic Messages API 后端（``/v1/messages``），stdlib urllib，零新依赖。
+
+    - 构造期检查 API key（缺省 ``ANTHROPIC_API_KEY``）。
+    - 协议转换：``role=system`` 提取到顶层 ``system`` 字段；``role=tool`` /
+      结构化块（``tool_use`` / ``tool_result``）透传；扁平工具结果（工具循环
+      生成的 ``[工具结果 ...]`` user 文本）转换为 ``tool_result`` 块并与上一轮
+      ``tool_use`` id 配对（客户端实例跨轮记住 pending id，严格 Anthropic 协议）。
+    - 响应 ``content[]``：``type="text"`` -> 文本；``type="tool_use"`` -> ToolCall。
+    - usage：``input_tokens`` / ``output_tokens``。
+    """
+
+    def __init__(
+        self,
+        model: str = "claude-sonnet-4-5",
+        api_key_env: str = "ANTHROPIC_API_KEY",
+        api_base: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> None:
+        super().__init__()
+        api_key = os.environ.get(api_key_env, "")
+        if not api_key:
+            raise RuntimeError(
+                f"AnthropicClient 需要环境变量 {api_key_env}（当前未设置）；"
+                "无 API key 环境请使用 DeterministicClient。"
+            )
+        self.model = model
+        self.api_key_env = api_key_env
+        self.api_base = (api_base or "https://api.anthropic.com").rstrip("/")
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._api_key = api_key
+        # 上一轮 tool_use 块 id 队列（扁平工具结果 -> tool_result 块配对）
+        self._pending_tool_use_ids: list[str] = []
+
+    @staticmethod
+    def _convert_tools(tools: list[dict]) -> list[dict]:
+        """把 OpenAI function schema 转为 Anthropic ``tools`` 格式。"""
+        converted: list[dict] = []
+        for spec in tools:
+            function = spec.get("function") if isinstance(spec, dict) else None
+            if not isinstance(function, dict):
+                continue
+            converted.append(
+                {
+                    "name": str(function.get("name") or ""),
+                    "description": str(function.get("description") or ""),
+                    "input_schema": function.get("parameters") or {"type": "object", "properties": {}},
+                }
+            )
+        return [tool for tool in converted if tool["name"]]
+
+    def _convert_history(self, messages: list[dict]) -> tuple[str, list[dict]]:
+        """把通用消息历史转为 Anthropic 格式：返回 (system, anthropic_messages)。"""
+        system_parts: list[str] = []
+        anthropic: list[dict] = []
+        for message in messages:
+            role = str(message.get("role") or "")
+            content = message.get("content")
+            if role == "system":
+                if isinstance(content, str):
+                    system_parts.append(content)
+                continue
+            if role == "tool":
+                # 标准 chat 协议 tool 消息 -> tool_result 块
+                tool_id = str(message.get("tool_call_id") or "")
+                anthropic.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_id,
+                                "content": str(content or ""),
+                            }
+                        ],
+                    }
+                )
+                continue
+            if role not in ("user", "assistant"):
+                continue
+            if (
+                isinstance(content, str)
+                and role == "user"
+                and self._pending_tool_use_ids
+                and content.startswith("[工具结果")
+            ):
+                # 扁平工具结果 -> tool_result 块（与上一轮 tool_use 配对）
+                tool_use_id = self._pending_tool_use_ids.pop(0)
+                anthropic.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": content,
+                            }
+                        ],
+                    }
+                )
+                continue
+            anthropic.append({"role": role, "content": content})
+        return "\n\n".join(part for part in system_parts if part.strip()), anthropic
+
+    async def complete(self, messages: list[dict]) -> str:
+        response = await asyncio.to_thread(self._post_messages, self._build_payload(messages, tools=[]))
+        return response.text
+
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        payload = self._build_payload(messages, tools=tools)
+        return await asyncio.to_thread(self._post_messages, payload)
+
+    def _build_payload(self, messages: list[dict], tools: list[dict]) -> dict:
+        system, converted = self._convert_history(messages)
+        payload: dict = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": False,
+            "messages": converted,
+        }
+        if system:
+            payload["system"] = system
+        anthropic_tools = self._convert_tools(tools)
+        if anthropic_tools:
+            payload["tools"] = anthropic_tools
+        return payload
+
+    def _post_messages(self, payload: dict) -> ChatResponse:
+        """同步 POST /v1/messages（urllib），解析文本与 tool_use。"""
+        import urllib.error
+        import urllib.request
+
+        url = f"{self.api_base}/v1/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self._api_key,
+            "anthropic-version": "2023-06-01",
+        }
+        request = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"), method="POST", headers=headers
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise RuntimeError(f"Anthropic Messages API 请求失败（HTTP {exc.code}）：{detail}") from exc
+        except OSError as exc:
+            raise RuntimeError(f"Anthropic Messages API 请求失败：{exc}") from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise RuntimeError(f"Anthropic Messages API 响应不是合法 JSON：{exc}") from exc
+
+        text_parts: list[str] = []
+        calls: list[ToolCall] = []
+        self._pending_tool_use_ids = []
+        for block in data.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            block_type = block.get("type")
+            if block_type == "text":
+                text_parts.append(str(block.get("text", "")))
+            elif block_type == "tool_use":
+                tool_use_id = str(block.get("id") or uuid.uuid4().hex)
+                name = str(block.get("name") or "")
+                if name:
+                    calls.append(
+                        ToolCall(
+                            id=tool_use_id,
+                            name=name,
+                            args=dict(block.get("input") or {}),
+                        )
+                    )
+                    self._pending_tool_use_ids.append(tool_use_id)
+        content = "".join(text_parts)
+        if content or calls:
+            raw_usage = data.get("usage") or {}
+            input_tokens = int(raw_usage.get("input_tokens") or 0)
+            output_tokens = int(raw_usage.get("output_tokens") or 0)
+            usage = TokenUsage(
+                prompt_tokens=input_tokens,
+                completion_tokens=output_tokens,
+                total_tokens=input_tokens + output_tokens,
+                model=self.model,
+                estimated_total=estimate_usage(payload.get("messages") or [], content, calls, self.model).total_tokens,
+            )
+            self.last_usage = usage
+            return ChatResponse(text=content, tool_calls=calls, usage=usage)
+        raise RuntimeError(
+            "Anthropic Messages API 回复 text/tool_use 均为空；"
+            "请检查模型名、增大 max_tokens 或改用非推理模型。"
+        )
+
+
 class ChatModelFactory:
     """按 ``AgentConfig`` 选择模型后端。
 
@@ -557,7 +886,12 @@ class ChatModelFactory:
     """
 
     def create(self, config: AgentConfig | dict | None = None) -> ChatModelClient:
-        """构造模型客户端；缺省返回 ``DeterministicClient``。"""
+        """构造模型客户端；缺省返回 ``DeterministicClient``。
+
+        - ``wire_api``（ModelConfig.wire_api / Codex 配置 wire_api）决定协议路由：
+          ``responses`` -> ``OpenAIResponsesClient``、``anthropic`` -> ``AnthropicClient``、
+          ``chat`` -> 既有 chat/completions 客户端（DeepSeek/OpenAI/deterministic）。
+        """
         if config is None:
             return DeterministicClient()
         cfg = config if isinstance(config, AgentConfig) else AgentConfig.model_validate(config)
@@ -569,11 +903,12 @@ class ChatModelFactory:
             if cfg.react.tool_script:
                 return DeterministicClient(tool_script=list(cfg.react.tool_script))
             return DeterministicClient()
-        if wire_api != "chat":
-            # T11.1 守卫：responses/anthropic 客户端由 T11.2 接入
-            raise ValueError(f"wire_api={wire_api} 客户端尚未接入（T11.2 提供）")
         if model_name in ("codex", "custom"):
             return self._client_from_codex_config(cfg)
+        if wire_api == "responses":
+            return self._responses_client(cfg)
+        if wire_api == "anthropic":
+            return self._anthropic_client(cfg)
         if model_name == "deepseek" or model_name.startswith("deepseek-"):
             return self._deepseek_client(cfg, load_codex_model_config())
         if model_name == "openai" or model_name.startswith(("gpt-", "o1", "o3")):
@@ -585,6 +920,26 @@ class ChatModelFactory:
         raise ValueError(
             f"未知模型名称：{cfg.model.model_name!r}（支持 deterministic / openai / gpt-* / "
             "deepseek-* / codex）；无 API key 环境请使用 deterministic。"
+        )
+
+    def _responses_client(self, cfg: AgentConfig) -> OpenAIResponsesClient:
+        """构造 OpenAI Responses 客户端：显式配置优先，base_url 缺省官方 /v1。"""
+        return OpenAIResponsesClient(
+            model=cfg.model.model_name,
+            api_key_env=cfg.model.api_key_env or "OPENAI_API_KEY",
+            api_base=cfg.model.api_base,
+            temperature=cfg.model.temperature,
+            max_tokens=cfg.model.max_tokens,
+        )
+
+    def _anthropic_client(self, cfg: AgentConfig) -> AnthropicClient:
+        """构造 Anthropic Messages 客户端：显式配置优先，base_url 缺省官方。"""
+        return AnthropicClient(
+            model=cfg.model.model_name,
+            api_key_env=cfg.model.api_key_env or "ANTHROPIC_API_KEY",
+            api_base=cfg.model.api_base,
+            temperature=cfg.model.temperature,
+            max_tokens=cfg.model.max_tokens,
         )
 
     def _deepseek_client(self, cfg: AgentConfig, codex: CodexProviderConfig | None) -> DeepSeekClient:
@@ -599,12 +954,30 @@ class ChatModelFactory:
         )
 
     def _client_from_codex_config(self, cfg: AgentConfig) -> ChatModelClient:
-        """按当前 Codex 配置（config.toml）接入对话所用模型。"""
+        """按当前 Codex 配置（config.toml）接入对话所用模型（wire_api 优先路由）。"""
         codex = load_codex_model_config()
         if codex is None:
             raise ValueError(
                 "无法解析 Codex 配置（~/.codex/config.toml 缺失或未配置 model_providers）；"
                 "请直接指定模型名，例如 deepseek-v4-flash 或 openai/gpt-4o-mini。"
+            )
+        # model_name=codex：wire_api 以 Codex 配置为准（config.toml 供应商协议权威）
+        wire_api = (codex.wire_api or cfg.model.wire_api or "chat").lower()
+        if wire_api == "responses":
+            return OpenAIResponsesClient(
+                model=codex.model_name or cfg.model.model_name,
+                api_key_env=cfg.model.api_key_env or codex.api_key_env or "OPENAI_API_KEY",
+                api_base=cfg.model.api_base or codex.base_url or None,
+                temperature=cfg.model.temperature,
+                max_tokens=cfg.model.max_tokens,
+            )
+        if wire_api == "anthropic":
+            return AnthropicClient(
+                model=codex.model_name or cfg.model.model_name,
+                api_key_env=cfg.model.api_key_env or codex.api_key_env or "ANTHROPIC_API_KEY",
+                api_base=cfg.model.api_base or codex.base_url or None,
+                temperature=cfg.model.temperature,
+                max_tokens=cfg.model.max_tokens,
             )
         if codex.is_deepseek or codex.model_name.lower().startswith("deepseek"):
             return DeepSeekClient(

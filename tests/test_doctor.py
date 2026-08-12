@@ -43,10 +43,12 @@ def test_model_config_wire_api_rejects_unknown():
         ModelConfig(model_name="gpt-4o-mini", wire_api="grpc")
 
 
-def test_factory_guard_reports_unimplemented_wire_api():
-    cfg = AgentConfig(model=ModelConfig(model_name="gpt-4o-mini", wire_api="responses"))
-    with pytest.raises(ValueError, match="T11.2"):
-        ChatModelFactory().create(cfg)
+def test_factory_deterministic_ignores_wire_api():
+    cfg = AgentConfig(model=ModelConfig(model_name="deterministic", wire_api="responses"))
+    client = ChatModelFactory().create(cfg)
+    from agent_cluster.runtime import DeterministicClient
+
+    assert isinstance(client, DeterministicClient)
 
 
 # ---------------------------------------------------------------------------

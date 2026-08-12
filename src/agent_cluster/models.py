@@ -21,6 +21,7 @@ __all__ = [
     "MessageType",
     "MeetingKind",
     "TaskStatus",
+    "TokenUsage",
     "ProposalStatus",
     "ProposalTarget",
     "ModelConfig",
@@ -118,6 +119,18 @@ class TaskStatus(StrEnum):
     REVIEW = "review"
     DONE = "done"
     BLOCKED = "blocked"
+
+
+class TokenUsage(BaseModel):
+    """一次模型调用的 token 用量（真实 API usage 或统一估算值）。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    prompt_tokens: int = Field(default=0, ge=0, description="输入 token 数")
+    completion_tokens: int = Field(default=0, ge=0, description="输出 token 数")
+    total_tokens: int = Field(default=0, ge=0, description="总 token 数")
+    model: str = Field(default="", description="模型名称")
+    estimated: bool = Field(default=False, description="是否为估算值（真实 API 返回 False）")
 
 
 class ProposalStatus(StrEnum):
@@ -271,6 +284,8 @@ class Task(BaseModel):
     status: TaskStatus = Field(default=TaskStatus.TODO, description="任务状态")
     artifacts: list[str] = Field(default_factory=list, description="产出物路径列表")
     output_schema: dict = Field(default_factory=dict, description="输出结构约束")
+    token_estimate: int = Field(default=0, ge=0, description="任务 token 预估（PM/架构师估点）")
+    tokens_used: int = Field(default=0, ge=0, description="任务实际消耗 token 数")
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +394,7 @@ class ProgressEntry(BaseModel):
     status: str = Field(default="", description="进度状态")
     verdict: str = Field(default="", description="结论")
     next_action: str = Field(default="", description="下一步行动")
+    tokens_used: int = Field(default=0, ge=0, description="本条进度消耗 token 数")
 
 
 class Ledger(BaseModel):
@@ -524,6 +540,8 @@ class Iteration(BaseModel):
     status: Literal["planning", "in_progress", "completed", "cancelled"] = Field(
         default="planning", description="迭代状态"
     )
+    token_budget: int = Field(default=0, ge=0, description="迭代 token 预算（0 表示未设，规划按 token 不按时间）")
+    tokens_used: int = Field(default=0, ge=0, description="迭代已消耗 token 数")
 
 
 def _last_ledger(current: Ledger | None, update: Ledger | None) -> Ledger | None:

@@ -23,6 +23,11 @@ def _collector() -> MetricsCollector:
     collector.record("loop_iterations", 2)
     collector.record("loop_iterations", 3)
     collector.record("gate_wait_seconds", 60)
+    collector.record("tokens_per_role", 1200, tags={"role": "frontend"})
+    collector.record("tokens_per_phase", 8000, tags={"phase": "develop"})
+    collector.record("tokens_per_artifact", 300, tags={"artifact": "PRD.md"})
+    collector.record("budget_remaining", 420000)
+    collector.record("estimate_accuracy", 0.85)
     return collector
 
 

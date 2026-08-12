@@ -8,7 +8,10 @@
 - ``MetricRules``：阈值规则引擎，``evaluate(snapshot) -> list[Signal]``。
 
 内置指标名（§6.3）：``review_pass_rate`` / ``rework_rate`` /
-``action_item_close_rate`` / ``loop_iterations`` / ``gate_wait_seconds``。
+``action_item_close_rate`` / ``loop_iterations`` / ``gate_wait_seconds``
+（辅助，不作为规划依据）；v0.3 token 制新增 ``tokens_per_role`` /
+``tokens_per_phase`` / ``tokens_per_artifact`` / ``budget_remaining`` /
+``estimate_accuracy``（预估 vs 实际，规划与计量一律按 token）。
 
 阈值规则（每条产出 ``type="metric_threshold"`` 信号，evidence 取自真实度量点）：
 
@@ -46,6 +49,11 @@ BUILTIN_METRICS: tuple[str, ...] = (
     "action_item_close_rate",
     "loop_iterations",
     "gate_wait_seconds",
+    "tokens_per_role",
+    "tokens_per_phase",
+    "tokens_per_artifact",
+    "budget_remaining",
+    "estimate_accuracy",
 )
 
 # 阈值常量

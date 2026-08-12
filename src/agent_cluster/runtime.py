@@ -47,7 +47,7 @@ import re
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from agent_cluster.models import (
@@ -68,6 +68,7 @@ from agent_cluster.models import (
     Role,
     Task,
     TaskStatus,
+    TokenUsage,
 )
 from agent_cluster.providers import (
     CodexProviderConfig,
@@ -95,6 +96,8 @@ __all__ = [
     "make_agent_handler",
     "ChatResponse",
     "parse_tool_calls_from_text",
+    "estimate_tokens",
+    "estimate_usage",
 ]
 
 
@@ -108,6 +111,7 @@ class ChatResponse:
 
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: TokenUsage | None = None
 
 
 def _normalize_tool_payload(data: Any) -> list[ToolCall]:
@@ -163,8 +167,81 @@ def parse_tool_calls_from_text(text: str) -> list[ToolCall]:
     return []
 
 
+_TIKTOKEN_ENCODING: Any | None = None  # 惰性缓存：None 未探测 / False 不可用 / 对象可用
+
+
+def _tiktoken_encoding() -> Any | None:
+    """可选精确 tokenizer（tiktoken 未安装/加载失败时返回 None，走内置估算器）。"""
+    global _TIKTOKEN_ENCODING
+    if _TIKTOKEN_ENCODING is None:
+        try:
+            import tiktoken
+
+            _TIKTOKEN_ENCODING = tiktoken.get_encoding("o200k_base")
+        except Exception:  # noqa: BLE001 —— 可选依赖缺失/加载失败均回退启发式估算
+            _TIKTOKEN_ENCODING = False
+    return _TIKTOKEN_ENCODING or None
+
+
+def estimate_tokens(text: str, model: str = "") -> int:
+    """统一 token 估算器（混合口径）：tiktoken 可用时精确，否则启发式。
+
+    - 启发式：CJK 字符约 1.6 token/字（中文按比例加权避免低估），
+      其余字符按 4 字符/token，最少 1。
+    - ``model`` 仅作签名兼容（tiktoken 按模型选编码的扩展位）。
+    """
+    if not text:
+        return 0
+    encoding = _tiktoken_encoding()
+    if encoding is not None:
+        try:
+            return len(encoding.encode(text))
+        except Exception:  # noqa: BLE001 —— 编码失败回退启发式
+            pass
+    cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    other = max(0, len(text) - cjk)
+    return max(1, int(cjk * 1.6) + (other + 3) // 4)
+
+
+def estimate_usage(
+    messages: list[dict],
+    text: str,
+    tool_calls: list[ToolCall] | None = None,
+    model: str = "",
+) -> TokenUsage:
+    """统一估算一次调用的 token 用量（无 API usage 时的回退口径）。
+
+    - prompt = 各消息内容估算 + 每消息 4 token 协议开销；
+    - completion = 回复文本 + 各工具调用参数/名称估算。
+    """
+    prompt = sum(estimate_tokens(str(message.get("content") or ""), model) for message in messages)
+    prompt += 4 * len(messages)
+    completion = estimate_tokens(text, model)
+    for call in tool_calls or []:
+        completion += estimate_tokens(
+            json.dumps(call.args, ensure_ascii=False, default=str), model
+        )
+        completion += len(call.name) // 4 + 4
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        total_tokens=prompt + completion,
+        model=model,
+        estimated=True,
+    )
+
+
 class ChatModelClient(ABC):
     """模型接入抽象：统一 ``complete(messages) -> str`` 异步接口。"""
+
+    def __init__(self) -> None:
+        # 最近一次调用的 token 用量（真实 API usage 或估算值），供运行时上报账本
+        self.last_usage: TokenUsage | None = None
+
+    def _record_usage(self, usage: TokenUsage | None) -> TokenUsage | None:
+        """记录最近一次调用的 token 用量并返回（供链式调用透传）。"""
+        self.last_usage = usage
+        return usage
 
     @abstractmethod
     async def complete(self, messages: list[dict]) -> str:
@@ -178,7 +255,9 @@ class ChatModelClient(ABC):
           视为纯文本回复（``tool_calls=[]``）。
         """
         text = await self.complete(messages)
-        return ChatResponse(text=text, tool_calls=parse_tool_calls_from_text(text))
+        calls = parse_tool_calls_from_text(text)
+        usage = estimate_usage(messages, text, calls, getattr(self, "model", ""))
+        return self._record_usage(ChatResponse(text=text, tool_calls=calls, usage=usage))
 
 
 class DeterministicClient(ChatModelClient):
@@ -193,18 +272,24 @@ class DeterministicClient(ChatModelClient):
         persona: str = "确定性助手",
         tool_script: list[dict] | None = None,
     ) -> None:
+        super().__init__()
         self.persona = persona
+        self.model = "deterministic"
         # 工具调用脚本（测试注入）：逐轮弹出，弹尽后返回完成文本
         self.tool_script = list(tool_script or [])
 
     async def complete(self, messages: list[dict]) -> str:
-        """返回基于最后一条消息内容的确定性回复。"""
+        """返回基于最后一条消息内容的确定性回复（并记录估算 token 用量）。"""
         if not messages:
-            return f"{self.persona}：收到空消息，准备就绪。"
-        content = str(messages[-1].get("content", "")).strip()
-        if not content:
-            return f"{self.persona}：已确认消息序列（{len(messages)} 条），无待处理内容。"
-        return f"{self.persona}：已收到「{content}」，按确定性规则完成处理。"
+            text = f"{self.persona}：收到空消息，准备就绪。"
+        else:
+            content = str(messages[-1].get("content", "")).strip()
+            if not content:
+                text = f"{self.persona}：已确认消息序列（{len(messages)} 条），无待处理内容。"
+            else:
+                text = f"{self.persona}：已收到「{content}」，按确定性规则完成处理。"
+        self._record_usage(estimate_usage(messages, text, None, self.model))
+        return text
 
     async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
         """确定性工具模式：按 tool_script 依次返回工具调用，脚本耗尽返回完成文本。
@@ -217,14 +302,37 @@ class DeterministicClient(ChatModelClient):
             call = script.pop(0)
             self.tool_script = script
             if call is None:
-                return ChatResponse(text=f"{self.persona}：任务完成（工具脚本已耗尽）。", tool_calls=[])
-            return ChatResponse(
-                text="",
-                tool_calls=[
-                    ToolCall(name=str(call["name"]), args=dict(call.get("args") or {}))
-                ],
-            )
+                response = ChatResponse(text=f"{self.persona}：任务完成（工具脚本已耗尽）。", tool_calls=[])
+            else:
+                response = ChatResponse(
+                    text="",
+                    tool_calls=[
+                        ToolCall(name=str(call["name"]), args=dict(call.get("args") or {}))
+                    ],
+                )
+            usage = estimate_usage(messages, response.text, response.tool_calls, self.model)
+            self._record_usage(usage)
+            return replace(response, usage=usage)
         return await super().complete_with_tools(messages, tools)
+
+
+def _extract_usage(
+    response: Any,
+    model: str,
+    messages: list[dict],
+    text: str,
+    calls: list[ToolCall] | None,
+) -> TokenUsage:
+    """从 OpenAI 风格响应提取 usage（缺省时回落统一估算）。"""
+    usage = getattr(response, "usage", None)
+    if usage is not None:
+        return TokenUsage(
+            prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
+            model=model,
+        )
+    return estimate_usage(messages, text, calls, model)
 
 
 class OpenAIClient(ChatModelClient):
@@ -241,6 +349,7 @@ class OpenAIClient(ChatModelClient):
         api_key_env: str = "OPENAI_API_KEY",
         api_base: str | None = None,
     ) -> None:
+        super().__init__()
         api_key = os.environ.get(api_key_env, "")
         if not api_key:
             raise RuntimeError(
@@ -262,7 +371,9 @@ class OpenAIClient(ChatModelClient):
             ) from exc
         client = openai.OpenAI(api_key=self._api_key, base_url=self.api_base)
         response = client.chat.completions.create(model=self.model, messages=messages)
-        return response.choices[0].message.content or ""
+        text = response.choices[0].message.content or ""
+        self._record_usage(_extract_usage(response, self.model, messages, text, None))
+        return text
 
     async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
         """OpenAI 原生 function calling：请求带 ``tools``，解析 ``tool_calls``。"""
@@ -292,7 +403,8 @@ class OpenAIClient(ChatModelClient):
                     args=dict(parsed_args),
                 )
             )
-        return ChatResponse(text=text, tool_calls=calls)
+        usage = _extract_usage(response, self.model, messages, text, calls)
+        return self._record_usage(ChatResponse(text=text, tool_calls=calls, usage=usage))
 
 
 class DeepSeekClient(ChatModelClient):
@@ -315,6 +427,7 @@ class DeepSeekClient(ChatModelClient):
         temperature: float = 0.0,
         max_tokens: int = DEEPSEEK_MAX_TOKENS,
     ) -> None:
+        super().__init__()
         # 仅当调用方未显式给出 api_base/api_key_env 时才解析 Codex 配置（避免重复 I/O）
         codex = load_codex_model_config() if (api_base is None or api_key_env is None) else None
         default_base, default_env = resolve_deepseek_defaults(codex)
@@ -382,6 +495,13 @@ class DeepSeekClient(ChatModelClient):
                 raise RuntimeError(f"DeepSeek API 请求失败：{exc}") from exc
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise RuntimeError(f"DeepSeek API 响应不是合法 JSON：{exc}") from exc
+            raw_usage = data.get("usage") or {}
+            self.last_usage = TokenUsage(
+                prompt_tokens=int(raw_usage.get("prompt_tokens") or 0),
+                completion_tokens=int(raw_usage.get("completion_tokens") or 0),
+                total_tokens=int(raw_usage.get("total_tokens") or 0),
+                model=self.model,
+            )
             choices = data.get("choices") or []
             if not choices:
                 raise RuntimeError(f"DeepSeek API 响应缺少 choices：{str(data)[:500]}")
@@ -463,7 +583,15 @@ class DeepSeekClient(ChatModelClient):
                     parsed_args = {}
                 calls.append(ToolCall(id=str(raw_call.get("id") or uuid.uuid4().hex), name=name, args=dict(parsed_args)))
             if content or calls:
-                return ChatResponse(text=content, tool_calls=calls)
+                raw_usage = data.get("usage") or {}
+                usage = TokenUsage(
+                    prompt_tokens=int(raw_usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(raw_usage.get("completion_tokens") or 0),
+                    total_tokens=int(raw_usage.get("total_tokens") or 0),
+                    model=self.model,
+                )
+                self.last_usage = usage
+                return ChatResponse(text=content, tool_calls=calls, usage=usage)
             truncated = choice.get("finish_reason") == "length" and attempt == 0
             if truncated and payload.get("max_tokens", 0) < DEEPSEEK_MAX_TOKENS:
                 payload["max_tokens"] = min(payload["max_tokens"] * 4, DEEPSEEK_MAX_TOKENS)
@@ -585,6 +713,7 @@ class AgentRuntime:
         default_model: ModelConfig | None = None,
         tool_script: list[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
+        usage_hook: Callable[[TokenUsage], None] | None = None,
     ) -> None:
         self._model_factory = model_factory if model_factory is not None else ChatModelFactory()
         self.event_bus = event_bus if event_bus is not None else EventBus()
@@ -593,6 +722,9 @@ class AgentRuntime:
         self._role_tool_scripts = {
             role_id: list(script) for role_id, script in (role_tool_scripts or {}).items()
         }
+        # token 用量上报：每次模型调用后回调（TokenLedger / 预算检查），异常不中断流程
+        self._usage_hook = usage_hook
+        self.last_usage: TokenUsage | None = None
 
     async def reply(self, agent: Agent, messages: list[Message]) -> Message:
         """调用 Agent 的模型客户端，产出 ``Message(text)`` 并发布 ``agent_reply`` 事件。
@@ -608,6 +740,7 @@ class AgentRuntime:
             content = message.payload.get("content") or message.payload.get("text") or ""
             model_messages.append({"role": "user", "content": str(content)})
         content = await client.complete(model_messages)
+        self._emit_usage(client.last_usage)
         reply_message = Message(
             id=uuid.uuid4().hex,
             thread_id=thread_id,
@@ -656,7 +789,9 @@ class AgentRuntime:
         - ``make_agent_handler`` 通过本方法执行岗位步骤，避免触碰私有成员。
         """
         client = self.client_for(role)
-        return await client.complete(_model_messages_for_task(role, task))
+        content = await client.complete(_model_messages_for_task(role, task))
+        self._emit_usage(client.last_usage)
+        return content
 
     async def complete_for_with_tools(
         self,
@@ -670,7 +805,24 @@ class AgentRuntime:
         后续轮次由 handler 直接持有客户端（``client_for``）继续对话。
         """
         client = self.client_for(role)
-        return await client.complete_with_tools(_model_messages_for_task(role, task), tools)
+        response = await client.complete_with_tools(_model_messages_for_task(role, task), tools)
+        self._emit_usage(response.usage)
+        return response
+
+    def report_usage(self, usage: TokenUsage | None) -> None:
+        """上报一次模型调用用量（公开接口，供工具循环后续轮次直接调用）。"""
+        self._emit_usage(usage)
+
+    def _emit_usage(self, usage: TokenUsage | None) -> None:
+        """记录最近用量并回调钩子（记账异常不中断流程）。"""
+        if usage is None:
+            return
+        self.last_usage = usage
+        if self._usage_hook is not None:
+            try:
+                self._usage_hook(usage)
+            except Exception:  # noqa: BLE001 —— 记账钩子异常不中断流程
+                pass
 
     def _model_config_for(self, role: Role) -> ModelConfig:
         """确定岗位模型配置：岗位偏好 > 运行时默认 > deterministic。"""
@@ -774,6 +926,9 @@ async def _deterministic_agent_step(
         artifacts=[f"artifacts/{role.id}/{task_id}.md"],
     )
     content = await runtime.complete_for(role, task)
+    last_usage = getattr(runtime, "last_usage", None)
+    if last_usage is not None:
+        task = task.model_copy(update={"tokens_used": last_usage.total_tokens})
     output = f"{role.name} 完成节点 {ctx.node_id} 的执行：{content}"
     message = Message(
         id=uuid.uuid4().hex,
@@ -879,6 +1034,7 @@ async def _tool_mode_agent_step(
     test_passed = False
     final_text = ""
     tool_calls_count = 0
+    tokens_used = 0
     loop_error: str | None = None
     exhausted = True
 
@@ -889,6 +1045,9 @@ async def _tool_mode_agent_step(
             loop_error = f"模型调用失败：{type(exc).__name__}: {exc}"
             exhausted = False
             break
+        runtime.report_usage(response.usage)
+        if response.usage is not None:
+            tokens_used += response.usage.total_tokens
         if not response.tool_calls:
             final_text = response.text or f"{role.name}：任务完成。"
             exhausted = False
@@ -965,7 +1124,9 @@ async def _tool_mode_agent_step(
             TaskStatus.DONE if (produced and loop_error is None and not exhausted) else TaskStatus.REVIEW
         )
 
-    task = task.model_copy(update={"status": task_status, "artifacts": written_paths})
+    task = task.model_copy(
+        update={"status": task_status, "artifacts": written_paths, "tokens_used": tokens_used}
+    )
     ledger.progress.append(
         ProgressEntry(
             role=role.id,

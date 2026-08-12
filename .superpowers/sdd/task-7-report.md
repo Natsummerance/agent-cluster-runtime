@@ -349,4 +349,4 @@ uv run python -m agent_cluster run --flow examples/flows/fullstack-sprint.yaml -
 ### 提交
 
 - 提交信息：`Task 7: 最终评审修复（边校验/msgpack/门默认拒绝/评审通过逻辑）`
-- 提交 SHA：见下（提交后回填）
+- 提交 SHA：d791d02

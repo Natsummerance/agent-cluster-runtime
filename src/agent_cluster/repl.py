@@ -153,6 +153,15 @@ class ReplSession:
             await client.connect()  # 连接失败 fail-fast（与 run/build 一致）
             await register_mcp_tools(registry, client, server_name)
         self.tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
+        from agent_cluster.subagent import SubagentBroker, register_subagent_tool
+
+        register_subagent_tool(
+            self.tool_session.registry,
+            SubagentBroker(
+                client_factory=lambda role_id="backend": self.client,
+                usage_hook=lambda usage, role: self._on_usage(usage, role),
+            ),
+        )
         effective_model = "deterministic" if self.deterministic else self.model
         config = AgentConfig(model=ModelConfig(model_name=effective_model))
         if self.tool_script:

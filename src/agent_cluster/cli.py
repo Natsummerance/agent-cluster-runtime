@@ -173,6 +173,15 @@ async def run_flow(
             await mcp_client.connect()  # fail-fast：连不上立即报错
             await register_mcp_tools(registry, mcp_client, server_name)
         tool_session = ToolSession(workspace_path, registry=registry, sandbox=sandbox)
+        from agent_cluster.subagent import SubagentBroker, register_subagent_tool
+
+        register_subagent_tool(
+            tool_session.registry,
+            SubagentBroker(
+                client_factory=lambda role_id="backend": runtime.client_for(role_registry.get(role_id)),
+                usage_hook=runtime.report_usage,
+            ),
+        )
 
     worktree_manager = None
     if worktrees and workspace:

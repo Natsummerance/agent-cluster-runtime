@@ -1139,6 +1139,15 @@ class SessionDriver:
                 await mcp_client.connect()
                 await register_mcp_tools(registry, mcp_client, server_name)
             tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
+            from agent_cluster.subagent import SubagentBroker, register_subagent_tool
+
+            register_subagent_tool(
+                tool_session.registry,
+                SubagentBroker(
+                    client_factory=lambda role_id="backend": runtime.client_for(role_registry.get(role_id)),
+                    usage_hook=runtime.report_usage,
+                ),
+            )
             self._tool_session = tool_session
 
         base_handlers = {

@@ -62,7 +62,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="前端开发属于执行层：负责 UI 还原、前端架构与组件库、页面与交互；"
             "可运行构建与前端测试。",
             skills=["frontend-design@1.0.0", "webapp-testing@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert", "run_subagent"],
         ),
         Role(
             id="backend",
@@ -72,7 +72,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="后端开发属于执行层：负责 API、数据模型、业务逻辑、服务集成；"
             "可写代码、跑测试，产出数据库脚本与接口契约。",
             skills=["backend-api-design@2.1.0", "database-schema@0.1.0", "unit-testing@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert", "run_subagent"],
         ),
         Role(
             id="algorithm",
@@ -82,7 +82,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="算法工程师属于执行层：负责算法方案、数据处理、训练与推理、评估优化；"
             "算法方案与评估标准经设计评审门（architect/qa/pm 审批范围）把关。",
             skills=["ml-engineering@0.1.0", "model-evaluation@0.1.0", "data-prep@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "run_subagent"],
         ),
         Role(
             id="architect",
@@ -92,7 +92,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="架构工程师属于管理层：负责系统设计、技术选型、模块划分、接口契约与"
             "非功能需求；可批准「架构基线」（design_review 门）。",
             skills=["system-design@0.1.0", "architecture-design@0.1.0", "api-contract@0.1.0", "security-review@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests", "run_subagent"],
             approval_scope=[GateKind.DESIGN_REVIEW],
         ),
         Role(
@@ -103,7 +103,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="测试开发（QA）属于执行层：负责测试计划/用例/自动化、缺陷与回归；"
             "可批准「质量门」（迭代验收）。",
             skills=["test-planning@0.1.0", "automated-testing@0.1.0", "bug-hunting@0.1.0"],
-            tools=["read_file", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests", "run_python", "git_revert"],
+            tools=["read_file", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests", "run_python", "git_revert", "run_subagent"],
             approval_scope=[GateKind.ITERATION_ACCEPTANCE],
         ),
         Role(

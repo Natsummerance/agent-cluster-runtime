@@ -61,6 +61,7 @@ from agent_cluster.models import (
 )
 from agent_cluster.roles import RoleRegistry, build_role_catalog
 from agent_cluster.runtime import AgentRuntime, ChatModelFactory, make_agent_handler
+from agent_cluster.server import WorkbenchServer, serve_main
 from agent_cluster.session import BuildResult, SessionDriver
 from agent_cluster.skills import SkillCatalog, SkillLoader
 from agent_cluster.tools import ToolSession, build_default_tools, load_agents_md
@@ -652,6 +653,20 @@ def _cmd_metrics_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    """serve 子命令（v0.5）：启动本地 Web 工作台后端（REST+SSE）。
+
+    - 全局索引 ``~/.agent-cluster/index.json``；会话在独立线程运行，HITL 经 API 桥接。
+    - 默认仅监听 127.0.0.1；--auth-token 开启认证（X-Auth-Token 头）。
+    - 退出码：0 正常停止 / 1 启动失败。
+    """
+    try:
+        return serve_main(args)
+    except OSError as exc:
+        print(f"serve 启动失败：{exc}", file=sys.stderr)
+        return 1
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """doctor 子命令：环境预检（Python/git/Docker 硬依赖 + 模型/工作区/插件/MCP 信息性）。"""
     report = run_doctor(
@@ -1057,6 +1072,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="MCP stdio 服务器（可重复），外部工具一律危险权限",
     )
     chat_parser.set_defaults(func=_cmd_chat)
+
+    serve_parser = subparsers.add_parser(
+        "serve", help="启动本地 Web 工作台后端（v0.5：REST+SSE，会话/项目/记忆/度量）"
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
+    serve_parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
+    serve_parser.add_argument("--auth-token", default="", help="可选认证 token（请求头 X-Auth-Token）")
+    serve_parser.add_argument("--plugin-dir", action="append", default=[], help="插件目录（可重复）")
+    serve_parser.set_defaults(func=_cmd_serve)
 
     doctor_parser = subparsers.add_parser("doctor", help="环境预检（Python/git/Docker/模型/工作区/插件/MCP）")
     doctor_parser.add_argument("--model", default=None, help="检查模型配置可构造客户端（信息性）")

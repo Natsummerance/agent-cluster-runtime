@@ -411,6 +411,8 @@ class WorkbenchServer:
         port: int = 8765,
         auth_token: str = "",
         plugins_dir: list[str] | None = None,
+        mcp_servers: list[str] | None = None,
+        mcp_http_servers: list[str] | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -419,8 +421,53 @@ class WorkbenchServer:
         self.sessions: dict[str, ServerSession] = {}
         self._lock = threading.Lock()
         self._plugins_dir = list(plugins_dir or [])
-        self._plugin_manager: Any = None
+        self.mcp_servers = list(mcp_servers or [])
+        self.mcp_http_servers = list(mcp_http_servers or [])
+        self._plugin_manager: Any = self._build_plugin_manager()
         self._skills_loader: Any = None
+
+    def _build_plugin_manager(self) -> Any:
+        """扫描插件目录（失败返回 None，不阻断 serve 启动）。"""
+        try:
+            from agent_cluster.plugins import PluginManager, default_plugin_search_dirs
+
+            search_dirs = list(self._plugins_dir) + default_plugin_search_dirs()
+            if not search_dirs:
+                return None
+            manager = PluginManager(search_dirs=search_dirs)
+            manager.scan()
+            manager.load_skills()
+            return manager
+        except Exception:  # noqa: BLE001 —— 插件扫描失败不影响 serve 主流程
+            return None
+
+    def _skills(self) -> list[Any]:
+        """技能列表：插件技能 + 默认 Codex 技能目录（~/.codex/skills）。"""
+        from agent_cluster.skills import SkillLoader
+
+        result: list[Any] = []
+        seen: set[str] = set()
+        if self._plugin_manager is not None:
+            try:
+                for skill in self._plugin_manager.load_skills():
+                    if skill.name not in seen:
+                        seen.add(skill.name)
+                        result.append(skill)
+            except Exception:  # noqa: BLE001
+                pass
+        roots = [Path.home() / ".codex" / "skills", Path.home() / ".claude" / "skills"]
+        loader = SkillLoader()
+        for root in roots:
+            if not root.is_dir():
+                continue
+            try:
+                for skill in loader.list_skills(str(root)):
+                    if skill.name not in seen:
+                        seen.add(skill.name)
+                        result.append(skill)
+            except Exception:  # noqa: BLE001
+                continue
+        return result
 
     # ------------------------------------------------------------------
     # 项目/会话生命周期
@@ -955,13 +1002,48 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": {"files": files}})
 
     def _handle_plugins(self) -> None:
-        _send_json(self, 200, {"ok": True, "data": {"note": "插件列表由 CLI plugins list 提供（T12.11 接线面板）"}})
+        workbench = self.server.workbench
+        if workbench._plugin_manager is None:
+            _send_json(self, 200, {"ok": True, "data": {"plugins": [], "note": "未配置插件目录"}})
+            return
+        plugins = []
+        for manifest in workbench._plugin_manager.list_plugins():
+            plugins.append(
+                {
+                    "name": manifest.name,
+                    "version": manifest.version,
+                    "description": manifest.description or "",
+                    "skill_dirs": len(manifest.skill_dirs or []),
+                    "hooks": sorted({event for event, specs in (manifest.hooks or {}).items() if specs}),
+                }
+            )
+        skills = [
+            {"name": skill.name, "version": skill.version, "description": skill.description or ""}
+            for skill in workbench._skills()
+        ]
+        _send_json(self, 200, {"ok": True, "data": {"plugins": plugins, "skills": skills}})
 
     def _handle_skills(self) -> None:
-        _send_json(self, 200, {"ok": True, "data": {"note": "技能列表由 CLI skills list 提供（T12.11 接线面板）"}})
+        skills = [
+            {"name": skill.name, "version": skill.version, "description": skill.description or ""}
+            for skill in self.server.workbench._skills()
+        ]
+        _send_json(self, 200, {"ok": True, "data": {"skills": skills, "count": len(skills)}})
 
     def _handle_mcp(self) -> None:
-        _send_json(self, 200, {"ok": True, "data": {"note": "MCP 列表由 CLI mcp list 提供（T12.11 接线面板）"}})
+        workbench = self.server.workbench
+        _send_json(
+            self,
+            200,
+            {
+                "ok": True,
+                "data": {
+                    "stdio": workbench.mcp_servers,
+                    "http": workbench.mcp_http_servers,
+                    "note": "MCP 工具在会话启动时注册为 mcp_<server>_<tool>（危险权限）",
+                },
+            },
+        )
 
 
 def serve_main(args: Any) -> int:
@@ -971,6 +1053,8 @@ def serve_main(args: Any) -> int:
         port=args.port,
         auth_token=args.auth_token or "",
         plugins_dir=list(args.plugin_dir or []),
+        mcp_servers=list(args.mcp or []),
+        mcp_http_servers=list(args.mcp_http or []),
     )
     httpd = ThreadingHTTPServer((server.host, server.port), WorkbenchHandler)
     httpd.workbench = server  # type: ignore[attr-defined]

@@ -908,6 +908,103 @@ def _cmd_build(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+DEMO_ROLE_TOOL_SCRIPTS: dict[str, list[dict]] = {
+    "pm": [
+        {"name": "ask_user", "args": {"question": "主要目标用户是谁？"}},
+        {"name": "write_file", "args": {"path": "docs/PRD.md", "content": "# PRD\n目标：待办事项应用\n用户：普通用户\n验收：可增删改查\n"}},
+    ],
+    "architect": [
+        {"name": "write_file", "args": {"path": "docs/architecture.md", "content": "# 架构\n前后端分离 + SQLite\n"}},
+    ],
+    "backend": [
+        {"name": "write_file", "args": {"path": "app.py", "content": "def add(a, b):\n    return a + b\n"}},
+        {"name": "write_file", "args": {"path": "test_app.py", "content": "from app import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"}},
+    ],
+    "frontend": [
+        {"name": "write_file", "args": {"path": "index.html", "content": "<h1>待办事项</h1>\n"}},
+    ],
+    "algorithm": [
+        {"name": "write_file", "args": {"path": "algo.py", "content": "def rank(items):\n    return sorted(items)\n"}},
+    ],
+    "qa": [{"name": "run_tests", "args": {"command": "pytest -q"}}],
+    "docs": [
+        {"name": "write_file", "args": {"path": "README.md", "content": "# 待办事项应用\n"}},
+        {"name": "write_file", "args": {"path": "docs/user-manual.md", "content": "# 用户手册\n"}},
+        {"name": "write_file", "args": {"path": "docs/api.md", "content": "# API 文档\n"}},
+    ],
+    "devops": [
+        {"name": "write_file", "args": {"path": "Dockerfile", "content": "FROM python:3.12\n"}},
+        {"name": "write_file", "args": {"path": "docker-compose.yml", "content": "services:\n  app:\n    build: .\n"}},
+        {"name": "write_file", "args": {"path": "scripts/smoke.sh", "content": "#!/bin/sh\npython -c 'from app import add; assert add(1,2)==3'\n"}},
+    ],
+}
+
+
+def _cmd_demo(args: argparse.Namespace) -> int:
+    """demo 子命令：确定性一键演示（无需 API key）。
+
+    - 在 ``--workspace``（缺省 ``.agent-cluster-demo/``）跑示例需求全生命周期，
+      产出完整交付包（PRD/架构/代码/测试/部署/手册/DELIVERY.md），git 提交；
+    - 结束后打印面板接入指引（serve + 前端），``--port`` 可自动注册项目。
+    """
+    from agent_cluster.session import SessionDriver
+
+    out = sys.stdout
+    workspace = Path(args.workspace).resolve() if args.workspace else (Path.cwd() / ".agent-cluster-demo")
+    flow = Path(args.flow) if args.flow else Path(DEFAULT_BUILD_FLOW)
+    if not flow.is_file():
+        print(f"流程文件不存在：{flow}", file=sys.stderr)
+        return 1
+    print(f"===== agent-cluster demo（确定性演示）=====")
+    print(f"工作区：{workspace}")
+    print(f"目标：{args.goal}")
+    try:
+        result: BuildResult = asyncio.run(
+            SessionDriver(
+                workspace=workspace,
+                goal=args.goal,
+                flow=flow,
+                model="codex",
+                budget=args.budget or 500_000,
+                deterministic=True,
+                yes=True,
+                qa_script=["普通用户"],
+                role_tool_scripts=DEMO_ROLE_TOOL_SCRIPTS,
+                print_fn=lambda s: print(s, file=out),
+            ).run()
+        )
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"demo 失败：{exc}", file=sys.stderr)
+        return 1
+    _print_build_summary(result, out)
+    # 面板接入指引
+    print()
+    print("===== 面板接入 =====")
+    print("1) 启动后端：  agent-cluster serve --port 8765")
+    print(f"2) 打开前端：  cd frontend && npm install && npm run dev")
+    print("3) 面板新建项目，工作区填：")
+    print(f"   {workspace}")
+    if args.port:
+        _demo_register_project(args.port, workspace, out)
+    return result.exit_code
+
+
+def _demo_register_project(port: int, workspace: Path, out: TextIO) -> None:
+    """把演示工作区注册进已运行的 serve（POST /api/v1/projects）。"""
+    import json as _json
+    import urllib.request
+
+    url = f"http://127.0.0.1:{port}/api/v1/projects"
+    body = _json.dumps({"name": "agent-cluster-demo", "workspace": str(workspace)}).encode("utf-8")
+    try:
+        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = _json.loads(resp.read().decode("utf-8"))
+        print(f"已注册项目：{data.get('data', {}).get('id', '?')}（serve 端口 {port}）")
+    except Exception as exc:  # noqa: BLE001 —— 注册失败不阻塞
+        print(f"注册项目失败（serve 未启动？）：{exc}", file=sys.stderr)
+
+
 def _cmd_eval(args: argparse.Namespace) -> int:
     """eval 子命令：确定性回归集 + 基线对比防退化（T12.6 质量门禁）。
 
@@ -1145,6 +1242,16 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--max-rounds", type=int, default=None, help="工具模式 ReAct 最大轮数（缺省 6）")
     build_parser.set_defaults(func=_cmd_build)
 
+    demo_parser = subparsers.add_parser(
+        "demo", help="确定性一键演示（无需 API key）：示例需求 → 完整交付包 + 面板指引（v0.5）"
+    )
+    demo_parser.add_argument("--goal", default="做一个待办事项网站（用户可增删改查）", help="演示需求目标（缺省待办事项网站）")
+    demo_parser.add_argument("--workspace", default=None, help="演示工作区（缺省 ./.agent-cluster-demo/）")
+    demo_parser.add_argument("--flow", default=None, help="生命周期流程 YAML（缺省 build-product.yaml）")
+    demo_parser.add_argument("--budget", type=int, default=None, help="全局 token 预算（缺省 500000）")
+    demo_parser.add_argument("--port", type=int, default=None, help="可选：把演示工作区注册进已运行的 serve 端口")
+    demo_parser.set_defaults(func=_cmd_demo)
+
     chat_parser = subparsers.add_parser(
         "chat",
         help="连续多轮开发 REPL（v0.4）：工具模式 + 插件 hooks + token 计量，多轮上下文保持",
@@ -1178,6 +1285,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
     serve_parser.add_argument("--auth-token", default="", help="可选认证 token（请求头 X-Auth-Token）")
     serve_parser.add_argument("--plugin-dir", action="append", default=[], help="插件目录（可重复）")
+    serve_parser.add_argument("--mcp", action="append", default=[], metavar="NAME=COMMAND", help="MCP stdio 服务器（可重复，会话启动时注册工具）")
+    serve_parser.add_argument("--mcp-http", action="append", default=[], metavar="NAME=URL", help="MCP Streamable HTTP 服务器（可重复）")
     serve_parser.set_defaults(func=_cmd_serve)
 
     doctor_parser = subparsers.add_parser("doctor", help="环境预检（Python/git/Docker/模型/工作区/插件/MCP）")

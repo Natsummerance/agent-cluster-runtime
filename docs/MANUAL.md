@@ -1,7 +1,7 @@
 # 用户手册：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 安装、配置、运行与扩展指南。
-> 适用版本：0.4.0 ｜ 环境：Windows / macOS / Linux（Python 3.11+）
+> 适用版本：0.5.0 ｜ 环境：Windows 优先（其余平台兼容不验收），Python 3.11+
 
 ---
 
@@ -30,6 +30,9 @@
 21. 退出码与错误处理
 22. 常见问题（FAQ）
 23. 目录结构
+24. 桌面工作台：serve + React 前端 + Electron（v0.5）
+25. 一键演示 demo（v0.5）
+26. 记忆库与进化集成（v0.5）
 
 ---
 
@@ -821,6 +824,13 @@ agent-cluster-runtime/
 │   ├── sandbox.py       # v0.4 Docker 沙箱执行器
 │   ├── worktree.py      # v0.4 git worktree 隔离
 │   ├── subagent.py      # v0.4 有界子代理
+│   ├── server.py           # v0.5 serve 后端（REST+SSE+全局索引）
+│   ├── memory.py           # v0.5 SQLite 四级记忆库
+│   ├── evolution_integration.py # v0.5 进化集成（记忆→提案/复盘/SOP）
+│   ├── budget.py/pricing.py      # v0.5 自适应预算 + 价格表
+│   ├── trace.py/judge.py/eval.py # v0.5 可观测 + LLM 评审 + 回归集
+│   ├── changes.py          # v0.5 变更版本化/回滚
+│   ├── subagent.py      # v0.4 有界子代理
 │   └── cli.py           # 命令行入口（run/build/chat/doctor/tools/mcp/plugins/skills/roles/proposals/metrics）
 ├── examples/
 │   ├── flows/fullstack-sprint.yaml
@@ -828,7 +838,7 @@ agent-cluster-runtime/
 │   ├── flows/build-product.yaml       # v0.3 会话式全生命周期流程
 │   ├── tool-scripts/build-new-project.json  # 确定性工具脚本（无 key 演示）
 │   └── skills/          # 4 个示例技能包
-├── tests/               # 451 项自动化测试
+├── tests/               # 539+ 项自动化测试
 ├── docs/PRODUCT.md      # 产品介绍
 ├── docs/MANUAL.md       # 本手册
 └── README.md
@@ -836,3 +846,79 @@ agent-cluster-runtime/
 
 更多设计背景见 [`docs/../agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)
 与 [`docs/superpowers/plans/implementation-plan.md`](superpowers/plans/implementation-plan.md)。
+
+
+---
+
+## 24. 桌面工作台：serve + React 前端 + Electron（v0.5）
+
+### 24.1 启动后端
+
+```powershell
+agent-cluster serve --port 8765                # 默认仅本机
+agent-cluster serve --port 8765 --auth-token xxxx   # 可选认证（X-Auth-Token）
+agent-cluster serve --mcp fs='npx -y @modelcontextprotocol/server-filesystem C:\tmp'  # 可选 MCP
+```
+
+- REST：`GET /api/v1/status`、`GET|POST /api/v1/projects`、`GET|POST /api/v1/projects/{pid}/sessions`、
+  `GET /api/v1/sessions/{sid}`、`POST /api/v1/sessions/{sid}/approve|reject|edit|response`、
+  `POST /api/v1/sessions/{sid}/interrupt`、`POST /api/v1/sessions/{sid}/rollback`、
+  `GET /api/v1/projects/{pid}/workspace/tree|file`、`GET /api/v1/projects/{pid}/memory`、
+  `GET /api/v1/metrics`、`GET /api/v1/plugins|skills|mcp`、
+  `GET /api/v1/evolution/proposals`、`POST /api/v1/evolution/generate|retro`、
+  `POST /api/v1/evolution/proposals/{id}/apply|rollback`、`POST /api/v1/sessions/{sid}/audit/export`。
+- SSE：`GET /api/v1/sessions/{sid}/events?since=N`（node.entered / gate.waiting /
+  approval.pending / tool.call / change.applied / task.done / phase.completed /
+  budget.warning / metrics.updated，事件可重放）。
+
+### 24.2 React 工作台（frontend/）
+
+```powershell
+cd frontend
+npm install
+npm run dev        # Vite dev server，默认 http://127.0.0.1:5173
+```
+
+页面：仪表盘（token/成本/健康）、项目看板、会话详情（审批弹窗、实时打断、变更历史回滚、
+任务板、token/阶段、SSE 时间线）、产物浏览（文件树+预览）、记忆库、进化提案、集成
+（插件/技能/MCP）、审计导出、设置（serverUrl/认证/模型/预算）。
+
+### 24.3 Electron 桌面壳（desktop/）
+
+```powershell
+cd desktop
+npm install
+npm start          # 启动 Electron：自动拉起 serve + 加载前端
+npm run build:win  # electron-builder NSIS 安装包
+```
+
+- 托盘/系统通知（会话等待审批时提醒）、全局快捷键 `Ctrl+Alt+K` 唤起/隐藏、开机自启
+  （`AGENT_CLUSTER_AUTOSTART=1`）、退出时清理后端子进程。
+- 后端二进制优先 `resources/agent-cluster-backend.exe`，缺失回退 `uv run agent-cluster serve`。
+
+## 25. 一键演示 demo（v0.5）
+
+```powershell
+agent-cluster demo                                  # 确定性演示（无需 API key）
+agent-cluster demo --workspace D:\demo-ws
+agent-cluster demo --port 8765                      # 完成后把工作区注册进已运行的 serve
+```
+
+- 在缺省 `./.agent-cluster-demo/` 跑示例需求全生命周期，产出 PRD/架构/代码/测试/部署/
+  手册/`DELIVERY.md`（含 token 计量表）并 git 提交；结束后打印面板接入指引。
+
+## 26. 记忆库与进化集成（v0.5）
+
+```powershell
+# 记忆：工作区 .agent-cluster/memory.db（SQLite 四级晋升，内容存 Markdown 文件）
+agent-cluster evolution capture --workspace DIR --notes "建议：需求评审前必须完成验收标准初稿。"
+agent-cluster evolution generate --workspace DIR   # 记忆失败模式 → 进化提案
+agent-cluster evolution list --workspace DIR
+agent-cluster evolution apply --workspace DIR --proposal <id> [--human-required]
+agent-cluster evolution rollback --workspace DIR --proposal <id> --reason "..."
+agent-cluster evolution retro --workspace DIR --goal "..."   # 自动复盘报告 docs/retro-<ts>.md
+```
+
+- 提案持久化到 `<root>/.agent-cluster/evolution/proposals.json`；process/organization 类
+  提案生效后自动追加 `.agent-cluster/SOP.md` 变更记录；`--human-required` 在非 ask 模式
+  下组织流程变更自动驳回（bypass-immune）。

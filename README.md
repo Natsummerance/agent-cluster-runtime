@@ -1,6 +1,6 @@
 # agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
 
-> 版本：0.4.0 ｜ 语言：Python 3.11+ ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
+> 版本：0.5.0 ｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
 > 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
 
 ## 项目简介
@@ -34,6 +34,14 @@ Anthropic Messages 自动路由）、`doctor` 环境预检（Python/git/Docker �
 **有界子代理**（`run_subagent`：独立 ReAct 循环 + token 预算 / max_rounds 双截断），
 以及工具层扩展（`apply_patch` 结构化补丁 / `http_fetch` URL 抓取 / MCP resources
 资源协议 / AGENTS.md 项目记忆）。
+
+
+v0.5 新增**桌面工作台（Desktop Workbench）**：`serve` 后端（REST+SSE、项目/会话/记忆/度量/
+进化/审计全量 API）+ React 工作台前端 + Electron 桌面壳，把一个需求变成全程可视化：
+面板实时打断改需求（`interrupt`）、变更版本化回滚（`rollback`）、审批弹窗、任务板/时间线、
+token/成本仪表盘、记忆库（SQLite 四级晋升）、进化提案管理、审计导出；CLI 完全保留
+（`run`/`build`/`chat`/`demo`/`doctor`/`eval`/`evolution` 等），`agent-cluster demo`
+一键确定性生成完整交付包，`npm run dev` + `serve` 即可打开面板即开即用。
 
 设计要点：
 

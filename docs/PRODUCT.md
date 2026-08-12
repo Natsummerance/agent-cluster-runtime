@@ -1,7 +1,7 @@
 # 产品介绍：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.4.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 默认零 LLM 依赖可运行
+> 版本：0.5.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
 
 ---
 
@@ -276,12 +276,25 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 - 工具层扩展：`apply_patch` / `http_fetch` / MCP resources / AGENTS.md 项目记忆。
 - 451 项自动化测试；本版验收测试覆盖空工作区全流程与既有仓库修复两场景。
 
+**v0.5 桌面工作台（Desktop Workbench）**
+
+- `serve` 后端：stdlib `ThreadingHTTPServer` + SSE，REST API 覆盖状态/项目/会话/工作区
+  文件树/记忆/度量/插件/技能/MCP/进化/审计导出，单进程多会话，`--auth-token` 可选认证。
+- 实时打断：`POST /sessions/{id}/interrupt` 暂停当前节点 → 变更快照版本化（`.agent-cluster/
+  change-history/`）→ 阶段依赖重规划 → resume；可回滚到任意版本重跑。
+- 记忆库：SQLite 四级晋升（session→project→gotcha→domain）+ 提议制写入 + 自动摘要压缩；
+  进化集成把失败模式/会议纪要自动提炼为进化提案与 SOP 建议（`evolution generate/capture`）。
+- token/成本仪表盘：自适应预算、内置价格表折算金额、前缀缓存、四类健康指标
+  （eval 通过率趋势 / token 成本 / 预估准确率 / 返工率）。
+- React 工作台（`frontend/`）+ Electron 壳（`desktop/`）：仪表盘/项目看板/会话详情/
+  产物浏览/记忆/进化/集成/审计/设置，中文界面；`agent-cluster demo` 一键演示。
+
 **路线图（后续版本）**
 
-- 实时 stdin 注入「随时打断改需求」与 Web 运行面板。
-- 记忆持久化：经验库从内存到文件/向量库，跨迭代沉淀。
-- 多项目并发与项目组合管理。
-- 企业集成：Jira/Linear/Slack 等外部系统适配。
+- v0.5 已落地：Web/桌面面板、实时打断与变更回滚、记忆库与进化集成、token 成本仪表盘。
+- 多项目并发与项目组合管理（项目级看板 + 预算池）。
+- 企业集成实连：Jira/Linear/Slack 等外部系统适配。
+- 云端/服务化与 OAuth MCP、自动更新、完整 PPM。
 
 ## 15. 许可说明
 

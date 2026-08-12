@@ -10,3 +10,15 @@ dist/
 
 # 本地演示工作区（工具模式 --workspace 示例产物）
 .agent-cluster-demo/
+
+
+# 前端 / 桌面（v0.5）
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+desktop/node_modules/
+desktop/dist/
+desktop/dist-frontend/
+desktop/logs/
+desktop/resources/agent-cluster-backend.exe

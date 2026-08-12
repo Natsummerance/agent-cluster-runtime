@@ -719,6 +719,7 @@ class SessionDriver:
         phase_map: dict[str, str] | None = None,
         plugin_manager: Any | None = None,
         sandbox: Any | None = None,
+        judge: Any | None = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
         self.goal = goal.strip()
@@ -738,6 +739,9 @@ class SessionDriver:
         self.event_printer = event_printer
         self.plugin_manager = plugin_manager
         self.sandbox = sandbox
+        self.judge = judge
+        if judge is not None:
+            judge.on_usage = self._record_judge_usage
         self.phase_map = dict(
             phase_map
             or {
@@ -1029,14 +1033,36 @@ class SessionDriver:
             return HumanResponse(type="accept")
         return HumanResponse(type="reject", args={"reason": raw})
 
+    def _record_judge_usage(self, usage: Any) -> None:
+        """LLM 评审用量计入 token 账本（角色 judge，按当前阶段）。"""
+        try:
+            self.store.record.token_ledger.record(role="judge", phase=self.current_phase, usage=usage)
+            self.store.save()
+        except Exception:  # noqa: BLE001 —— 记账失败不阻断
+            pass
+
     def _gate_response(self, request: ActionRequest) -> HumanResponse | str:
-        """审批门：accept/reject/response/edit + 返工计数。"""
+        """审批门：accept/reject/response/edit + 返工计数 + 可选 LLM 评审。"""
         node_id = self.current_node or request.evidence.get("node") or ""
         record = self._gate_record(node_id, request.kind.value)
         record.attempts += 1
+        judge_review = ""
+        if self.judge is not None:
+            try:
+                verdict = self.judge.evaluate(request.kind.value, self.workspace, context=self.current_node)
+                if verdict is not None:
+                    suggestions = "；".join(verdict.suggestions[:3])
+                    judge_review = (
+                        f"[LLM 评审] {verdict.verdict}：{verdict.reason}"
+                        + (f"（建议：{suggestions}）" if suggestions else "")
+                        + "\n"
+                    )
+            except Exception as exc:  # noqa: BLE001 —— 评审异常不阻断门
+                judge_review = f"[LLM 评审] 不可用：{exc}\n"
         hint = (
             f"[审批门] {request.title}（{request.kind.value}，风险 {request.risk_level}）\n"
             f"  {request.description}\n"
+            f"{judge_review}"
             "请选择 [accept|reject|response <内容>|edit <内容>|/status|/budget|/skip|/abort]："
         )
         raw = self._prompt(hint)

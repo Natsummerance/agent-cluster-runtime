@@ -836,6 +836,11 @@ def _cmd_build(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
             print(f"qa_script 加载失败（{args.qa_script}）：{exc}", file=sys.stderr)
             return 1
+    judge = None
+    if not args.deterministic and not args.no_judge:
+        from agent_cluster.judge import LLMJudge
+
+        judge = LLMJudge(model=args.model or "codex")
     tool_script: list[dict] | None = None
     if args.tool_script:
         try:
@@ -878,6 +883,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 print_fn=lambda s: print(s, file=out),
                 plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
                 sandbox=_sandbox,
+                judge=judge,
             ).run()
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
@@ -886,6 +892,64 @@ def _cmd_build(args: argparse.Namespace) -> int:
 
     _print_build_summary(result, out)
     return result.exit_code
+
+
+def _cmd_eval(args: argparse.Namespace) -> int:
+    """eval 子命令：确定性回归集 + 基线对比防退化（T12.6 质量门禁）。
+
+    - 运行内置场景（mini-pm-gate / dev-qa-gate / full-build），汇总三项指标；
+    - 与 --baseline 对比（相对下降超 --threshold 判定回归，退出码 1）；
+    - --save-baseline 把本次报告存为基线；--scenario 可过滤单个场景。
+    """
+    from agent_cluster.eval import (
+        BUILTIN_SUITE,
+        compare_to_baseline,
+        load_baseline,
+        run_suite,
+        save_baseline,
+    )
+    suite = [item for item in BUILTIN_SUITE if args.scenario in (None, "", item.name)]
+    if not suite:
+        print(
+            f"未找到场景：{args.scenario}（可用：{', '.join(item.name for item in BUILTIN_SUITE)}）",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        report = run_suite(root=args.workspace, suite=suite)
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"eval 运行失败：{exc}", file=sys.stderr)
+        return 1
+    print("===== eval 回归集 =====", file=sys.stdout)
+    for entry in report["scenarios"]:
+        mark = "PASS" if entry["passed"] else "FAIL"
+        print(
+            f"  [{mark}] {entry['name']}：exit={entry['exit_code']} "
+            f"门={entry['gate_decisions']} 缺失={entry['missing_files'] or '-'} tokens={entry['tokens_used']}",
+            file=sys.stdout,
+        )
+    metrics = report["metrics"]
+    print(
+        f"指标：完成率 {metrics['completion_rate']:.1%} | "
+        f"工具正确性 {metrics['tool_correctness']:.1%} | "
+        f"测试通过率 {metrics['test_pass_rate']:.1%} | 总 tokens {report['total_tokens']}",
+        file=sys.stdout,
+    )
+    if args.save_baseline:
+        save_baseline(report, args.baseline)
+        print(f"基线已保存：{args.baseline}", file=sys.stdout)
+        return 0
+    baseline = load_baseline(args.baseline)
+    if baseline is None:
+        print(f"无基线（{args.baseline}），本次结果未对比；用 --save-baseline 建立基线。", file=sys.stdout)
+        return 0
+    issues = compare_to_baseline(report, baseline, threshold=args.threshold)
+    if issues:
+        for issue in issues:
+            print(f"回归：{issue}", file=sys.stderr)
+        return 1
+    print("与基线对比：无回归。", file=sys.stdout)
+    return 0
 
 
 def _print_build_summary(result: BuildResult, out: TextIO) -> None:
@@ -1035,6 +1099,10 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--budget", type=int, default=None, help="全局 token 预算（缺省 500000）")
     build_parser.add_argument("--max-rework", type=int, default=None, help="单门返工上限（缺省 3，超过升级人工）")
     build_parser.add_argument("--deterministic", action="store_true", help="确定性演示模式（无需 API key）")
+    build_parser.add_argument(
+        "--no-judge", action="store_true",
+        help="关闭 LLM-as-judge 门禁评审（默认真实 LLM 模式开启；确定性模式自动关闭）",
+    )
     build_parser.add_argument("--yes", action="store_true", help="无人值守：门自动接受、澄清用缺省答案并留痕")
     build_parser.add_argument("--qa-script", default=None, help="脚本化澄清问答 JSON 文件（字符串数组）")
     build_parser.add_argument("--tool-script", default=None, help="确定性工具脚本 JSON 文件")
@@ -1154,6 +1222,16 @@ def build_parser() -> argparse.ArgumentParser:
     metrics_sub = metrics_parser.add_subparsers(dest="metrics_command", required=True)
     metrics_demo = metrics_sub.add_parser("demo", help="度量采集与信号触发演示")
     metrics_demo.set_defaults(func=_cmd_metrics_demo)
+
+    eval_parser = subparsers.add_parser(
+        "eval", help="确定性回归集 + 基线对比防退化（T12.6 质量门禁）"
+    )
+    eval_parser.add_argument("--workspace", default=None, help="临时工作区根目录（缺省系统临时目录）")
+    eval_parser.add_argument("--scenario", default=None, help="只运行指定场景（mini-pm-gate / dev-qa-gate / full-build）")
+    eval_parser.add_argument("--baseline", default="eval-baseline.json", help="基线文件（缺省 eval-baseline.json）")
+    eval_parser.add_argument("--save-baseline", action="store_true", help="保存本次结果为基线（不做对比）")
+    eval_parser.add_argument("--threshold", type=float, default=0.05, help="回归判定阈值（缺省 0.05 = 相对下降 5%）")
+    eval_parser.set_defaults(func=_cmd_eval)
 
     return parser
 

@@ -2,8 +2,8 @@
 
 当前阶段覆盖：数据模型层（models.py）、技能层（skills.py）、流程引擎
 （workflow.py）、审批门（gates.py）、组织角色（roles.py）、角色执行运行时
-（runtime.py）、会议（meetings.py）与账本/任务板（ledger.py）；后续任务将
-加入进化闭环、度量与 CLI。
+（runtime.py）、会议（meetings.py）、账本/任务板（ledger.py）、进化闭环
+（evolution.py）与绩效度量（metrics.py）；后续任务将加入 CLI。
 """
 
 from agent_cluster.models import (
@@ -70,6 +70,19 @@ from agent_cluster.runtime import (
 )
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.ledger import BLOCKED, COLUMNS, LedgerStore, TaskBoard, TaskBoardError
+from agent_cluster.evolution import (
+    Candidate,
+    EvolutionEngine,
+    EvolutionError,
+    EvolutionProposal,
+    Signal,
+)
+from agent_cluster.metrics import (
+    MetricPoint,
+    MetricRules,
+    MetricsCollector,
+    MetricsSnapshot,
+)
 from agent_cluster.skills import (
     DisclosureLevel,
     SkillCatalog,
@@ -149,6 +162,15 @@ __all__ = [
     "WorkflowValidationError",
     "__version__",
     "format_skill_context",
+    "Candidate",
+    "EvolutionEngine",
+    "EvolutionError",
+    "EvolutionProposal",
+    "Signal",
+    "MetricPoint",
+    "MetricRules",
+    "MetricsCollector",
+    "MetricsSnapshot",
     "GateError",
     "approval_pending",
     "make_gate_handler",

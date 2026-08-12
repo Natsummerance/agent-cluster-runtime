@@ -41,16 +41,25 @@ agent handler 通道契约（Task 7 CLI 依赖，勿变更）：
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_cluster.models import (
+    ActionRequest,
     Agent,
     AgentConfig,
+    ApprovalRecord,
     ClusterState,
     Event,
+    GateKind,
+    HumanInterruptConfig,
+    HumanResponse,
     Ledger,
     Message,
     MessageType,
@@ -66,6 +75,13 @@ from agent_cluster.providers import (
     load_codex_model_config,
     resolve_deepseek_defaults,
 )
+from agent_cluster.skills import DisclosureLevel, format_skill_context
+from agent_cluster.tools import (
+    ToolCall,
+    ToolPermission,
+    ToolResult,
+    ToolSession,
+)
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowNode
 
 __all__ = [
@@ -77,7 +93,74 @@ __all__ = [
     "EventBus",
     "AgentRuntime",
     "make_agent_handler",
+    "ChatResponse",
+    "parse_tool_calls_from_text",
 ]
+
+
+@dataclass
+class ChatResponse:
+    """模型一次回复：文本 + 工具调用列表（双轨协议的统一产物）。
+
+    - 原生 function calling 客户端（DeepSeek/OpenAI）解析 ``tool_calls`` 填入；
+    - 文本回退路径（Deterministic / 默认实现）从 fenced JSON action 解析。
+    """
+
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+
+
+def _normalize_tool_payload(data: Any) -> list[ToolCall]:
+    """把 JSON action 负载归一化为 ToolCall 列表（兼容多种写法）。"""
+    if isinstance(data, list):
+        calls: list[ToolCall] = []
+        for item in data:
+            if isinstance(item, dict) and (item.get("name") or item.get("tool")):
+                calls.append(
+                    ToolCall(
+                        name=str(item.get("name") or item.get("tool")),
+                        args=dict(item.get("args") or item.get("arguments") or {}),
+                    )
+                )
+        return calls
+    if isinstance(data, dict):
+        if isinstance(data.get("action"), dict):
+            data = data["action"]
+        name = data.get("name") or data.get("tool")
+        if name:
+            return [
+                ToolCall(
+                    name=str(name),
+                    args=dict(data.get("args") or data.get("arguments") or {}),
+                )
+            ]
+    return []
+
+
+def parse_tool_calls_from_text(text: str) -> list[ToolCall]:
+    """从模型文本中提取工具调用（fenced JSON action 回退协议）。
+
+    支持格式：
+    - ```json {"action": {"name": ..., "args": {...}}} ``` 或
+      ```json {"name": ..., "args": {...}} ``` / ```json [{name, args}, ...] ```；
+    - 整段文本本身即为 JSON（无 fence）。
+    未解析出任何调用返回空列表（视为纯文本回复）。
+    """
+    if not text:
+        return []
+    fenced = re.findall(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    candidates = [candidate for candidate in fenced if candidate.strip()] or [text.strip()]
+    for candidate in candidates:
+        if not candidate.startswith("{"):
+            continue
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        calls = _normalize_tool_payload(data)
+        if calls:
+            return calls
+    return []
 
 
 class ChatModelClient(ABC):
@@ -87,6 +170,16 @@ class ChatModelClient(ABC):
     async def complete(self, messages: list[dict]) -> str:
         """按消息列表（含 role/content）生成回复文本。"""
 
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        """带工具调用的回复（默认实现 = 文本 + fenced JSON action 回退解析）。
+
+        - 原生 function calling 客户端（DeepSeek/OpenAI）重写本方法；
+        - 默认路径：调用 ``complete()`` 后从文本解析 JSON action，解析失败
+          视为纯文本回复（``tool_calls=[]``）。
+        """
+        text = await self.complete(messages)
+        return ChatResponse(text=text, tool_calls=parse_tool_calls_from_text(text))
+
 
 class DeterministicClient(ChatModelClient):
     """确定性后端：按消息内容与 persona 规则生成回复，无外部依赖。
@@ -95,8 +188,14 @@ class DeterministicClient(ChatModelClient):
     规则处理。同一输入恒得同一输出。
     """
 
-    def __init__(self, persona: str = "确定性助手") -> None:
+    def __init__(
+        self,
+        persona: str = "确定性助手",
+        tool_script: list[dict] | None = None,
+    ) -> None:
         self.persona = persona
+        # 工具调用脚本（测试注入）：逐轮弹出，弹尽后返回完成文本
+        self.tool_script = list(tool_script or [])
 
     async def complete(self, messages: list[dict]) -> str:
         """返回基于最后一条消息内容的确定性回复。"""
@@ -106,6 +205,26 @@ class DeterministicClient(ChatModelClient):
         if not content:
             return f"{self.persona}：已确认消息序列（{len(messages)} 条），无待处理内容。"
         return f"{self.persona}：已收到「{content}」，按确定性规则完成处理。"
+
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        """确定性工具模式：按 tool_script 依次返回工具调用，脚本耗尽返回完成文本。
+
+        - 提供 ``tool_script`` 时逐轮弹出下一个调用（无 API key 可跑通工具全链路）；
+        - 未提供脚本时回落基类文本 + JSON action 解析。
+        """
+        if self.tool_script:
+            script = list(self.tool_script)
+            call = script.pop(0)
+            self.tool_script = script
+            if call is None:
+                return ChatResponse(text=f"{self.persona}：任务完成（工具脚本已耗尽）。", tool_calls=[])
+            return ChatResponse(
+                text="",
+                tool_calls=[
+                    ToolCall(name=str(call["name"]), args=dict(call.get("args") or {}))
+                ],
+            )
+        return await super().complete_with_tools(messages, tools)
 
 
 class OpenAIClient(ChatModelClient):
@@ -144,6 +263,36 @@ class OpenAIClient(ChatModelClient):
         client = openai.OpenAI(api_key=self._api_key, base_url=self.api_base)
         response = client.chat.completions.create(model=self.model, messages=messages)
         return response.choices[0].message.content or ""
+
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        """OpenAI 原生 function calling：请求带 ``tools``，解析 ``tool_calls``。"""
+        try:
+            import openai
+        except ImportError as exc:
+            raise RuntimeError(
+                "OpenAIClient 需要安装 openai 包（uv add openai）；未安装时请使用 DeterministicClient。"
+            ) from exc
+        client = openai.OpenAI(api_key=self._api_key, base_url=self.api_base)
+        response = client.chat.completions.create(model=self.model, messages=messages, tools=tools)
+        message = response.choices[0].message
+        text = message.content or ""
+        calls: list[ToolCall] = []
+        for raw_call in message.tool_calls or []:
+            function = getattr(raw_call, "function", None)
+            if function is None or not getattr(function, "name", ""):
+                continue
+            try:
+                parsed_args = json.loads(function.arguments or "{}")
+            except json.JSONDecodeError:
+                parsed_args = {}
+            calls.append(
+                ToolCall(
+                    id=getattr(raw_call, "id", None) or uuid.uuid4().hex,
+                    name=function.name,
+                    args=dict(parsed_args),
+                )
+            )
+        return ChatResponse(text=text, tool_calls=calls)
 
 
 class DeepSeekClient(ChatModelClient):
@@ -250,6 +399,81 @@ class DeepSeekClient(ChatModelClient):
             )
         raise RuntimeError("DeepSeek API 回复 content 为空：扩容重试后仍未产出最终回答。")
 
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> ChatResponse:
+        """DeepSeek 原生 function calling：请求带 ``tools``，解析 ``tool_calls``。
+
+        - 保持思维链不外泄：只取 ``message.content``（文本）与
+          ``message.tool_calls``（结构化调用），reasoning_content 不作为输出。
+        - 截断（finish_reason="length"）时扩容重试一次，语义与 ``complete`` 一致。
+        """
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+            "stream": False,
+            "tools": tools,
+        }
+        return await asyncio.to_thread(self._post_chat_completion_with_tools, payload)
+
+    def _post_chat_completion_with_tools(self, payload: dict) -> ChatResponse:
+        """同步 POST chat/completions（urllib），解析文本与 tool_calls。"""
+        import urllib.error
+        import urllib.request
+
+        url = f"{self.api_base}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        for attempt in range(2):
+            request = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                method="POST",
+                headers=headers,
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=180) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:500]
+                raise RuntimeError(f"DeepSeek API 请求失败（HTTP {exc.code}）：{detail}") from exc
+            except OSError as exc:
+                raise RuntimeError(f"DeepSeek API 请求失败：{exc}") from exc
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise RuntimeError(f"DeepSeek API 响应不是合法 JSON：{exc}") from exc
+            choices = data.get("choices") or []
+            if not choices:
+                raise RuntimeError(f"DeepSeek API 响应缺少 choices：{str(data)[:500]}")
+            choice = choices[0]
+            message = choice.get("message") or {}
+            content = str(message.get("content") or "")
+            raw_calls = message.get("tool_calls") or []
+            calls: list[ToolCall] = []
+            for raw_call in raw_calls:
+                function = raw_call.get("function") or {}
+                name = str(function.get("name") or "")
+                if not name:
+                    continue
+                arguments = function.get("arguments") or "{}"
+                try:
+                    parsed_args = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
+                except json.JSONDecodeError:
+                    parsed_args = {}
+                calls.append(ToolCall(id=str(raw_call.get("id") or uuid.uuid4().hex), name=name, args=dict(parsed_args)))
+            if content or calls:
+                return ChatResponse(text=content, tool_calls=calls)
+            truncated = choice.get("finish_reason") == "length" and attempt == 0
+            if truncated and payload.get("max_tokens", 0) < DEEPSEEK_MAX_TOKENS:
+                payload["max_tokens"] = min(payload["max_tokens"] * 4, DEEPSEEK_MAX_TOKENS)
+                continue
+            raise RuntimeError(
+                "DeepSeek API 回复 content/tool_calls 均为空（reasoning 模型的思维链不作为输出）；"
+                "请检查模型名、增大 max_tokens 或改用非推理模型。"
+            )
+        raise RuntimeError("DeepSeek API 回复为空：扩容重试后仍未产出最终回答。")
+
 
 class ChatModelFactory:
     """按 ``AgentConfig`` 选择模型后端。
@@ -269,6 +493,8 @@ class ChatModelFactory:
         cfg = config if isinstance(config, AgentConfig) else AgentConfig.model_validate(config)
         model_name = (cfg.model.model_name or "").strip().lower()
         if not model_name or model_name == "deterministic":
+            if cfg.react.tool_script:
+                return DeterministicClient(tool_script=list(cfg.react.tool_script))
             return DeterministicClient()
         if model_name in ("codex", "custom"):
             return self._client_from_codex_config(cfg)
@@ -357,10 +583,16 @@ class AgentRuntime:
         model_factory: ChatModelFactory | None = None,
         event_bus: EventBus | None = None,
         default_model: ModelConfig | None = None,
+        tool_script: list[dict] | None = None,
+        role_tool_scripts: dict[str, list[dict]] | None = None,
     ) -> None:
         self._model_factory = model_factory if model_factory is not None else ChatModelFactory()
         self.event_bus = event_bus if event_bus is not None else EventBus()
         self._default_model = default_model
+        self._tool_script = list(tool_script or [])
+        self._role_tool_scripts = {
+            role_id: list(script) for role_id, script in (role_tool_scripts or {}).items()
+        }
 
     async def reply(self, agent: Agent, messages: list[Message]) -> Message:
         """调用 Agent 的模型客户端，产出 ``Message(text)`` 并发布 ``agent_reply`` 事件。
@@ -402,6 +634,20 @@ class AgentRuntime:
         merged = list(agent.state.messages) + list(messages)
         agent.state.messages = merged[-max_messages:]
 
+    def client_for(self, role: Role) -> ChatModelClient:
+        """构造岗位模型客户端（模型选择优先级：岗位偏好 > default_model > deterministic）。
+
+        - 运行时 ``tool_script``（确定性演示脚本）注入客户端，无 API key 可全链路。
+        - 真实模型（deepseek/openai）忽略 tool_script。
+        """
+        config = AgentConfig(model=self._model_config_for(role))
+        role_script = self._role_tool_scripts.get(role.id)
+        if role_script is not None:
+            config.react.tool_script = list(role_script)
+        elif self._tool_script:
+            config.react.tool_script = list(self._tool_script)
+        return self._model_factory.create(config)
+
     async def complete_for(self, role: Role, task: Task | None = None) -> str:
         """公开模型入口：经公开工厂构造客户端，返回岗位任务的模型完成文本。
 
@@ -409,8 +655,22 @@ class AgentRuntime:
         - 模型选择优先级：岗位偏好模型 > 运行时 ``default_model`` > deterministic。
         - ``make_agent_handler`` 通过本方法执行岗位步骤，避免触碰私有成员。
         """
-        client = self._model_factory.create(AgentConfig(model=self._model_config_for(role)))
+        client = self.client_for(role)
         return await client.complete(_model_messages_for_task(role, task))
+
+    async def complete_for_with_tools(
+        self,
+        role: Role,
+        task: Task | None,
+        tools: list[dict],
+    ) -> ChatResponse:
+        """公开模型入口（工具模式）：岗位任务 + 工具 schema 的回复。
+
+        ``make_agent_handler`` 工具模式循环首轮经本方法获取带工具调用的回复，
+        后续轮次由 handler 直接持有客户端（``client_for``）继续对话。
+        """
+        client = self.client_for(role)
+        return await client.complete_with_tools(_model_messages_for_task(role, task), tools)
 
     def _model_config_for(self, role: Role) -> ModelConfig:
         """确定岗位模型配置：岗位偏好 > 运行时默认 > deterministic。"""
@@ -438,21 +698,31 @@ def make_agent_handler(
     runtime: AgentRuntime,
     role_registry: Any,
     catalog: Any = None,
+    *,
+    tool_session: ToolSession | None = None,
+    max_rounds: int | None = None,
+    interrupt_fn: Callable | None = None,
 ) -> NodeHandler:
-    """构造注册进 ``WorkflowEngine`` 的 "agent" 节点 handler（确定性岗位步骤）。
+    """构造注册进 ``WorkflowEngine`` 的 "agent" 节点 handler。
 
-    步骤（对每个 agent 节点）：
-    1. 按 ``node.role`` 从 ``role_registry`` 加载 ``Role``。
-    2. 新建 ``Task``（status=done：确定性后端创建即完成，并携带产出物路径
-       ``artifacts/<role_id>/<task_id>.md``；见模块 docstring 关于追加 reducer
-       的说明，不做复用以免通道重复）。
-    3. 用确定性模型产出执行摘要文本，追加 ``Message(type=text)``。
-    4. 经 ``ctx.events`` 追加 ``Event(type="agent_step", actor=role.id)``。
-    5. 更新当前任务账本（``Ledger``）追加 ``ProgressEntry``。
+    双路径（v0.2）：
+    - 确定性路径（``tool_session=None``，旧行为不变）：创建任务即完成，附产出物
+      占位路径 ``artifacts/<role_id>/<task_id>.md``，248 测试保持全绿。
+    - 工具路径（``tool_session`` 提供）：ReAct 工具循环——角色画像 + 技能上下文 +
+      工具 schema → ``complete_with_tools`` → 逐条执行工具 → 追加 tool_result 消息
+      → 循环至 ``max_rounds`` 或最终文本。危险工具经 ``interrupt_fn``（缺省
+      ``langgraph.types.interrupt``）挂起走审批门；``--yes`` 下自动拒绝。
+    - 分岗位质量门槛：QA 岗 ``run_tests`` 真实通过才 DONE，否则保持 ``review``；
+      开发岗产出真实文件或最终文本即 DONE，循环耗尽/模型失败进入 ``review``。
 
-    返回通道键（契约，勿变更）：``{"tasks", "messages", "ledger"}``。
-    ``catalog``（SkillCatalog）预留参数：本任务不参与执行逻辑，仅为签名契约。
+    返回通道键（契约不变）：``{"tasks", "messages", "ledger"}``，危险工具审批
+    追加 ``"decisions"``（``ApprovalRecord`` 审计记录）。
     """
+    if interrupt_fn is None:
+        from langgraph.types import interrupt as langgraph_interrupt
+
+        interrupt_fn = langgraph_interrupt
+
     async def handler(state: ClusterState, node: WorkflowNode, ctx: NodeContext) -> dict[str, Any]:
         if node.role is None:
             raise ValueError(f"agent 节点 {node.id!r} 缺少 role 配置（node.role 为 None）")
@@ -461,51 +731,368 @@ def make_agent_handler(
         iteration_id = state.iterations[0].id if state.iterations else "iter:1"
         thread_id = ctx.spec.thread_id or "default"
 
-        # 1) 新建任务（status=done：确定性后端创建即完成，附产出物路径）
-        task_id = uuid.uuid4().hex
-        task = Task(
-            id=task_id,
-            project_id=project_id,
-            iteration_id=iteration_id,
-            title=f"节点 {ctx.node_id}（{role.name}）",
-            desc=role.goal,
-            assignee_role=role.id,
-            status=TaskStatus.DONE,
-            artifacts=[f"artifacts/{role.id}/{task_id}.md"],
+        if tool_session is None:
+            return await _deterministic_agent_step(runtime, role, node, ctx, project_id, iteration_id, thread_id, state)
+        return await _tool_mode_agent_step(
+            runtime,
+            role,
+            node,
+            ctx,
+            project_id,
+            iteration_id,
+            thread_id,
+            state,
+            tool_session,
+            max_rounds,
+            catalog,
+            interrupt_fn,
         )
 
-        # 2) 经运行时公开方法 complete_for 产出确定性执行摘要（不触碰私有成员）
-        content = await runtime.complete_for(role, task)
-        output = f"{role.name} 完成节点 {ctx.node_id} 的执行：{content}"
+    return handler
 
-        # 3) 追加 text 消息
-        message = Message(
+
+async def _deterministic_agent_step(
+    runtime: AgentRuntime,
+    role: Role,
+    node: WorkflowNode,
+    ctx: NodeContext,
+    project_id: str,
+    iteration_id: str,
+    thread_id: str,
+    state: ClusterState,
+) -> dict[str, Any]:
+    """确定性路径（旧行为）：创建即完成，附产出物占位路径。"""
+    task_id = uuid.uuid4().hex
+    task = Task(
+        id=task_id,
+        project_id=project_id,
+        iteration_id=iteration_id,
+        title=f"节点 {ctx.node_id}（{role.name}）",
+        desc=role.goal,
+        assignee_role=role.id,
+        status=TaskStatus.DONE,
+        artifacts=[f"artifacts/{role.id}/{task_id}.md"],
+    )
+    content = await runtime.complete_for(role, task)
+    output = f"{role.name} 完成节点 {ctx.node_id} 的执行：{content}"
+    message = Message(
+        id=uuid.uuid4().hex,
+        thread_id=thread_id,
+        source=role.id,
+        target="",
+        type=MessageType.TEXT,
+        payload={"content": output, "node": ctx.node_id, "task": task.id},
+    )
+    ctx.events.append(
+        Event(
+            id=uuid.uuid4().hex,
+            run_id=ctx.run_id,
+            thread_id=thread_id,
+            type="agent_step",
+            actor=role.id,
+            payload={"task": task.id, "output": output, "node": ctx.node_id},
+        )
+    )
+    ledger = (
+        state.ledger
+        if state.ledger is not None and state.ledger.task_id == task.id
+        else Ledger(task_id=task.id)
+    )
+    ledger.progress.append(ProgressEntry(role=role.id, status="doing", verdict="ok", next_action="review"))
+    return {"tasks": [task], "messages": [message], "ledger": ledger}
+
+
+def _allowed_tool_names(role: Role, catalog: Any, registry: Any) -> list[str]:
+    """确定岗位可用工具：技能目录交集 > 角色 tools 交集 > 只读兜底。"""
+    if catalog is not None:
+        allowed = set(catalog.allowed_tools(role))
+    else:
+        allowed = set(role.tools)
+    names = set(registry.names())
+    filtered = sorted(allowed & names)
+    if not filtered:
+        read_only = {"list_dir", "read_file", "grep", "glob", "git_status", "git_diff"}
+        filtered = sorted(read_only & names)
+    return filtered
+
+
+def _tool_task_prompt(role: Role, task: Task) -> str:
+    """工具模式的用户提示：任务 + 工具协议说明（工作区根目录已在 system 注入）。"""
+    parts = [
+        f"请以 {role.name} 身份在真实工作区执行任务 {task.id}：{task.title}（{task.desc}）。",
+        "工作方式：需要修改文件/跑测试/git 时通过工具调用完成；全部工作结束后返回最终文本总结。"
+        "危险工具（run_shell/run_python/delete_file/git_push）会自动走人工审批，请优先使用安全工具。",
+    ]
+    return "\n".join(parts)
+
+
+async def _tool_mode_agent_step(
+    runtime: AgentRuntime,
+    role: Role,
+    node: WorkflowNode,
+    ctx: NodeContext,
+    project_id: str,
+    iteration_id: str,
+    thread_id: str,
+    state: ClusterState,
+    session: ToolSession,
+    max_rounds: int | None,
+    catalog: Any,
+    interrupt_fn: Callable,
+) -> dict[str, Any]:
+    """工具模式 ReAct 循环：真实工作区执行 + 危险工具审批门。"""
+    # 节点隔离：重放缓存只在本节点生效（避免跨节点副作用工具被缓存）
+    session.clear_replay()
+    rounds = max_rounds if max_rounds is not None and max_rounds > 0 else 6
+    allowed = _allowed_tool_names(role, catalog, session.registry)
+    schemas = session.registry.as_openai_schemas(names=allowed)
+
+    system_parts = [
+        f"{role.name}：{role.goal}",
+        f"岗位背景：{role.backstory}",
+        f"工作区根目录：{session.workspace_root}",
+        f"可用工具：{', '.join(allowed) or '（无）'}",
+    ]
+    if catalog is not None:
+        for skill in catalog.mounted_skills(role):
+            system_parts.append(format_skill_context(skill, DisclosureLevel.LEVEL_2))
+    task = Task(
+        id=uuid.uuid4().hex,
+        project_id=project_id,
+        iteration_id=iteration_id,
+        title=f"节点 {ctx.node_id}（{role.name}）",
+        desc=role.goal,
+        assignee_role=role.id,
+        status=TaskStatus.DOING,
+        output_schema={"node": ctx.node_id, "mode": "tools"},
+    )
+    messages: list[dict] = [
+        {"role": "system", "content": "\n".join(system_parts)},
+        {"role": "user", "content": _tool_task_prompt(role, task)},
+    ]
+    client = runtime.client_for(role)
+
+    out_messages: list[Message] = []
+    approvals: list[ApprovalRecord] = []
+    ledger = Ledger(task_id=task.id)
+    written_paths: list[str] = []
+    test_passed = False
+    final_text = ""
+    tool_calls_count = 0
+    loop_error: str | None = None
+    exhausted = True
+
+    for _round in range(1, rounds + 1):
+        try:
+            response = await client.complete_with_tools(messages, schemas)
+        except Exception as exc:  # noqa: BLE001 —— 模型故障不中断流程，任务进入 review
+            loop_error = f"模型调用失败：{type(exc).__name__}: {exc}"
+            exhausted = False
+            break
+        if not response.tool_calls:
+            final_text = response.text or f"{role.name}：任务完成。"
+            exhausted = False
+            break
+        for call in response.tool_calls:
+            tool_calls_count += 1
+            out_messages.append(
+                Message(
+                    id=uuid.uuid4().hex,
+                    thread_id=thread_id,
+                    source=role.id,
+                    target="",
+                    type=MessageType.TOOL_CALL,
+                    payload={"tool": call.name, "args": call.args, "round": _round, "task": task.id},
+                )
+            )
+            result = await session.execute(call)
+            if result.needs_approval:
+                result, approval = await _approve_dangerous_tool(
+                    session, call, role, node, ctx, thread_id, interrupt_fn
+                )
+                if approval is not None:
+                    approvals.append(approval)
+            out_messages.append(
+                Message(
+                    id=uuid.uuid4().hex,
+                    thread_id=thread_id,
+                    source=role.id,
+                    target="",
+                    type=MessageType.TOOL_RESULT,
+                    payload={
+                        "tool": call.name,
+                        "ok": result.ok,
+                        "output": result.output[:2000],
+                        "needs_approval": result.needs_approval,
+                        "duration": round(result.duration, 3),
+                        "task": task.id,
+                    },
+                )
+            )
+            ctx.events.append(
+                Event(
+                    id=uuid.uuid4().hex,
+                    run_id=ctx.run_id,
+                    thread_id=thread_id,
+                    type="tool_result",
+                    actor=role.id,
+                    payload={
+                        "tool": call.name,
+                        "ok": result.ok,
+                        "duration": round(result.duration, 3),
+                        "node": ctx.node_id,
+                        "task": task.id,
+                    },
+                )
+            )
+            if result.ok and call.name in ("write_file", "edit_file", "mkdir"):
+                rel = str(call.args.get("path", "")).strip()
+                if rel and rel not in written_paths:
+                    written_paths.append(rel)
+            if call.name == "run_tests" and result.ok:
+                test_passed = True
+            messages.append(
+                {"role": "user", "content": f"[工具结果 {call.name} ok={result.ok}] {result.output[:1500]}"}
+            )
+
+    # ---- 分岗位质量门槛 ----
+    qa_like = role.id in ("qa", "reviewer", "debugger") or role.kind.value in ("qa",)
+    if qa_like:
+        task_status = TaskStatus.DONE if test_passed else TaskStatus.REVIEW
+    else:
+        produced = bool(written_paths) or bool(final_text)
+        task_status = (
+            TaskStatus.DONE if (produced and loop_error is None and not exhausted) else TaskStatus.REVIEW
+        )
+
+    task = task.model_copy(update={"status": task_status, "artifacts": written_paths})
+    ledger.progress.append(
+        ProgressEntry(
+            role=role.id,
+            status=task_status.value,
+            verdict="ok" if task_status == TaskStatus.DONE else "failed",
+            next_action="review",
+        )
+    )
+    final_summary = final_text or loop_error or f"{role.name}：工具循环耗尽（{rounds} 轮）未产出最终文本。"
+    out_messages.append(
+        Message(
             id=uuid.uuid4().hex,
             thread_id=thread_id,
             source=role.id,
             target="",
             type=MessageType.TEXT,
-            payload={"content": output, "node": ctx.node_id, "task": task.id},
+            payload={
+                "content": final_summary,
+                "node": ctx.node_id,
+                "task": task.id,
+                "status": task_status.value,
+                "written": written_paths,
+                "test_passed": test_passed,
+                "tool_calls": tool_calls_count,
+            },
         )
-
-        # 4) 追加 agent_step 事件（走 ctx.events，不占通道键）
-        ctx.events.append(
-            Event(
-                id=uuid.uuid4().hex,
-                run_id=ctx.run_id,
-                thread_id=thread_id,
-                type="agent_step",
-                actor=role.id,
-                payload={"task": task.id, "output": output, "node": ctx.node_id},
-            )
+    )
+    ctx.events.append(
+        Event(
+            id=uuid.uuid4().hex,
+            run_id=ctx.run_id,
+            thread_id=thread_id,
+            type="agent_step",
+            actor=role.id,
+            payload={
+                "task": task.id,
+                "node": ctx.node_id,
+                "status": task_status.value,
+                "tool_calls": tool_calls_count,
+                "written": len(written_paths),
+                "test_passed": test_passed,
+            },
         )
+    )
+    updates: dict[str, Any] = {"tasks": [task], "messages": out_messages, "ledger": ledger}
+    if approvals:
+        updates["decisions"] = approvals
+    return updates
 
-        # 5) 更新当前任务账本
-        ledger = state.ledger if state.ledger is not None and state.ledger.task_id == task.id else Ledger(task_id=task.id)
-        ledger.progress.append(
-            ProgressEntry(role=role.id, status="doing", verdict="ok", next_action="review")
-        )
 
-        return {"tasks": [task], "messages": [message], "ledger": ledger}
+async def _approve_dangerous_tool(
+    session: ToolSession,
+    call: ToolCall,
+    role: Role,
+    node: WorkflowNode,
+    ctx: NodeContext,
+    thread_id: str,
+    interrupt_fn: Callable,
+) -> tuple[ToolResult, ApprovalRecord | None]:
+    """危险工具审批：interrupt 挂起 → 人工 accept/reject → 执行或拒绝。
 
-    return handler
+    - ``interrupt_fn`` 缺省为 langgraph interrupt（挂起流程，CLI 恢复）；
+      无审批通道（直接调用测试）时自动拒绝，保证永不静默执行危险工具。
+    - 恢复时 ``interrupt()`` 返回值可能是 list（首挂起语义）或
+      ``HumanResponse``（恢复语义），统一归一化。
+    """
+    from datetime import datetime, timezone
+
+    request = ActionRequest(
+        id=f"tool-{call.id}",
+        kind=GateKind.DANGEROUS_TOOL,
+        title=f"危险工具调用：{call.name}",
+        description=f"{role.name}（节点 {node.id}）请求执行危险工具 {call.name}，参数：{_safe_json_args(call.args)}",
+        evidence={"node": node.id, "tool": call.name, "args": call.args, "run_id": ctx.run_id},
+        risk_level="high",
+        bypass_immune=True,
+    )
+    config = HumanInterruptConfig()
+    payload = {
+        "action_request": request,
+        "config": config.model_dump(),
+        "description": request.description,
+    }
+    # 中断恢复后节点整体重跑：同一危险调用已有审批决策时直接套用（幂等）
+    cached = session.cached_approval(call)
+    if cached is not None:
+        decision = HumanResponse(type=cached, args={"reason": "复用上次审批决策（节点重跑）"})
+    else:
+        resumed = interrupt_fn([payload])  # langgraph interrupt 为同步函数（挂起/恢复都不 await）
+        decision = resumed[0] if isinstance(resumed, list) else resumed
+        if not isinstance(decision, HumanResponse):
+            decision = HumanResponse.model_validate(decision)
+
+    if decision.type == "accept":
+        session.remember_approval(call, "accept")
+        approved = await session.execute_approved(call)
+        record = ApprovalRecord(by_role="human", type="accept", ts=datetime.now(timezone.utc))
+        return approved, record
+    session.remember_approval(call, "reject")
+    reason = f"危险工具 {call.name} 被拒绝（人工/自动 {decision.type}）"
+    if decision.args:
+        reason += f"：{decision.args}"
+    denied = ToolResult(
+        id=call.id,
+        name=call.name,
+        ok=False,
+        output=reason,
+        needs_approval=False,
+        error="rejected",
+        args=call.args,
+    )
+    record = ApprovalRecord(
+        by_role="human",
+        type="reject",
+        args={"reason": reason},
+        ts=datetime.now(timezone.utc),
+    )
+    return denied, record
+
+
+def _safe_json_args(args: dict) -> str:
+    """参数的安全 JSON 摘要（截断长内容，避免审批界面刷屏）。"""
+    safe = dict(args)
+    for key in ("content", "code", "command"):
+        if key in safe and isinstance(safe[key], str) and len(safe[key]) > 120:
+            safe[key] = safe[key][:120] + "...(截断)"
+    try:
+        return json.dumps(safe, ensure_ascii=False, default=str)[:800]
+    except (TypeError, ValueError):
+        return repr(safe)[:800]

@@ -167,6 +167,10 @@ class ReActConfig(BaseModel):
 
     max_rounds: int = Field(default=5, gt=0, description="最大推理-行动轮数，防死循环")
     verbose: bool = Field(default=False, description="是否打印中间推理过程")
+    tool_script: list[dict] = Field(
+        default_factory=list,
+        description="确定性后端的工具调用脚本（[{name, args}, ...]，测试注入，无 API key 可跑通工具全链路）",
+    )
 
 
 class InjectionConfig(BaseModel):

@@ -121,13 +121,24 @@ edges:
 """
 
 
+async def _accept_gate_handler(state: ClusterState, node: WorkflowNode, ctx: NodeContext) -> dict:
+    """gate 占位 handler：直接返回 accept 审批，供编译/路由测试使用。"""
+    request = ActionRequest(
+        id=f"ar-{ctx.run_id}",
+        kind=node.gate,
+        title="迭代验收审批",
+        decisions=[ApprovalRecord(by_role="pm", type="accept")],
+    )
+    return {"gate_payloads": {node.gate: request}}
+
+
 # ---------------------------------------------------------------------------
 # 编译与图描述
 # ---------------------------------------------------------------------------
 
 
 def test_compile_valid_yaml_with_gate_and_parallel():
-    compiled = WorkflowEngine().compile(GATE_AND_PARALLEL_YAML)
+    compiled = WorkflowEngine(handlers={"gate": _accept_gate_handler}).compile(GATE_AND_PARALLEL_YAML)
     assert isinstance(compiled, CompiledWorkflow)
     graph = compiled.get_graph()
     assert set(graph) == {"nodes", "edges"}
@@ -317,6 +328,59 @@ def test_non_mapping_yaml_raises_validation_error():
 
 
 # ---------------------------------------------------------------------------
+# 最终评审修复：start 出边唯一、parallel 子节点禁出边、gate 必须注册 handler
+# ---------------------------------------------------------------------------
+
+
+def test_compile_rejects_multiple_start_out_edges():
+    """start 节点多条出边：编译期拒绝（避免多余边被静默丢弃）。"""
+    yaml_text = """
+name: invalid
+max_iterations: 10
+nodes:
+  - {id: start, type: start}
+  - {id: a, type: agent}
+  - {id: b, type: agent}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: a}
+  - {from: start, to: b}
+  - {from: a, to: end}
+  - {from: b, to: end}
+"""
+    with pytest.raises(WorkflowValidationError, match="必须恰好一条出边"):
+        WorkflowEngine().compile(yaml_text)
+
+
+def test_compile_rejects_parallel_child_outgoing_edge():
+    """parallel 子节点自带出边：编译期拒绝（防止未声明节点被误执行）。"""
+    yaml_text = """
+name: invalid
+max_iterations: 10
+nodes:
+  - {id: start, type: start}
+  - {id: fanout, type: parallel, children: [c1, c2]}
+  - {id: c1, type: agent}
+  - {id: c2, type: agent}
+  - {id: other, type: agent}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: fanout}
+  - {from: fanout, to: end}
+  - {from: c1, to: other}
+  - {from: other, to: end}
+"""
+    with pytest.raises(WorkflowValidationError, match="parallel 子节点 'c1' 不允许声明出边"):
+        WorkflowEngine().compile(yaml_text)
+
+
+def test_compile_rejects_gate_without_registered_handler():
+    """含 gate 节点但未注册 'gate' handler：编译期拒绝（门不允许静默放行）。"""
+    with pytest.raises(WorkflowValidationError, match="未注册 'gate' handler"):
+        WorkflowEngine().compile(GATE_YAML)
+
+
+# ---------------------------------------------------------------------------
 # 运行：事件序列
 # ---------------------------------------------------------------------------
 
@@ -437,9 +501,9 @@ async def test_gate_conditional_routing_takes_rework_then_accept():
 
 
 async def test_gate_accept_routes_straight_to_end():
-    """门 handler 未注入时（默认占位），gate 按缺省 accept 路由到 to。"""
+    """门 handler 返回 accept 时，gate 按 accept 路由到 to（直通 end）。"""
 
-    compiled = WorkflowEngine().compile(GATE_YAML)
+    compiled = WorkflowEngine(handlers={"gate": _accept_gate_handler}).compile(GATE_YAML)
     events = [event async for event in compiled.run()]
     actors = [event.actor for event in events if event.type == "node_start"]
     assert actors == ["start", "dev", "quality_gate", "end"]
@@ -580,7 +644,7 @@ async def test_interrupt_suspends_then_resume_completes():
 
 
 async def test_resume_requires_checkpointer():
-    compiled = WorkflowEngine().compile(GATE_YAML)
+    compiled = WorkflowEngine(handlers={"gate": _accept_gate_handler}).compile(GATE_YAML)
     with pytest.raises(ValueError, match="checkpointer"):
         _ = [event async for event in compiled.resume("proj:demo:iter:1", "accept")]
 

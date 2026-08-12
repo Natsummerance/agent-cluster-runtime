@@ -52,7 +52,7 @@ class _MeetingTemplate:
     """会议模板：发言模板 + 决策结论模板（占位符 {agenda}/{participant}/{owner}）。
 
     ``decision_conclusion_reject`` / ``decision_reason_reject`` 为未通过变体
-    （当前仅 code_review 使用，如 3 位以上参与者时第 3 位发言者给出 LBTM）。
+    （当前仅 code_review 使用：存在显式 LBTM 发言者（debugger 岗）时未通过）。
     """
 
     speech: str
@@ -138,14 +138,22 @@ def _default_agenda(kind: MeetingKind) -> list[str]:
     return list(_DEFAULT_AGENDAS[kind])
 
 
-def _speech_verdict(participant_index: int) -> str:
-    """code_review 发言裁决（确定性）：第 3 位（index%3==2）发言者给出 LBTM，其余 LGTM。"""
-    return "LBTM（需修复高优问题）" if participant_index % 3 == 2 else "LGTM（通过）"
+def _speech_verdict(participant: str) -> str:
+    """code_review 发言裁决（确定性）：默认全部 LGTM（含评审人 reviewer）。
+
+    显式 LBTM 发言者 = 缺陷排查岗（debugger）——其在评审中给出「需修复高优问题」
+    的阻塞意见；其余发言者（含 reviewer）默认给出 LGTM。
+    """
+    return "LBTM（需修复高优问题）" if participant == "debugger" else "LGTM（通过）"
 
 
 def _review_passed(participants: list[str]) -> bool:
-    """code_review 是否通过：参与者 < 3 时无 LBTM 发言者，判定通过。"""
-    return len(participants) < 3
+    """code_review 是否通过：按各发言者的实际裁决推导——不存在 LBTM 意见即通过。
+
+    默认参与岗（frontend/backend/reviewer）全员 LGTM 通过；若参与者包含
+    debugger（显式 LBTM 发言者）则未通过。
+    """
+    return not any(_speech_verdict(participant) == "LBTM（需修复高优问题）" for participant in participants)
 
 
 def _now_stamp() -> str:
@@ -184,7 +192,7 @@ class MeetingHost:
         transcript: list[Message] = []
         for item in agenda:
             for index, participant in enumerate(participants):
-                verdict = _speech_verdict(index) if meeting_kind == MeetingKind.CODE_REVIEW else ""
+                verdict = _speech_verdict(participant) if meeting_kind == MeetingKind.CODE_REVIEW else ""
                 content = template.speech.format(agenda=item, participant=participant, verdict=verdict)
                 transcript.append(
                     Message(

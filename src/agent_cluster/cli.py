@@ -21,12 +21,16 @@ import sys
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import TextIO
 
 import yaml
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from pydantic import BaseModel
 
+from agent_cluster import models
 from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
@@ -51,6 +55,27 @@ __all__ = ["main", "run_flow", "RunSummary"]
 
 # 审批交互提示文案
 PROMPT_HINT = "请选择审批结论 [accept|reject|response <内容>|edit <内容>]："
+
+
+def _collect_state_model_names() -> tuple[str, ...]:
+    """枚举 agent_cluster.models 中参与状态序列化的公开类名（BaseModel 子类与 StrEnum）。
+
+    - 供 ``MemorySaver(serde=JsonPlusSerializer(...))`` 的 allowed_msgpack_modules
+      使用，避免每次 agent-cluster run 打印 langgraph 的「未注册类型」告警。
+    - 覆盖 ClusterState 各通道实际出现的模型/枚举（Project/Iteration/Task/Meeting/
+      Message/ActionRequest/ApprovalRecord/Ledger 及 GateKind/MeetingKind/
+      MessageType/TaskStatus 等）；多列出的类不会序列化，无副作用。
+    """
+    names: list[str] = []
+    for name, obj in vars(models).items():
+        if name.startswith("_") or getattr(obj, "__module__", "") != models.__name__:
+            continue
+        if isinstance(obj, type) and (issubclass(obj, BaseModel) or issubclass(obj, StrEnum)):
+            names.append(name)
+    return tuple(sorted(names))
+
+
+MODEL_NAMES = _collect_state_model_names()
 
 
 @dataclass
@@ -124,7 +149,11 @@ async def run_flow(
         "gate_payloads": {},
     }
 
-    checkpointer = MemorySaver()
+    checkpointer = MemorySaver(
+        serde=JsonPlusSerializer(
+            allowed_msgpack_modules={("agent_cluster.models", name) for name in MODEL_NAMES}
+        )
+    )
     graph = compiled.compile_graph(checkpointer=checkpointer)
     prompt_fn = prompt if prompt is not None else input
     events: list[Event] = []

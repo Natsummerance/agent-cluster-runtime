@@ -234,3 +234,119 @@ uv run python -m agent_cluster proposals submit --title t --rollback-plan "   "
 
 - 提交信息：`Task 7: 修复 proposals submit 与任务完成验收`
 - 提交 SHA：0a42bc453a97e9b7974efd311b6f48e9c010500c
+
+---
+
+## Review 修复报告（2026-08-12）：最终评审修复（边校验/msgpack/门默认拒绝/评审通过逻辑）
+
+### 背景
+
+整支分支最终评审判定需一次性修复 4 个问题（2 个 MUST FIX + 2 个 Important）：
+
+1. **MUST FIX — start/parallel 出边静默忽略**：`_validate_spec` 仅要求 start ≥1 出边，
+   `_make_state_graph` 用 `next(...)` 只取第一条，多余 start 出边被静默丢弃；parallel 子节点
+   自带出边时「自动 fan-in 边 + 声明边」同时生效，未声明节点会被实际执行。
+2. **MUST FIX — checkpoint msgpack 反序列化告警**：每次 `agent-cluster run` 打印 12 条
+   「Deserializing unregistered type agent_cluster.models.* … will be blocked in a future
+   version」到 stderr，未来 langgraph 版本会成为硬失败。
+3. **Important — 门节点无 handler 时静默放行**：未注册 `"gate"` handler 时 `_default_handler`
+   返回 `{}`，`_last_gate_decision_type` 把缺失载荷当 accept，治理型运行时默认错误。
+4. **Important — 确定性演示代码评审恒为 LBTM**：`_review_passed` 用「参与者 < 3」判定，
+   默认 code_review 参与岗恰为 3 位，演示纪要恒 LBTM 未通过，与流程继续到 test/release 矛盾。
+
+### Finding 1 修复：边校验（workflow.py）
+
+- `_validate_spec`：start 出边由「≥1」改为「必须恰好一条」（0 条仍报「至少需要一条出边」，
+  >1 条报「必须恰好一条出边，实际 N 条」并列出目标节点）。
+- `_validate_spec`：收集全部 parallel 子节点 id，拒绝任何 `from_` 为 parallel 子节点的边
+  （报「parallel 子节点 'x' 不允许声明出边」），从根上杜绝未声明节点被误执行。
+- 新增测试：`test_compile_rejects_multiple_start_out_edges`、
+  `test_compile_rejects_parallel_child_outgoing_edge`；既有
+  `test_parallel_fan_out_all_children_ran` / `test_compile_valid_yaml_with_gate_and_parallel`
+  继续覆盖合法 parallel 流程可编译可运行。
+
+### Finding 2 修复：msgpack 白名单（cli.py）
+
+- `run_flow` 构造 `MemorySaver(serde=JsonPlusSerializer(allowed_msgpack_modules=...))`：
+  `MODEL_NAMES` 由 `_collect_state_model_names()` 稳健枚举 `agent_cluster.models` 中公开的
+  BaseModel 子类与 StrEnum（按 `__module__` 过滤掉导入名），覆盖状态通道实际出现的 12 个类型
+  （Project/Iteration/Task/Meeting/Message/ActionRequest/ApprovalRecord/Ledger 与
+  GateKind/MeetingKind/MessageType/TaskStatus）。
+- 行为不变：`--yes` 全流程 40 事件、0 挂起；stderr 不再出现「unregistered type」。
+- 新增集成测试 `test_cli_run_yes_no_msgpack_unregistered_warnings`：`redirect_stderr`
+  捕获后断言不含「unregistered type」。
+
+### Finding 3 修复：门默认拒绝（workflow.py）
+
+- `WorkflowEngine.compile`：`_validate_spec` 之后检查含 gate 节点且未注册 `"gate"` handler，
+  抛 `WorkflowValidationError`（列出 gate 节点 id）；agent/meeting 的默认占位 handler 保留。
+- 既有依赖「无 handler 编译 gate YAML」的测试改为注册 fake gate handler：
+  `test_compile_valid_yaml_with_gate_and_parallel`、
+  `test_gate_accept_routes_straight_to_end`（文档串改为「门 handler 返回 accept 时按 accept
+  路由」）、`test_resume_requires_checkpointer`（共用 `_accept_gate_handler`）。
+- 新增测试 `test_compile_rejects_gate_without_registered_handler`。
+
+### Finding 4 修复：代码评审通过逻辑（meetings.py）
+
+- `_speech_verdict(participant)` 改为按参与岗判定：默认全部 LGTM（含评审人 reviewer）；
+  显式 LBTM 发言者 = 缺陷排查岗 `debugger`（确定性模板中给出「需修复高优问题」阻塞意见）。
+- `_review_passed(participants)` 改为按各发言者实际裁决推导——不存在 LBTM 意见即通过
+  （不再是参与者数量启发式）。
+- 默认 code_review 参与岗（frontend/backend/reviewer）全员 LGTM → 演示流程代码评审通过，
+  与 test/release 走向一致；含 debugger 的评审 → LBTM 未通过（保留 Task 5 行为）。
+- `tests/test_meetings.py`：`test_code_review_decision_matches_verdict` 的 LBTM 用例改为
+  4 位参与者（含 debugger），新增「默认 3 位参与者 → 通过」断言；2 位参与者 → 通过不变；
+  `test_code_review_transcript_exercises_lgtm_and_lbtm_verdicts` 参与者补 debugger 以同时
+  覆盖 LGTM/LBTM 两种裁决。
+- `tests/test_integration.py`：主流程新增断言——code_review 会议全部决策含 LGTM/不含
+  「未通过」，transcript 无 LBTM。
+
+### 测试与命令输出
+
+全量套件（217 存量 + 4 新增 = 221）：
+
+```
+uv run pytest -q
+........................................................................ [ 32%]
+........................................................................ [ 65%]
+........................................................................ [ 97%]
+.....                                                                    [100%]
+221 passed in 4.17s
+```
+
+改动模块相关单测（workflow 33 + meetings 12 + integration 11）：
+
+```
+uv run pytest -q tests/test_workflow.py tests/test_meetings.py tests/test_integration.py
+.................................................................        [100%]
+65 passed in 3.42s
+```
+
+行为验证（msgpack 告警归零 + 流程不变 + 代码评审通过）：
+
+```
+uv run python -c "...run_flow(fullstack-sprint.yaml, yes=True)..."
+stderr warnings count: 0
+events: 40 suspended: 0
+last event: workflow_end
+code review conclusions: 6 条全部「评审通过（LGTM）：无 P0/P1，注释完整且测试通过。」
+
+uv run python -m agent_cluster run --flow examples/flows/fullstack-sprint.yaml --project examples --yes
+# returncode 0；摘要：事件总数 40、挂起次数 0、审批记录数 4（accept by system）、
+# 任务数 16（全部 done）、产出物 16 个（artifacts/<role>/<task>.md）
+```
+
+### 偏差说明
+
+- `_speech_verdict` 由「按序号」改为「按参与岗」：默认评审人 reviewer 给出 LGTM，
+  debugger 作为显式 LBTM 发言者（确定性模板，评审「存在高优问题」时未通过），
+  比旧的「第 3 位参与者必 LBTM」更贴近评审语义且不再与流程走向矛盾。
+- 门路由的 `_last_gate_decision_type` 缺失载荷默认 accept 保留为兜底路由（不抛错）；
+  但编译期已强制「含门必须注册 gate handler」，该兜底不再可被无 handler 编译触达。
+- 仅改动 workflow.py / cli.py / meetings.py / tests/test_workflow.py / tests/test_meetings.py /
+  tests/test_integration.py / 本报告，符合 review 限定范围（roles.py 无需改动）。
+
+### 提交
+
+- 提交信息：`Task 7: 最终评审修复（边校验/msgpack/门默认拒绝/评审通过逻辑）`
+- 提交 SHA：见下（提交后回填）

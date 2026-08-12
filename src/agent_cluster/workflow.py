@@ -18,8 +18,9 @@
 handler 契约（Task 4/5 据此注册）：
 - ``WorkflowEngine(handlers={"agent": ..., "meeting": ..., "gate": ...})`` 按
   **节点类型** 注册异步 handler；``start``/``end``/``parallel`` 为内置节点，
-  不查询 handlers；未注册类型的节点使用默认占位 handler（不改状态、不发额外事件），
-  保证编译与运行不中断。
+  不查询 handlers；未注册的 agent/meeting 节点使用默认占位 handler（不改状态、不发额外事件），
+  保证编译与运行不中断；含 gate 节点的流程编译时必须注册 "gate" handler
+  （门节点不允许静默放行，见 WorkflowEngine.compile）。
 - handler 签名：``async def handler(state: ClusterState, node: WorkflowNode,
   ctx: NodeContext) -> dict[str, Any]``，返回 **LangGraph channel 更新字典**
   （如 ``{"tasks": [Task(...)]}``、``{"gate_payloads": {GateKind: ActionRequest(...)}}``）。
@@ -163,7 +164,7 @@ class _RunState:
 
 
 def _validate_spec(spec: WorkflowSpec) -> None:
-    """编译前校验：重复 id、悬空引用、start/end 唯一性与出边、gate 出边、parallel children、max_iterations。"""
+    """编译前校验：重复 id、悬空引用、start/end 唯一性与出边唯一、gate 出边、parallel children 与子节点禁出边、max_iterations。"""
     nodes_by_id: dict[str, WorkflowNode] = {}
     for node in spec.nodes:
         if node.id in nodes_by_id:
@@ -201,11 +202,18 @@ def _validate_spec(spec: WorkflowSpec) -> None:
                     f"边 {edge.from_!r}→{edge.to!r} 的 {field_name} 引用不存在的节点：{target!r}"
                 )
 
-    if not any(edge.from_ == start_node.id for edge in spec.edges):
+    start_edges = [edge for edge in spec.edges if edge.from_ == start_node.id]
+    if not start_edges:
         raise WorkflowValidationError(f"start 节点 {start_node.id!r} 至少需要一条出边")
+    if len(start_edges) > 1:
+        raise WorkflowValidationError(
+            f"start 节点 {start_node.id!r} 必须恰好一条出边，实际 {len(start_edges)} 条："
+            f"{[edge.to for edge in start_edges]}"
+        )
     if any(edge.from_ == end_node.id for edge in spec.edges):
         raise WorkflowValidationError(f"end 节点 {end_node.id!r} 不允许有出边")
 
+    parallel_children: set[str] = set()
     for node in spec.nodes:
         if node.type == "gate" and not any(edge.from_ == node.id for edge in spec.edges):
             raise WorkflowValidationError(f"gate 节点 {node.id!r} 至少需要一条出边")
@@ -215,8 +223,15 @@ def _validate_spec(spec: WorkflowSpec) -> None:
             for child_id in node.children:
                 if child_id not in nodes_by_id:
                     raise WorkflowValidationError(f"parallel 节点 {node.id!r} 的子节点 {child_id!r} 不存在")
+                parallel_children.add(child_id)
             if not any(edge.from_ == node.id for edge in spec.edges):
                 raise WorkflowValidationError(f"parallel 节点 {node.id!r} 至少需要一条出边（fan-in 目标）")
+    for edge in spec.edges:
+        if edge.from_ in parallel_children:
+            raise WorkflowValidationError(
+                f"parallel 子节点 {edge.from_!r} 不允许声明出边（fan-in 由 parallel 节点自动汇聚，"
+                "子节点自带出边会导致未声明节点被执行）"
+            )
 
 
 class CompiledWorkflow:
@@ -609,7 +624,8 @@ class WorkflowEngine:
     """流程引擎：YAML 流程 DSL → 校验 → CompiledWorkflow。
 
     ``handlers`` 按节点类型注册（"agent"/"meeting"/"gate"）；"start"/"end"/"parallel"
-    为内置节点，不查询 handlers；未注册类型的节点走默认占位 handler。
+    为内置节点，不查询 handlers；未注册的 agent/meeting 节点走默认占位 handler，
+    但含 gate 节点的流程编译时必须注册 "gate" handler（门节点不允许静默放行）。
     """
 
     def __init__(self, handlers: dict[str, NodeHandler] | None = None) -> None:
@@ -628,4 +644,10 @@ class WorkflowEngine:
         except ValidationError as exc:
             raise WorkflowValidationError(f"流程规格非法：{exc}") from exc
         _validate_spec(spec)
+        gate_ids = [node.id for node in spec.nodes if node.type == "gate"]
+        if gate_ids and "gate" not in self._handlers:
+            raise WorkflowValidationError(
+                "流程包含 gate 节点但未注册 'gate' handler，门节点不允许静默放行："
+                f"{gate_ids}（请注册 make_gate_handler 等 gate handler）"
+            )
         return CompiledWorkflow(spec=spec, handlers=self._handlers)

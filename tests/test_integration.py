@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import io
 import subprocess
 import sys
 from pathlib import Path
@@ -77,6 +79,12 @@ def test_cli_run_yes_full_flow_completes_without_hanging():
         MeetingKind.CODE_REVIEW,
     }
 
+    # 代码评审通过（最终评审 Fix 4：默认评审人给出 LGTM，纪要与流程走向一致）
+    code_review = next(meeting for meeting in state.meetings if meeting.kind == MeetingKind.CODE_REVIEW)
+    assert all("LGTM" in decision.conclusion for decision in code_review.decisions)
+    assert all("未通过" not in decision.conclusion for decision in code_review.decisions)
+    assert not any("LBTM" in message.payload["content"] for message in code_review.transcript)
+
     # 任务板验收：全部 Done 且每条任务 ≥1 产出物
     assert state.tasks, "终态应包含任务"
     assert all(task.status == TaskStatus.DONE for task in state.tasks), "任务板应全部 Done"
@@ -88,6 +96,16 @@ def test_cli_run_yes_full_flow_completes_without_hanging():
     assert {record.type for record in summary.decisions} == {"accept"}
     # gate_payloads 为「当前待审批」索引（替换语义），末门 release 应保留
     assert GateKind.RELEASE in state.gate_payloads
+
+
+def test_cli_run_yes_no_msgpack_unregistered_warnings():
+    """--yes 全流程：stderr 不含 langgraph「未注册类型」告警（JsonPlusSerializer 白名单）。"""
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        summary = asyncio.run(run_flow(FLOW_PATH, project=str(REPO_ROOT), yes=True))
+    assert summary.events[-1].type == "workflow_end"
+    assert summary.suspended_count == 0
+    assert "unregistered type" not in stderr.getvalue()
 
 
 def test_cli_run_ask_mode_prompts_and_resumes():

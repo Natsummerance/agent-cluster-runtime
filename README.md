@@ -1,6 +1,6 @@
 # agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
 
-> 版本：0.2.0 ｜ 语言：Python 3.11+ ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
+> 版本：0.3.0 ｜ 语言：Python 3.11+ ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
 > 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
 
 ## 项目简介
@@ -12,10 +12,17 @@ StateGraph，跑通「需求评审 → 设计评审 → 开发 → 代码评审 
 并通过六步进化闭环（收集→提炼→提案→评审→生效→回滚）实现流程/组织级自我进化。
 
 v0.2 新增**工具执行层**：岗位 Agent 不再只输出文本摘要，而是在**真实工作区**里读文件、
-改代码、跑测试、走 git——18 个内置工具按 read / workspace_write / dangerous 三级权限
-分层，危险工具走审批门（`--yes` 自动拒绝），模型双轨协议（原生 function calling +
-文本 JSON action 回退），支持 MCP stdio 外部工具，可跑通「空工作区生成可运行新项目」与
-「既有 git 仓库功能开发」两场景验收。
+改代码、跑测试、走 git——工具按 read / workspace_write / dangerous 三级权限分层，
+危险工具走审批门（`--yes` 自动拒绝），模型双轨协议（原生 function calling + 文本 JSON
+action 回退），支持 MCP stdio 外部工具，可跑通「空工作区生成可运行新项目」与「既有 git
+仓库功能开发」两场景验收。
+
+v0.3 新增**会话式产品构建（`build`）**：输入一个需求，CLI 向导全程交互（PM 主动提问澄清
+→ 里程碑门确认 → 验收/发布确认 → 返工/预算指示），在真实工作区产出**完整交付包**（PRD、
+架构设计、可运行代码、测试报告、部署产物、用户手册、`DELIVERY.md`）。**规划与计量一律按
+token 不按时间**：迭代容量 = token 预算，任务带 token 预估，角色/阶段/产物全量 token 计量，
+预算超限升级人工；文件检查点断点续跑（`--resume`）、自动返工 + 上限（默认 3 轮/门）后升级、
+混合需求澄清（LLM 提问 + 人工自由文本回答）。
 
 设计要点：
 
@@ -26,6 +33,10 @@ v0.2 新增**工具执行层**：岗位 Agent 不再只输出文本摘要，而�
 - **可观测是进化的前提**：事件流 + 检查点 + 审批审计 + 绩效度量驱动进化信号。
 - **工具即执行**（v0.2）：岗位 Agent 通过受限工作区工具（读/写/git/测试）真实产出代码；
   权限分层 + 路径越界拦截 + 危险工具审批门，执行有边界、可审计。
+- **Token 即时间**（v0.3）：计划与度量一律按 token（预算/预估/计量三层），不按时间排期；
+  预算超限升级人工，产物/阶段/角色全量可审计。
+- **会话即产品**（v0.3）：`build` 一个需求驱动全生命周期，交互向导 + 检查点断点续跑 +
+  返工上限 + 交付包（PRD/代码/测试/部署/手册/DELIVERY.md）一次产出。
 
 ## 文档
 
@@ -72,6 +83,14 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 
 # 4) 交互式运行：遇审批门打印请求并读取 accept/reject/response <内容>/edit <内容>
 uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples
+
+# 5) 会话式构建（v0.3）：一个需求 → 澄清 → 门 → 完整交付包（默认真实 LLM）
+#    --deterministic 仅供演示；交互中可用 /status /budget /skip /abort
+uv run agent-cluster build --goal "做一个带用户系统的待办事项 Web 应用" \
+  --workspace .agent-cluster-demo/ws-build --budget 500000 --model codex
+
+# 6) 断点续跑：Ctrl+C 或 /abort 后，用 --resume 从检查点继续
+uv run agent-cluster build --workspace .agent-cluster-demo/ws-build --resume
 
 # 5) 工具模式（v0.2）：空工作区生成可运行新项目（确定性脚本演示，零 key）
 #    --max-rounds 需大于脚本步数（脚本 7 步 + 1 轮收尾）

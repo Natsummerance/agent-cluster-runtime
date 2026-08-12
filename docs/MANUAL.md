@@ -152,7 +152,56 @@ uv run agent-cluster mcp list --server "fs=npx -y @modelcontextprotocol/server-f
 
 ## 5. CLI 命令参考
 
-### 5.1 `run` —— 编译并运行流程
+### 5.1 `build` —— 会话式产品构建（v0.3）
+
+```
+usage: agent-cluster build [--goal GOAL] [--workspace DIR] [--flow YAML]
+                           [--model MODEL] [--resume] [--budget N]
+                           [--max-rework N] [--deterministic] [--yes]
+                           [--qa-script JSON] [--tool-script JSON]
+                           [--role-tool-script JSON] [--skills-root DIR]
+                           [--mcp NAME=COMMAND] [--max-rounds N]
+```
+
+输入一个需求，向导全程交互产出完整交付包（PRD/代码/测试/部署/手册/`DELIVERY.md`）。
+
+| 参数 | 说明 |
+|---|---|
+| `--goal GOAL` | 产品需求目标（`--resume` 时可省略） |
+| `--workspace DIR` | 工作区；缺省 `build-out/<目标>` |
+| `--flow YAML` | 生命周期流程（缺省 `examples/flows/build-product.yaml`） |
+| `--model MODEL` | `codex`（缺省，解析当前对话模型）/ `deterministic`（演示）/ `deepseek-*` |
+| `--resume` | 断点续跑：从 `.agent-cluster/` 检查点继续 |
+| `--budget N` | 全局 token 预算（缺省 500000），阶段预算按 10/15/50/15/5/5 比例 |
+| `--max-rework N` | 单门返工上限（缺省 3，超过升级人工） |
+| `--deterministic` | 确定性演示模式（无需 API key，token 为估算值） |
+| `--yes` | 无人值守：门自动接受、澄清用缺省答案留痕、升级自动结束（退出码 3） |
+| `--qa-script JSON` | 脚本化澄清问答（字符串数组），供演示/测试 |
+| `--role-tool-script JSON` | 按岗位工具脚本（`{role: [tool_call]}`） |
+| `--mcp NAME=COMMAND` | MCP stdio 服务器（可重复），外部工具一律危险权限 |
+
+**交互命令**（向导等待输入时）：`/status`（token 消耗/剩余/阶段）、`/budget`（预算明细）、
+`/skip`（跳过当前澄清/接受当前门）、`/abort`（保存检查点退出，退出码 2）。
+
+**退出码**：`0` 成功；`1` 存在验收未通过任务；`2` 用户中止（检查点已保存，可 `--resume`）；
+`3` 升级结束（预算超限/返工上限，保存现状）。
+
+```
+# 演示（确定性，零 key）
+uv run agent-cluster build --goal "做一个待办事项网站" --deterministic --yes \
+  --workspace build-out/demo --budget 500000
+
+# 真实 LLM（deepseek-v4-flash / Codex 配置）
+uv run agent-cluster build --goal "做一个带用户系统的待办事项 Web 应用" \
+  --workspace build-out/todo --model codex
+
+# 断点续跑
+uv run agent-cluster build --workspace build-out/todo --resume
+```
+
+### 5.2 `run` —— 编译并运行流程
+
+
 
 ```
 usage: agent-cluster run [-h] --flow FLOW [--project PROJECT] [--yes]
@@ -208,7 +257,7 @@ agent-cluster proposals submit --title <标题> --rollback-plan <回滚方案> \
 agent-cluster tools list
 ```
 
-输出 18 个内置工具的名称、权限分层（read / workspace_write / dangerous）与描述。
+输出内置工具的名称、权限分层（read / workspace_write / dangerous）与描述。
 
 ### 5.6 `mcp list` —— MCP 服务器工具清单
 

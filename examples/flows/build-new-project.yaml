@@ -1,0 +1,37 @@
+name: build-new-project
+description: 新项目全流程：启动会 → PM PRD 落盘 → 需求评审 → 需求门 → 设计 → 设计评审 → 设计门 → 前后端并行开发 → 代码评审 → QA 测试 → 迭代门 → devops git 初始化与提交 → 发布门
+max_iterations: 40
+thread_id: "proj:build-new-project:iter:1"
+nodes:
+  - {id: start, type: start}
+  - {id: kickoff, type: meeting, meeting: kickoff, participants: [pm, pmo, architect, frontend, backend, qa, devops, docs]}
+  - {id: requirements, type: agent, role: pm}
+  - {id: requirement_review, type: meeting, meeting: requirement_review, participants: [pm, architect, frontend, backend, qa]}
+  - {id: requirement_gate, type: gate, gate: requirement_confirmation}
+  - {id: design, type: agent, role: architect}
+  - {id: design_review, type: meeting, meeting: design_review, participants: [architect, pmo, frontend, backend, qa, devops]}
+  - {id: design_gate, type: gate, gate: design_review}
+  - {id: develop_parallel, type: parallel, children: [develop_frontend, develop_backend]}
+  - {id: develop_frontend, type: agent, role: frontend}
+  - {id: develop_backend, type: agent, role: backend}
+  - {id: code_review, type: meeting, meeting: code_review, participants: [frontend, backend, reviewer]}
+  - {id: test, type: agent, role: qa}
+  - {id: iteration_gate, type: gate, gate: iteration_acceptance}
+  - {id: release, type: agent, role: devops}
+  - {id: release_gate, type: gate, gate: release}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: kickoff}
+  - {from: kickoff, to: requirements}
+  - {from: requirements, to: requirement_review}
+  - {from: requirement_review, to: requirement_gate}
+  - {from: requirement_gate, to: design, on_accept: design, on_reject: requirements, on_edit: design}
+  - {from: design, to: design_review}
+  - {from: design_review, to: design_gate}
+  - {from: design_gate, to: develop_parallel, on_accept: develop_parallel, on_reject: design, on_edit: design}
+  - {from: develop_parallel, to: code_review}
+  - {from: code_review, to: test}
+  - {from: test, to: iteration_gate}
+  - {from: iteration_gate, to: release, on_accept: release, on_reject: test, on_edit: code_review}
+  - {from: release, to: release_gate}
+  - {from: release_gate, to: end, on_accept: end, on_reject: release}

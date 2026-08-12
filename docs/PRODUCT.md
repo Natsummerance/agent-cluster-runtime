@@ -1,7 +1,7 @@
 # 产品介绍：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.1.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 默认零 LLM 依赖可运行
+> 版本：0.2.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 默认零 LLM 依赖可运行
 
 ---
 
@@ -59,18 +59,23 @@
 9. **模型可插拔**：统一 `ChatModelClient` 抽象；默认确定性后端零依赖可跑通全流程；
    可一键切换 DeepSeek（`deepseek-*` / `codex`）或 OpenAI（`gpt-*`）。
 10. **可观测与审计**：append-only 事件流 + 检查点 + 审批记录 + 任务账本/任务板。
+11. **工具执行层（v0.2）**：岗位 Agent 在**真实工作区**读文件、改代码、跑测试、走 git，
+    最终产出可运行代码库；18 个内置工具按 read / workspace_write / dangerous 三级权限
+    分层，危险工具走审批门；模型双轨协议（原生 function calling + 文本 JSON action
+    回退）；MCP stdio 外部工具可插拔。
 
 ## 5. 系统架构
 
 ```mermaid
 flowchart TD
-    subgraph 六层运行时
+    subgraph 七层运行时
         P1[流程编排层<br/>WorkflowEngine：YAML→StateGraph]
-        P2[角色执行层<br/>AgentRuntime / RoleRegistry]
-        P3[技能层<br/>SkillLoader / SkillCatalog]
-        P4[会议与审批门<br/>MeetingHost / 审批门 interrupt]
-        P5[记忆与账本<br/>Ledger / TaskBoard / 检查点]
-        P6[可观测与进化<br/>EventBus / Metrics / EvolutionEngine]
+        P2[角色执行层<br/>AgentRuntime / RoleRegistry / 工具模式 ReAct]
+        P3[工具执行层<br/>ToolSession 18 工具 / 权限分层 / MCP stdio]
+        P4[技能层<br/>SkillLoader / SkillCatalog]
+        P5[会议与审批门<br/>MeetingHost / 审批门 interrupt]
+        P6[记忆与账本<br/>Ledger / TaskBoard / 检查点]
+        P7[可观测与进化<br/>EventBus / Metrics / EvolutionEngine]
     end
 
     subgraph 六步进化闭环
@@ -79,8 +84,8 @@ flowchart TD
         E6 -. 复盘与度量反馈 .-> E1
     end
 
-    P1 --> P2 --> P3 --> P4 --> P5 --> P6
-    P6 -. 度量信号 .-> E1
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+    P7 -. 度量信号 .-> E1
 ```
 
 执行模型：用户提供 YAML 流程 → 编译为 LangGraph StateGraph → 逐节点执行（会议/岗位/
@@ -172,6 +177,10 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 
 优先级：岗位偏好模型 > 运行时默认模型（`--model` / `DEEPSEEK_MODEL`）> deterministic。
 
+工具模式（v0.2）采用**双轨工具协议**：DeepSeek / OpenAI 走原生 `tools` 参数并解析
+`tool_calls`；不支持原生工具调用的模型回退解析回复中的 fenced JSON action
+（`{"name": ..., "args": {...}}`）。
+
 ## 12. 技术栈
 
 - Python 3.11+（`from __future__ import annotations`，类型标注贯穿）
@@ -179,6 +188,8 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 - pydantic v2（全量数据模型）
 - PyYAML（流程 DSL 解析）
 - 运行依赖极简：`pydantic / langgraph / langgraph-checkpoint / PyYAML`（模型直连走 stdlib）
+- v0.2 工具执行层：stdlib `subprocess` + `asyncio` 实现工具会话与 MCP stdio 客户端
+  （JSON-RPC 2.0，无新增硬依赖；`mcp` 官方包为可选 extra）
 
 ## 13. 设计参照与组合式架构
 
@@ -198,17 +209,22 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 
 ## 14. 当前能力边界与路线图
 
-**已实现（0.1.0）**
+**已实现（0.2.0）**
 
-- 六层运行时全链路：模型 → 流程 → 角色 → 技能 → 会议/门 → 账本 → 度量 → 进化。
+- 七层运行时全链路：模型 → 流程 → 角色 → 工具 → 技能 → 会议/门 → 账本 → 度量 → 进化。
 - YAML 流程 DSL 编译与校验、并行执行、条件路由、interrupt/resume。
 - 12 岗位目录、7 类会议模板、6 类审批门、六步进化闭环、绩效度量。
 - DeepSeek / Codex 当前模型接入（含截断扩容重试与思维链防护）。
-- 248 项自动化测试；确定性后端与真实 LLM 双模式全流程可跑通。
+- **工具执行层（v0.2）**：18 内置工具 + 三级权限分层 + 工作区路径越界拦截 + 危险工具
+  审批门（interrupt，`--yes` 自动拒绝）；模型双轨协议（原生 function calling + 文本
+  JSON action 回退）；MCP stdio 外部工具；分岗位质量门槛（QA 真实测试通过才 Done）；
+  `git_init/git_add/git_commit` 支撑新项目从空目录到可运行仓库。
+- 288 项自动化测试；确定性工具脚本与真实 LLM 双模式可跑通两场景验收（空工作区新项目 /
+  既有 git 仓库功能开发）。
 
 **路线图（后续版本）**
 
-- 工具执行层：真实文件读写 / git / shell 工具的权限化接入（`dangerous_tool` 门已预留）。
+- 工具执行层增强：git 分支隔离、Docker 沙箱、浏览器/网络工具（可由 MCP 提供）。
 - 记忆持久化：经验库从内存到文件/向量库，跨迭代沉淀。
 - 多项目并发与项目组合管理。
 - 图形化流程编辑器与运行面板。

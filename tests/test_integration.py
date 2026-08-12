@@ -186,7 +186,14 @@ _FAKE_RUNTIME_DEFAULTS: list = []
 class _FakeRuntime:
     """记录 default_model 的假运行时（每次构造追加记录，避免真实调用 API）。"""
 
-    def __init__(self, model_factory=None, event_bus=None, default_model=None):
+    def __init__(
+        self,
+        model_factory=None,
+        event_bus=None,
+        default_model=None,
+        tool_script=None,
+        role_tool_scripts=None,
+    ):
         _FAKE_RUNTIME_DEFAULTS.append(default_model)
 
     async def complete_for(self, role, task=None):  # noqa: ANN001

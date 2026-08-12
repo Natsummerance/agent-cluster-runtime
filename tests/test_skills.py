@@ -219,12 +219,12 @@ def test_allowed_tools_intersection_with_role_tools():
     role = make_role(
         role_id="backend",
         skills=["backend-api-design@2.1.0"],
-        tools=["read_file", "bash", "search"],
+        tools=["read_file", "edit_file", "search"],
     )
     catalog = SkillCatalog()
     catalog.mount(role, skills)
-    # backend-api-design allowed_tools=[read_file, write_file, bash] ∩ role tools
-    assert catalog.allowed_tools(role) == ["bash", "read_file"]
+    # backend-api-design allowed_tools=[read_file, write_file, edit_file, run_shell] ∩ role tools
+    assert catalog.allowed_tools(role) == ["edit_file", "read_file"]
 
 
 def test_allowed_tools_unrestricted_skill_passes_all_role_tools():

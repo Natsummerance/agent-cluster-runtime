@@ -1,7 +1,7 @@
 # 用户手册：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 安装、配置、运行与扩展指南。
-> 适用版本：0.1.0 ｜ 环境：Windows / macOS / Linux（Python 3.11+）
+> 适用版本：0.2.0 ｜ 环境：Windows / macOS / Linux（Python 3.11+）
 
 ---
 
@@ -10,17 +10,18 @@
 1. 能力速览
 2. 环境要求与安装
 3. 快速开始（确定性后端，零配置）
-4. CLI 命令参考
-5. 接入真实 LLM（DeepSeek / Codex 当前模型 / OpenAI）
-6. 流程文件（YAML）编写指南
-7. 会议与审批门操作
-8. 技能系统
-9. 岗位系统与扩展
-10. 进化提案
-11. 绩效度量与信号
-12. 退出码与错误处理
-13. 常见问题（FAQ）
-14. 目录结构
+4. 工具模式（真实工作区执行）
+5. CLI 命令参考
+6. 接入真实 LLM（DeepSeek / Codex 当前模型 / OpenAI）
+7. 流程文件（YAML）编写指南
+8. 会议与审批门操作
+9. 技能系统
+10. 岗位系统与扩展
+11. 进化提案
+12. 绩效度量与信号
+13. 退出码与错误处理
+14. 常见问题（FAQ）
+15. 目录结构
 
 ---
 
@@ -29,6 +30,9 @@
 | 能力 | 命令 | 说明 |
 |---|---|---|
 | 运行流程 | `agent-cluster run --flow <yaml>` | 编译并运行 YAML 流程，含审批交互 |
+| 工具模式 | `agent-cluster run --flow <yaml> --workspace <dir>` | 岗位 Agent 在真实工作区读文件/改代码/跑测试/走 git |
+| 工具清单 | `agent-cluster tools list` | 列出内置工具与权限分层（read/workspace_write/dangerous） |
+| MCP 清单 | `agent-cluster mcp list --server NAME=CMD` | 连接 MCP stdio 服务器并列出其工具 |
 | 技能列表 | `agent-cluster skills list --root <dir>` | 列出 SKILL.md 技能目录 |
 | 岗位列表 | `agent-cluster roles list` | 列出 12 个岗位与审批范围 |
 | 进化演示 | `agent-cluster proposals demo` | 六步进化闭环演示 |
@@ -76,13 +80,86 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 
 运行结束后打印摘要：事件总数、会议数、任务数（状态分布）、审批记录、产出物清单。
 
-## 4. CLI 命令参考
+## 4. 工具模式（真实工作区执行）
 
-### 4.1 `run` —— 编译并运行流程
+> v0.2 新增：岗位 Agent 不再只输出文本摘要，而是在**真实工作区**里读文件、改代码、
+> 跑测试、走 git，最终产出可运行的代码库。默认确定性演示路径（不传 `--workspace`）
+> 完全不变。
+
+### 4.1 概念
+
+- 传入 `--workspace <目录>` 即启用工具模式：岗位节点进入 ReAct 循环（模型 → 工具调用 →
+  工具结果 → 继续），通过受限工作区真实执行。
+- 工作区为**空目录** = 新项目场景（生成可运行项目）；工作区为**已有 git 仓库** =
+  既有仓库功能开发场景（在仓库内改代码、跑测试、提交）。
+- 不传 `--workspace` 保持 v0.1 的确定性演示模式（向后兼容）。
+
+### 4.2 工具与权限分层
+
+内置 18 个工具，按风险分三层；`tools list` 可查看实时清单：
+
+| 权限 | 行为 | 工具 |
+|---|---|---|
+| `read` | 自动执行，无需审批 | `list_dir` / `read_file` / `grep` / `glob` / `git_status` / `git_diff` |
+| `workspace_write` | 自动执行 + 审计留痕 | `write_file` / `edit_file`（多 hunk）/ `mkdir` / `git_add` / `git_commit` / `git_revert` / `git_init` / `run_tests` |
+| `dangerous` | 走审批门（HITL interrupt） | `run_shell`（非白名单）/ `run_python` / `delete_file` / `git_push` |
+
+- 路径统一 `resolve` 后校验必须落在工作区内（`../`、绝对路径、符号链接外逃一律拒绝）。
+- `run_tests` 为白名单命令执行器（默认 `uv run pytest -q`，可配置测试/构建命令前缀）。
+- 危险工具在 `--yes` 无人值守下**自动拒绝**（bypass-immune），人工 `ask` 模式挂起等待
+  accept/reject；恢复后同一危险调用复用上次审批决策（节点重跑幂等）。
+
+### 4.3 模型双轨工具协议
+
+- 原生 function calling：DeepSeek / OpenAI 客户端走 `tools` 参数并解析 `tool_calls`。
+- 文本 JSON action 回退：不支持原生工具的模型可从回复中解析 fenced JSON 动作
+  （`{"name": ..., "args": {...}}`）。
+- 无 API key 时可用确定性工具脚本（`--tool-script`）跑通工具全链路。
+
+### 4.4 两场景示例
+
+```bash
+# 场景 A：空工作区生成可运行新项目（确定性脚本演示，零 key）
+# 注意：--max-rounds 需大于脚本步数（脚本 7 步 + 1 轮收尾文本）
+uv run agent-cluster run --flow examples/flows/build-new-project.yaml \
+  --workspace .agent-cluster-demo/ws-new \
+  --tool-script examples/tool-scripts/build-new-project.json \
+  --max-rounds 10 --yes
+
+# 场景 A（真实 LLM）：岗位 Agent 自主决策写文件/跑测试/提交
+uv run agent-cluster run --flow examples/flows/build-new-project.yaml   --workspace .agent-cluster-demo/ws-new --model codex --yes
+
+# 场景 B：既有 git 仓库功能开发（在仓库内修复/开发，QA 真实测试通过才 Done）
+uv run agent-cluster run --flow examples/flows/build-new-project.yaml   --workspace C:\path\to\existing-repo --model deepseek-v4-flash --yes
+```
+
+分岗位质量门槛：开发岗产出真实文件即进入评审；QA/评审/排查岗必须 `run_tests` 真实
+通过才算 Done，失败自动回流返工。工具模式运行结束若存在**验收未通过的岗位任务**
+（review / blocked），CLI 退出码为 1；会议生成的 todo 行动项属于积压清单，不视为失败。
+
+### 4.5 MCP 外部工具（stdio）
+
+```bash
+# 注册外部 MCP stdio 服务器（可重复 --mcp），工具名 mcp_<name>_<tool>
+uv run agent-cluster run --flow examples/flows/build-new-project.yaml   --workspace .agent-cluster-demo/ws-new   --mcp "fs=npx -y @modelcontextprotocol/server-filesystem C:\tmp" --yes
+
+# 单独查看某 MCP 服务器暴露的工具
+uv run agent-cluster mcp list --server "fs=npx -y @modelcontextprotocol/server-filesystem C:\tmp"
+```
+
+- 外部工具一律注册为 `dangerous` 权限（外部工具不可信，执行前必须人工审批）。
+- 连接失败即 fail-fast 报错退出（退出码 1）。
+
+## 5. CLI 命令参考
+
+### 5.1 `run` —— 编译并运行流程
 
 ```
 usage: agent-cluster run [-h] --flow FLOW [--project PROJECT] [--yes]
                          [--thread THREAD] [--model MODEL]
+                         [--workspace WORKSPACE] [--mcp NAME=COMMAND]
+                         [--max-rounds MAX_ROUNDS] [--tool-script TOOL_SCRIPT]
+                         [--skills-root SKILLS_ROOT]
 ```
 
 | 参数 | 说明 |
@@ -92,8 +169,13 @@ usage: agent-cluster run [-h] --flow FLOW [--project PROJECT] [--yes]
 | `--yes` | 无人值守：自动接受全部审批（bypass-immune 门自动拒绝） |
 | `--thread THREAD` | 线程 id；缺省用流程 YAML 的 `thread_id` |
 | `--model MODEL` | 岗位模型后端：`deterministic`（缺省）/ `deepseek-*` / `codex`；缺省可经环境变量 `DEEPSEEK_MODEL` |
+| `--workspace DIR` | 启用工具模式：工作区目录（空目录=新项目，已有 git 目录=既有仓库功能开发） |
+| `--mcp NAME=COMMAND` | MCP stdio 服务器（可重复）；工具注册为 `mcp_<name>_<tool>`，危险权限 |
+| `--max-rounds N` | 工具模式 ReAct 最大轮数（缺省 6） |
+| `--tool-script JSON` | 确定性工具脚本（`[{name, args}, ...]`），无 API key 跑通工具全链路 |
+| `--skills-root DIR` | 技能根目录（把岗位技能上下文注入工具模式 system prompt） |
 
-### 4.2 `skills list` —— 技能列表
+### 5.2 `skills list` —— 技能列表
 
 ```
 agent-cluster skills list --root <技能根目录>
@@ -101,7 +183,7 @@ agent-cluster skills list --root <技能根目录>
 
 输出技能 `name@version` 与描述；要求目录下技能按 `name/SKILL.md` 组织。
 
-### 4.3 `roles list` —— 岗位列表
+### 5.3 `roles list` —— 岗位列表
 
 ```
 agent-cluster roles list
@@ -109,7 +191,7 @@ agent-cluster roles list
 
 输出 12 个岗位的 id / 名称 / 类别 / 审批范围。
 
-### 4.4 `proposals` —— 进化提案
+### 5.4 `proposals` —— 进化提案
 
 ```
 agent-cluster proposals demo
@@ -120,7 +202,23 @@ agent-cluster proposals submit --title <标题> --rollback-plan <回滚方案> \
 - `--rollback-plan` 必填且不可为空白（防止不可回滚的进化）。
 - `--category` 取值：`skill` / `knowledge` / `process` / `organization`。
 
-### 4.5 `metrics demo` —— 度量演示
+### 5.5 `tools list` —— 工具清单
+
+```
+agent-cluster tools list
+```
+
+输出 18 个内置工具的名称、权限分层（read / workspace_write / dangerous）与描述。
+
+### 5.6 `mcp list` —— MCP 服务器工具清单
+
+```
+agent-cluster mcp list --server "NAME=COMMAND"
+```
+
+连接 MCP stdio 服务器并列出其暴露的工具；连接失败退出码 1。
+
+### 5.7 `metrics demo` —— 度量演示
 
 ```
 agent-cluster metrics demo
@@ -128,11 +226,11 @@ agent-cluster metrics demo
 
 打印采集的度量点、快照指标数与触发的进化信号。
 
-## 5. 接入真实 LLM
+## 6. 接入真实 LLM
 
 API key 只从环境变量或 Codex 配置读取，**绝不写入仓库、日志或检查点**。
 
-### 5.1 DeepSeek（推荐，与当前 Codex 对话同源）
+### 6.1 DeepSeek（推荐，与当前 Codex 对话同源）
 
 ```bash
 # 环境变量：DEEPSEEK_API_KEY（必填）
@@ -150,7 +248,7 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
   （至多 8192），仍为空才报错。
 - 启动即 fail-fast：缺 key / 模型名无效时立即报错退出 1。
 
-### 5.2 复用当前 Codex 对话模型
+### 6.2 复用当前 Codex 对话模型
 
 ```bash
 uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples \
@@ -161,7 +259,7 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 `[model_providers.<provider>]` 节；供应商为 DeepSeek 时接入 `DeepSeekClient`，OpenAI 系
 接入 `OpenAIClient`。
 
-### 5.3 环境变量兜底
+### 6.3 环境变量兜底
 
 ```bash
 # PowerShell
@@ -171,7 +269,7 @@ export DEEPSEEK_MODEL="deepseek-v4-flash"
 uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --yes
 ```
 
-### 5.4 OpenAI
+### 6.4 OpenAI
 
 ```bash
 # 需要 openai 包：uv add openai；环境变量 OPENAI_API_KEY
@@ -179,13 +277,13 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml \
   --model gpt-4o-mini --yes
 ```
 
-### 5.5 模型选择优先级
+### 6.5 模型选择优先级
 
 岗位 `Role.model` 偏好 > 运行时默认（`--model` / `DEEPSEEK_MODEL`）> `deterministic`。
 
-## 6. 流程文件（YAML）编写指南
+## 7. 流程文件（YAML）编写指南
 
-### 6.1 顶层结构
+### 7.1 顶层结构
 
 ```yaml
 name: fullstack-sprint          # 流程名（也是缺省项目名）
@@ -196,7 +294,7 @@ nodes: [...]                    # 节点列表
 edges: [...]                    # 边列表
 ```
 
-### 6.2 节点类型
+### 7.2 节点类型
 
 | 类型 | 字段 | 说明 |
 |---|---|---|
@@ -212,7 +310,7 @@ edges: [...]                    # 边列表
 门类型：`requirement_confirmation` / `design_review` / `iteration_acceptance` /
 `release` / `evolution_apply` / `dangerous_tool`。
 
-### 6.3 边与条件路由
+### 7.3 边与条件路由
 
 ```yaml
 edges:
@@ -226,7 +324,7 @@ edges:
   - `reject` → 回流（如设计门拒绝回设计节点）；
   - `edit` → 带修改意见进入目标节点。
 
-### 6.4 完整示例（内置 `examples/flows/fullstack-sprint.yaml`）
+### 7.4 完整示例（内置 `examples/flows/fullstack-sprint.yaml`）
 
 ```yaml
 name: fullstack-sprint
@@ -264,9 +362,9 @@ edges:
   - {from: release_gate, to: end, on_accept: end, on_reject: release}
 ```
 
-## 7. 会议与审批门操作
+## 8. 会议与审批门操作
 
-### 7.1 交互式审批
+### 8.1 交互式审批
 
 流程运行到门节点会打印待审批请求（类别 / 风险 / bypass-immune / 说明）并挂起：
 
@@ -281,18 +379,18 @@ edges:
 | `response <内容>` | 附人工意见通过（进入 `on_accept` 目标） |
 | `edit <内容>` | 带修改意见进入 `on_edit` 目标 |
 
-### 7.2 无人值守（`--yes`）
+### 8.2 无人值守（`--yes`）
 
 - 自动对全部门给出 `accept`；
 - `bypass-immune`（不可绕过）的高风险门自动转为 `reject`，防止无人值守时越权放行。
 
-### 7.3 挂起与恢复
+### 8.3 挂起与恢复
 
 挂起时运行写入检查点（`MemorySaver`）；恢复后从断点继续，事件流与审批记录不丢失。
 
-## 8. 技能系统
+## 9. 技能系统
 
-### 8.1 目录约定
+### 9.1 目录约定
 
 ```text
 skills_root/
@@ -303,7 +401,7 @@ skills_root/
     scripts/                 # 可执行辅助脚本
 ```
 
-### 8.2 查看技能
+### 9.2 查看技能
 
 ```bash
 uv run agent-cluster skills list --root examples/skills
@@ -312,7 +410,7 @@ uv run agent-cluster skills list --root examples/skills
 内置技能：`requirement-analysis@1.0.0`、`backend-api-design@2.1.0`、
 `frontend-design@1.0.0`、`qa-testing@1.0.0`。
 
-### 8.3 新增技能
+### 9.3 新增技能
 
 1. 在技能根目录下新建 `技能名/SKILL.md`，frontmatter 声明 `name` / `version` /
    `description`；
@@ -320,21 +418,21 @@ uv run agent-cluster skills list --root examples/skills
 3. 资源放 `assets` / `references` / `scripts` 子目录；
 4. 在岗位的 `skills` 字段（`roles.py`）按 `name@version` 挂载。
 
-## 9. 岗位系统与扩展
+## 10. 岗位系统与扩展
 
-### 9.1 查看岗位
+### 10.1 查看岗位
 
 ```bash
 uv run agent-cluster roles list
 ```
 
-### 9.2 Role 字段
+### 10.2 Role 字段
 
 `Role` 模型字段（`agent_cluster/models.py`）：`id` / `name` / `kind` / `goal` /
 `backstory` / `skills`（name@version 列表）/ `tools` / `model`（岗位偏好模型，None 走
 运行时默认）/ `approval_scope`（可审批的门类别）。
 
-### 9.3 新增/调整岗位
+### 10.3 新增/调整岗位
 
 编辑 `agent_cluster/roles.py` 的 `build_role_catalog()`：
 
@@ -342,7 +440,7 @@ uv run agent-cluster roles list
 - `approval_scope` 控制该岗位可审批的门；
 - 会议默认参与者由 `RoleRegistry` 按会议类型返回。
 
-## 10. 进化提案
+## 11. 进化提案
 
 ```bash
 # 六步闭环演示
@@ -362,7 +460,7 @@ uv run agent-cluster proposals submit \
 - 进化生效（`evolution_apply`）属于治理层审批范围；
 - 禁止 Agent 自我扩权（提案不可扩大自己的审批权限）。
 
-## 11. 绩效度量与信号
+## 12. 绩效度量与信号
 
 ```bash
 uv run agent-cluster metrics demo
@@ -371,12 +469,16 @@ uv run agent-cluster metrics demo
 指标：评审通过率 / 返工率 / 行动项关闭率 / 循环迭代次数 / 门等待时长等；
 `MetricRules` 按阈值触发进化信号（severity 分级），供进化闭环消费。
 
-## 12. 退出码与错误处理
+## 13. 退出码与错误处理
 
 | 退出码 | 含义 |
 |---|---|
 | 0 | 成功 |
-| 1 | 失败（流程校验失败 / 运行异常 / 模型配置无效 / 提案参数缺失等） |
+| 1 | 失败（流程校验失败 / 运行异常 / 模型配置无效 / 提案参数缺失 / MCP 连接失败 / 工具模式存在未完成任务等） |
+
+工具模式（`--workspace`）下，运行结束若任务板仍有验收未通过的岗位任务
+（review / blocked，如 QA 测试未通过、开发任务未完成），视为验收未通过，退出码 1；
+会议生成的 todo 行动项（积压清单）不触发退出码 1。
 
 常见错误信息示例：
 
@@ -385,7 +487,7 @@ uv run agent-cluster metrics demo
 - `流程挂起但未从检查点找到待审批请求` —— 检查点状态异常（正常运行不会出现）；
 - 流程 YAML 校验失败 —— 检查节点 id 引用、`max_iterations ≥ 节点总数`、边引用有效性。
 
-## 13. 常见问题（FAQ）
+## 14. 常见问题（FAQ）
 
 **Q1：不想用任何 API key，能否运行？**
 可以。缺省 `deterministic` 后端零依赖，`uv run agent-cluster run --flow ... --yes` 即可
@@ -420,14 +522,25 @@ uv run agent-cluster metrics demo
 不会。key 只从环境变量或 Codex 配置读取；提交前可用
 `git grep -nE "sk-[A-Za-z0-9]{16,}"` 自检。
 
-## 14. 目录结构
+**Q10：工具模式会不会让 Agent 乱删文件/执行任意命令？**
+不会。危险工具（`run_shell` / `run_python` / `delete_file` / `git_push`）一律走审批门：
+交互模式挂起等人确认，`--yes` 无人值守自动拒绝；文件写入路径必须落在工作区内，
+`../` / 绝对路径 / 符号链接外逃都会被拦截。
+
+**Q11：没有 API key 如何体验工具模式全链路？**
+用 `--tool-script` 指定确定性工具脚本 JSON（`examples/tool-scripts/build-new-project.json`），
+配合 `--workspace` 即可无 key 跑通「写文件 → 跑测试 → git 提交」真实执行。
+
+## 15. 目录结构
 
 ```text
 agent-cluster-runtime/
 ├── src/agent_cluster/
 │   ├── models.py        # pydantic v2 数据模型与枚举
 │   ├── workflow.py      # YAML 流程 DSL → StateGraph 编译与执行
-│   ├── runtime.py       # AgentRuntime / ChatModelClient（deterministic/deepseek/openai）
+│   ├── runtime.py       # AgentRuntime / ChatModelClient（deterministic/deepseek/openai）+ 工具模式 ReAct handler
+│   ├── tools.py         # v0.2 工具模型/注册表/会话执行器（18 内置工具 + 权限分层 + 路径越界拦截）
+│   ├── mcp_client.py    # v0.2 轻量 MCP stdio 客户端（JSON-RPC 2.0）
 │   ├── providers.py     # Codex config.toml 解析与 DeepSeek 默认值
 │   ├── roles.py         # 12 岗位目录与注册表
 │   ├── meetings.py      # 7 类会议模板
@@ -436,11 +549,13 @@ agent-cluster-runtime/
 │   ├── ledger.py        # 任务账本与任务板
 │   ├── evolution.py     # 六步进化闭环
 │   ├── metrics.py       # 度量采集与阈值规则
-│   └── cli.py           # 命令行入口
+│   └── cli.py           # 命令行入口（run/workspace/mcp/tools/skills/roles/proposals/metrics）
 ├── examples/
 │   ├── flows/fullstack-sprint.yaml
+│   ├── flows/build-new-project.yaml   # v0.2 新项目全流程（含前后端并行/返工边）
+│   ├── tool-scripts/build-new-project.json  # 确定性工具脚本（无 key 演示）
 │   └── skills/          # 4 个示例技能包
-├── tests/               # 248 项自动化测试
+├── tests/               # 288 项自动化测试
 ├── docs/PRODUCT.md      # 产品介绍
 ├── docs/MANUAL.md       # 本手册
 └── README.md

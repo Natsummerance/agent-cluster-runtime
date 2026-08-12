@@ -6,7 +6,8 @@ license: MIT
 allowed-tools:
   - read_file
   - run_tests
-  - review
+  - git_diff
+  - grep
 ---
 # 测试执行指引
 

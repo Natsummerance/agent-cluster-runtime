@@ -6,7 +6,8 @@ license: MIT
 allowed-tools:
   - read_file
   - write_file
-  - bash
+  - edit_file
+  - run_shell
 ---
 # 后端 API 设计指引
 

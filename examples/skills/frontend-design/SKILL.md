@@ -6,7 +6,8 @@ license: MIT
 allowed-tools:
   - read_file
   - write_file
-  - review
+  - edit_file
+  - grep
 ---
 # 前端设计执行指引
 

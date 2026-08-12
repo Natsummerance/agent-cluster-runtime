@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from collections import Counter
@@ -35,6 +36,7 @@ from pydantic import BaseModel
 from agent_cluster import models
 from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
+from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.metrics import MetricRules, MetricsCollector
 from agent_cluster.models import (
@@ -50,7 +52,8 @@ from agent_cluster.models import (
 )
 from agent_cluster.roles import RoleRegistry, build_role_catalog
 from agent_cluster.runtime import AgentRuntime, ChatModelFactory, make_agent_handler
-from agent_cluster.skills import SkillLoader
+from agent_cluster.skills import SkillCatalog, SkillLoader
+from agent_cluster.tools import ToolSession, build_default_tools
 from agent_cluster.workflow import WorkflowEngine
 
 __all__ = ["main", "run_flow", "RunSummary"]
@@ -106,6 +109,12 @@ async def run_flow(
     print_event: Callable[[Event], None] | None = None,
     print_request: Callable[[ActionRequest], None] | None = None,
     prompt: Callable[[str], str] | None = None,
+    workspace: str | None = None,
+    mcp_servers: Sequence[str] | None = None,
+    max_rounds: int | None = None,
+    tool_script: list[dict] | None = None,
+    skills_root: str | None = None,
+    role_tool_scripts: dict[str, list[dict]] | None = None,
 ) -> RunSummary:
     """编译并运行 YAML 流程，处理审批门挂起/恢复，返回汇总结果。
 
@@ -129,11 +138,44 @@ async def run_flow(
     default_model = (
         models.ModelConfig(model_name=resolved_model) if resolved_model else None
     )
-    runtime = AgentRuntime(default_model=default_model)
+    runtime = AgentRuntime(
+        default_model=default_model,
+        tool_script=tool_script,
+        role_tool_scripts=role_tool_scripts,
+    )
     host = MeetingHost()
+
+    # 技能目录（可选 --skills-root）：工具模式注入岗位技能上下文
+    catalog = None
+    if skills_root:
+        loader = SkillLoader()
+        catalog = SkillCatalog()
+        skills = loader.list_skills(skills_root)
+        for role in role_registry.list():
+            catalog.mount(role, skills)
+
+    # 工具模式（--workspace）：受限工作区执行 + 可选 MCP 外部工具
+    tool_session = None
+    if workspace:
+        workspace_path = Path(workspace).expanduser().resolve()
+        workspace_path.mkdir(parents=True, exist_ok=True)
+        registry = build_default_tools()
+        for server_spec in mcp_servers or []:
+            server_name, argv = parse_server_command(server_spec)
+            mcp_client = StdioMCPClient(server_name, argv)
+            await mcp_client.connect()  # fail-fast：连不上立即报错
+            await register_mcp_tools(registry, mcp_client, server_name)
+        tool_session = ToolSession(workspace_path, registry=registry)
+
     engine = WorkflowEngine(
         handlers={
-            "agent": make_agent_handler(runtime, role_registry),
+            "agent": make_agent_handler(
+                runtime,
+                role_registry,
+                catalog=catalog,
+                tool_session=tool_session,
+                max_rounds=max_rounds,
+            ),
             "meeting": make_meeting_handler(host, role_registry),
             "gate": make_gate_handler(auto_mode="accept" if yes else "ask"),
         }
@@ -196,7 +238,9 @@ async def run_flow(
         suspended_count += 1
 
     snapshot = graph.get_state({"configurable": {"thread_id": resolved_thread}})
-    final_state = _finalize_tasks(ClusterState.model_validate(snapshot.values))
+    raw_state = ClusterState.model_validate(snapshot.values)
+    # 工具模式下保留真实任务状态（review/blocked 驱动退出码），不做归档
+    final_state = raw_state if tool_session is not None else _finalize_tasks(raw_state)
     return RunSummary(
         thread_id=resolved_thread,
         events=events,
@@ -259,6 +303,13 @@ def _print_event(event: Event, out: TextIO) -> None:
         print(f"[会议] {event.actor} 完成（决策 {event.payload.get('decisions', 0)} 项）", file=out)
     elif event.type == "agent_step":
         print(f"[执行] {event.actor}（节点 {event.payload.get('node', '')}）", file=out)
+    elif event.type == "tool_result":
+        payload = event.payload
+        print(
+            f"[工具] {event.actor}：{payload.get('tool')} ok={payload.get('ok')} "
+            f"（{payload.get('duration', 0)}s）",
+            file=out,
+        )
     elif event.type == "workflow_suspended":
         print(f"[挂起] 流程在节点 {event.payload.get('node_id', '')} 等待审批", file=out)
     elif event.type == "workflow_start":
@@ -323,6 +374,16 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
             print(f"模型配置无效（{model_name}）：{exc}", file=sys.stderr)
             return 1
+    tool_script = None
+    if args.tool_script:
+        try:
+            raw = Path(args.tool_script).read_text(encoding="utf-8")
+            tool_script = json.loads(raw)
+            if not isinstance(tool_script, list):
+                raise ValueError("tool_script 必须是 JSON 数组")
+        except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+            print(f"tool_script 加载失败（{args.tool_script}）：{exc}", file=sys.stderr)
+            return 1
     try:
         summary = asyncio.run(
             run_flow(
@@ -333,12 +394,31 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 model=args.model,
                 print_event=lambda event: _print_event(event, out),
                 print_request=lambda request: _print_request(request, out),
+                workspace=args.workspace,
+                mcp_servers=list(args.mcp or []),
+                max_rounds=args.max_rounds,
+                tool_script=tool_script,
+                skills_root=args.skills_root,
             )
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
         print(f"运行失败：{exc}", file=sys.stderr)
         return 1
     _print_summary(summary, out)
+    # 工具模式验收：存在验收未通过的岗位任务（review/blocked）→ 退出码 1。
+    # 会议生成的 todo 行动项属于积压清单，不视为失败。
+    if args.workspace and summary.state is not None:
+        failed = [
+            task for task in summary.state.tasks
+            if task.status in (TaskStatus.REVIEW, TaskStatus.BLOCKED)
+        ]
+        if failed:
+            print(
+                f"存在验收未通过的岗位任务（{len(failed)} 个："
+                f"{', '.join(task.status.value for task in failed[:5])}），退出码 1",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 
@@ -524,6 +604,40 @@ def _cmd_metrics_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tools_list(args: argparse.Namespace) -> int:
+    """tools list 子命令：列出内置工具与权限分层。"""
+    registry = build_default_tools()
+    specs = registry.list()
+    print(f"共 {len(specs)} 个内置工具：")
+    for spec in specs:
+        print(f"  - {spec.name} | 权限：{spec.permission.value} | {spec.description[:70]}")
+    return 0
+
+
+def _cmd_mcp_list(args: argparse.Namespace) -> int:
+    """mcp list 子命令：连接 MCP stdio 服务器并列出其工具。"""
+    try:
+        server_name, argv = parse_server_command(args.server)
+
+        async def _list() -> list[dict]:
+            client = StdioMCPClient(server_name, argv)
+            try:
+                await client.connect()
+                tools = await client.list_tools()
+                return tools
+            finally:
+                await client.close()
+
+        tools = asyncio.run(_list())
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"MCP 服务器列表失败：{exc}", file=sys.stderr)
+        return 1
+    print(f"MCP 服务器 {server_name} 共 {len(tools)} 个工具：")
+    for tool in tools:
+        print(f"  - {tool.get('name')}：{(tool.get('description') or '')[:70]}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # argparse 装配与入口
 # ---------------------------------------------------------------------------
@@ -548,7 +662,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="岗位模型后端：deterministic（缺省，无需 key）/ deepseek-*（DeepSeek API，"
         "读取 DEEPSEEK_API_KEY）/ codex（解析当前 Codex 配置）；缺省也可用环境变量 DEEPSEEK_MODEL",
     )
+    run_parser.add_argument(
+        "--workspace",
+        default=None,
+        help="工作区目录（启用工具模式：空目录=新项目，已有 git 目录=既有仓库功能开发）",
+    )
+    run_parser.add_argument(
+        "--mcp",
+        action="append",
+        default=[],
+        metavar="NAME=COMMAND",
+        help="MCP stdio 服务器（可重复）：name=command，工具注册为 mcp_<name>_<tool>（危险权限）",
+    )
+    run_parser.add_argument(
+        "--max-rounds",
+        type=int,
+        default=None,
+        help="工具模式 ReAct 最大轮数（缺省 6）",
+    )
+    run_parser.add_argument(
+        "--tool-script",
+        default=None,
+        help="确定性演示工具脚本 JSON 文件（[{name, args}, ...]，无 API key 跑通工具全链路）",
+    )
+    run_parser.add_argument(
+        "--skills-root",
+        default=None,
+        help="技能根目录（挂载岗位技能上下文到工具模式 system prompt）",
+    )
     run_parser.set_defaults(func=_cmd_run)
+
+    tools_parser = subparsers.add_parser("tools", help="工具管理")
+    tools_sub = tools_parser.add_subparsers(dest="tools_command", required=True)
+    tools_list = tools_sub.add_parser("list", help="列出内置工具与权限分层")
+    tools_list.set_defaults(func=_cmd_tools_list)
+
+    mcp_parser = subparsers.add_parser("mcp", help="MCP 服务器管理")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_command", required=True)
+    mcp_list = mcp_sub.add_parser("list", help="连接 MCP stdio 服务器并列出其工具")
+    mcp_list.add_argument(
+        "--server",
+        required=True,
+        help="name=command 格式的 MCP stdio 服务器（如 fs='npx -y @modelcontextprotocol/server-filesystem C:\\tmp'）",
+    )
+    mcp_list.set_defaults(func=_cmd_mcp_list)
 
     skills_parser = subparsers.add_parser("skills", help="技能管理")
     skills_sub = skills_parser.add_subparsers(dest="skills_command", required=True)

@@ -1,6 +1,6 @@
 # agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
 
-> 版本：0.1.0 ｜ 语言：Python 3.11+ ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
+> 版本：0.2.0 ｜ 语言：Python 3.11+ ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
 > 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
 
 ## 项目简介
@@ -11,6 +11,12 @@
 StateGraph，跑通「需求评审 → 设计评审 → 开发 → 代码评审 → 测试 → 发布评审」MVP 闭环，
 并通过六步进化闭环（收集→提炼→提案→评审→生效→回滚）实现流程/组织级自我进化。
 
+v0.2 新增**工具执行层**：岗位 Agent 不再只输出文本摘要，而是在**真实工作区**里读文件、
+改代码、跑测试、走 git——18 个内置工具按 read / workspace_write / dangerous 三级权限
+分层，危险工具走审批门（`--yes` 自动拒绝），模型双轨协议（原生 function calling +
+文本 JSON action 回退），支持 MCP stdio 外部工具，可跑通「空工作区生成可运行新项目」与
+「既有 git 仓库功能开发」两场景验收。
+
 设计要点：
 
 - **流程即配置**：SOP 用可编译的图（YAML → StateGraph）表达，进化 = 重新编译流程，可灰度、可回滚。
@@ -18,6 +24,8 @@ StateGraph，跑通「需求评审 → 设计评审 → 开发 → 代码评审 
   bypass-immune 高风险门自动拒绝（§6.5 自动 DENY）。
 - **岗位即技能**：每个岗位 = 角色画像 + 工具集 + SKILL.md 技能包 + 审批权限。
 - **可观测是进化的前提**：事件流 + 检查点 + 审批审计 + 绩效度量驱动进化信号。
+- **工具即执行**（v0.2）：岗位 Agent 通过受限工作区工具（读/写/git/测试）真实产出代码；
+  权限分层 + 路径越界拦截 + 危险工具审批门，执行有边界、可审计。
 
 ## 文档
 
@@ -28,13 +36,14 @@ StateGraph，跑通「需求评审 → 设计评审 → 开发 → 代码评审 
 
 ```mermaid
 flowchart TD
-    subgraph 六层运行时
+    subgraph 七层运行时
         P1[流程编排层<br/>WorkflowEngine：YAML→StateGraph]
-        P2[角色执行层<br/>AgentRuntime / RoleRegistry]
-        P3[技能层<br/>SkillLoader / SkillCatalog]
-        P4[会议与审批门<br/>MeetingHost / 审批门 interrupt]
-        P5[记忆与账本<br/>Ledger / TaskBoard / 检查点]
-        P6[可观测与进化<br/>EventBus / Metrics / EvolutionEngine]
+        P2[角色执行层<br/>AgentRuntime / RoleRegistry / 工具模式 ReAct]
+        P3[工具执行层<br/>ToolSession 18 工具 / 权限分层 / MCP stdio]
+        P4[技能层<br/>SkillLoader / SkillCatalog]
+        P5[会议与审批门<br/>MeetingHost / 审批门 interrupt]
+        P6[记忆与账本<br/>Ledger / TaskBoard / 检查点]
+        P7[可观测与进化<br/>EventBus / Metrics / EvolutionEngine]
     end
 
     subgraph 六步闭环
@@ -43,8 +52,8 @@ flowchart TD
         E6 -. 复盘与度量反馈 .-> E1
     end
 
-    P1 --> P2 --> P3 --> P4 --> P5 --> P6
-    P6 -. 度量信号 .-> E1
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+    P7 -. 度量信号 .-> E1
 ```
 
 ## 安装与运行
@@ -63,6 +72,12 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 
 # 4) 交互式运行：遇审批门打印请求并读取 accept/reject/response <内容>/edit <内容>
 uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project examples
+
+# 5) 工具模式（v0.2）：空工作区生成可运行新项目（确定性脚本演示，零 key）
+#    --max-rounds 需大于脚本步数（脚本 7 步 + 1 轮收尾）
+uv run agent-cluster run --flow examples/flows/build-new-project.yaml \
+  --workspace .agent-cluster-demo/ws-new \
+  --tool-script examples/tool-scripts/build-new-project.json --max-rounds 10 --yes
 ```
 
 > 默认确定性模型后端（`DeterministicClient`），无需任何 API key；接入真实 LLM 见下方
@@ -95,7 +110,9 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 
 | 命令 | 说明 |
 |---|---|
-| `agent-cluster run --flow <yaml> [--project <dir>] [--yes] [--thread <id>] [--model <name>]` | 编译并运行 YAML 流程；`--yes` 无人值守自动审批；`--model` 指定岗位模型后端（deterministic/deepseek-*/codex，缺省可经 `DEEPSEEK_MODEL`） |
+| `agent-cluster run --flow <yaml> [--project <dir>] [--yes] [--thread <id>] [--model <name>] [--workspace <dir>] [--mcp NAME=CMD] [--tool-script <json>]` | 编译并运行 YAML 流程；`--yes` 无人值守自动审批；`--model` 指定岗位模型后端（deterministic/deepseek-*/codex）；`--workspace` 启用工具模式（真实工作区执行）；`--mcp` 挂载外部 MCP stdio 工具；`--tool-script` 确定性工具脚本 |
+| `agent-cluster tools list` | 列出 18 个内置工具与权限分层（read/workspace_write/dangerous） |
+| `agent-cluster mcp list --server NAME=CMD` | 连接 MCP stdio 服务器并列出其工具 |
 | `agent-cluster skills list --root <dir>` | 列出技能目录（name/version/description） |
 | `agent-cluster roles list` | 列出 12 岗位（id/name/kind/approval_scope） |
 | `agent-cluster proposals demo` | 六步进化闭环演示（collect→distill→propose→review→apply→rollback） |
@@ -127,7 +144,9 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 | `agent_cluster.workflow` | YAML 流程 DSL 解析与校验、编译为 LangGraph StateGraph、事件流运行、parallel 并行与 gate 条件路由 |
 | `agent_cluster.gates` | 审批门（interrupt HITL）、bypass-immune 无人值守策略、`approval_pending` 查询挂起请求 |
 | `agent_cluster.roles` | 12 岗位目录（goal/backstory/skills/tools/approval_scope）与 RoleRegistry（会议默认参与岗位） |
-| `agent_cluster.runtime` | AgentRuntime（reply/observe）、ChatModelClient 抽象（默认确定性后端）、EventBus、agent 节点 handler |
+| `agent_cluster.runtime` | AgentRuntime（reply/observe）、ChatModelClient 抽象（默认确定性后端）、工具模式 ReAct handler（双轨协议）、EventBus、agent 节点 handler |
+| `agent_cluster.tools` | v0.2 工具模型/注册表/会话执行器：18 内置工具、read/workspace_write/dangerous 三级权限、路径越界拦截、危险工具审批缓存 |
+| `agent_cluster.mcp_client` | v0.2 轻量 MCP stdio 客户端（JSON-RPC 2.0：initialize/list_tools/call_tool） |
 | `agent_cluster.meetings` | MeetingHost 7 类会议模板 + meeting 节点 handler（纪要/决策/行动项） |
 | `agent_cluster.ledger` | LedgerStore 任务账本 + TaskBoard 任务板（Backlog/Ready/InProgress/Review/Done 流转） |
 | `agent_cluster.evolution` | 六步进化闭环（collect→distill→propose→review→apply→rollback）+ 审计 + 禁止自我扩权 |
@@ -149,6 +168,10 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 | AgentScope | Apache-2.0 | Agent 配置四件套（Model/ReAct/Injection/Context）、事件驱动 | `models.py`（AgentConfig）、`runtime.py`（EventBus） |
 | LangGraph | MIT | StateGraph 编排、interrupt 审批门、检查点续跑、时间旅行审计 | `workflow.py`、`gates.py`（流程底座） |
 | anthropic-skills | 混合 | SKILL.md 技能包标准与渐进披露 | `skills.py`（SkillLoader/SkillCatalog）、`examples/skills/` |
+| AutoGen（v0.2） | CC-BY-4.0 | 工具注册/Schema 设计 | `tools.py`（ToolSpec/JSON Schema，仅设计参考） |
+| MetaGPT（v0.2） | MIT | 工具注册表与解析 | `tools.py`（ToolRegistry，仅设计参考） |
+| AgentScope（v0.2） | Apache-2.0 | 工具执行与会话模型 | `tools.py`（ToolSession），仅设计参考 |
+| swe-agent / aider / OpenHands（范式） | 各自许可 | ACI 文件编辑、git-native 工作流、issue→PR 验收 | `tools.py`（edit_file 多 hunk / git 工具集），仅范式借鉴 |
 
 ## 许可与致谢
 

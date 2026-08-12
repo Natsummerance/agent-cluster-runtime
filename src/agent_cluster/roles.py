@@ -36,7 +36,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="产品经理负责需求收集与澄清、竞品与市场分析、PRD 编写与验收标准定义；"
             "属于决策层，可批准「需求范围冻结」「迭代验收」「发布」。",
             skills=["requirement-analysis@1.0.0", "competitor-research@0.1.0", "prd-writing@0.1.0"],
-            tools=["read_file", "write_file", "review", "publish"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob"],
             approval_scope=[
                 GateKind.REQUIREMENT_CONFIRMATION,
                 GateKind.ITERATION_ACCEPTANCE,
@@ -51,7 +51,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="项目经理（PMO / Scrum Master）负责任务拆分与依赖分析、排期、会议主持、"
             "进度与风险跟踪；属于管理层，可批准「迭代范围与任务关闭」。",
             skills=["task-breakdown@0.1.0", "agile-scrum@0.1.0", "meeting-facilitation@0.1.0"],
-            tools=["read_file", "write_file", "review", "publish"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob"],
             approval_scope=[GateKind.ITERATION_ACCEPTANCE],
         ),
         Role(
@@ -62,7 +62,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="前端开发属于执行层：负责 UI 还原、前端架构与组件库、页面与交互；"
             "可运行构建与前端测试。",
             skills=["frontend-design@1.0.0", "webapp-testing@0.1.0"],
-            tools=["file_edit", "run_tests", "execute_code", "review", "build"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert"],
         ),
         Role(
             id="backend",
@@ -72,7 +72,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="后端开发属于执行层：负责 API、数据模型、业务逻辑、服务集成；"
             "可写代码、跑测试，产出数据库脚本与接口契约。",
             skills=["backend-api-design@2.1.0", "database-schema@0.1.0", "unit-testing@0.1.0"],
-            tools=["file_edit", "run_tests", "execute_code", "review", "build"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff", "git_add", "git_commit", "git_revert"],
         ),
         Role(
             id="algorithm",
@@ -82,7 +82,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="算法工程师属于执行层：负责算法方案、数据处理、训练与推理、评估优化；"
             "算法方案与评估标准经设计评审门（architect/qa/pm 审批范围）把关。",
             skills=["ml-engineering@0.1.0", "model-evaluation@0.1.0", "data-prep@0.1.0"],
-            tools=["file_edit", "run_tests", "execute_code", "review"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_tests", "run_python", "git_status", "git_diff"],
         ),
         Role(
             id="architect",
@@ -92,7 +92,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="架构工程师属于管理层：负责系统设计、技术选型、模块划分、接口契约与"
             "非功能需求；可批准「架构基线」（design_review 门）。",
             skills=["system-design@0.1.0", "api-contract@0.1.0", "security-review@0.1.0"],
-            tools=["file_edit", "review", "run_tests", "execute_code"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests"],
             approval_scope=[GateKind.DESIGN_REVIEW],
         ),
         Role(
@@ -103,7 +103,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="测试开发（QA）属于执行层：负责测试计划/用例/自动化、缺陷与回归；"
             "可批准「质量门」（迭代验收）。",
             skills=["test-planning@0.1.0", "automated-testing@0.1.0", "bug-hunting@0.1.0"],
-            tools=["run_tests", "execute_code", "review", "publish"],
+            tools=["read_file", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests", "run_python", "git_revert"],
             approval_scope=[GateKind.ITERATION_ACCEPTANCE],
         ),
         Role(
@@ -114,7 +114,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="运维维护（SRE）属于执行层：负责部署、CI/CD、监控告警、故障恢复与"
             "发布执行；可批准「发布窗口」（release 门）。",
             skills=["ci-cd@0.1.0", "deployment@0.1.0", "observability@0.1.0", "incident-response@0.1.0"],
-            tools=["deploy", "run_tests", "execute_code", "publish"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_shell", "git_init", "git_status", "git_diff", "git_add", "git_commit", "git_revert", "git_push", "delete_file"],
             approval_scope=[GateKind.RELEASE],
         ),
         Role(
@@ -125,7 +125,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="规格文档写手（SpecWriter）属于辅助层：负责把 PRD 转成开发规格、"
             "接口文档与 README，属于管理与流程辅助域。",
             skills=["doc-writing@0.1.0", "api-docs@0.1.0"],
-            tools=["file_edit", "review", "publish"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob"],
         ),
         Role(
             id="reviewer",
@@ -135,7 +135,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="代码评审员属于辅助层：按评审规范逐条检查 PR 代码，输出评审意见与"
             "修改指令；归入质量保障域（QA 类别）。",
             skills=["code-review@0.1.0", "best-practices@0.1.0"],
-            tools=["review", "run_tests", "execute_code"],
+            tools=["read_file", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests"],
         ),
         Role(
             id="debugger",
@@ -145,7 +145,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="缺陷排查员（Troubleshooter）属于辅助层：负责复现、根因分析与修复"
             "建议；归入质量保障域（QA 类别）。",
             skills=["root-cause-analysis@0.1.0", "repro-steps@0.1.0"],
-            tools=["execute_code", "run_tests", "review", "file_edit"],
+            tools=["read_file", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests", "run_python"],
         ),
         Role(
             id="governance",
@@ -155,7 +155,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="治理与流程 Agent 属于决策层：负责流程规范、治理策略与审计，"
             "可批准「进化生效」（evolution_apply 门）；归入决策层（PM 类别）。",
             skills=["process-governance@0.1.0", "audit-log@0.1.0", "policy-review@0.1.0"],
-            tools=["review", "publish", "deploy"],
+            tools=["read_file", "list_dir", "grep", "glob"],
             approval_scope=[GateKind.EVOLUTION_APPLY],
         ),
     ]

@@ -1,0 +1,47 @@
+[
+  {
+    "name": "write_file",
+    "args": {
+      "path": "README.md",
+      "content": "# demo-project\n\n由 agent-cluster 多 agent 集群生成的演示项目（确定性工具脚本）\n"
+    }
+  },
+  {
+    "name": "write_file",
+    "args": {
+      "path": "app.py",
+      "content": "def add(a, b):\n    return a + b\n"
+    }
+  },
+  {
+    "name": "write_file",
+    "args": {
+      "path": "test_app.py",
+      "content": "from app import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    }
+  },
+  {
+    "name": "run_tests",
+    "args": {
+      "command": "pytest -q"
+    }
+  },
+  {
+    "name": "git_init",
+    "args": {}
+  },
+  {
+    "name": "git_add",
+    "args": {
+      "paths": [
+        "."
+      ]
+    }
+  },
+  {
+    "name": "git_commit",
+    "args": {
+      "message": "demo: 初始化项目（确定性工具脚本）"
+    }
+  }
+]

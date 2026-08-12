@@ -182,3 +182,30 @@
 
 - 最终整体评审（code-reviewer）：一致性、规范符合、无残留 TODO/FIXME、测试干净。
 - 使用 finishing-a-development-branch 流程收尾（本地仓库无 remote：验证全量测试 → 保持 main 分支现状，向用户汇报）。
+
+
+## Task 8: 接入当前对话模型（DeepSeek deepseek-v4-flash）
+
+- 目标：默认执行模型复用当前 Codex 对话所用模型（`--model codex` 解析 Codex `config.toml`，
+  或显式 `--model deepseek-v4-flash`），API key 只从环境变量读取。
+- 产出：`runtime.py` 的 DeepSeekClient/OpenAIClient、`providers.py` Codex 配置解析、
+  截断扩容重试与思维链不外泄防护。详见 git log `Task 8` 提交。
+
+## Task 9: 工具执行层（v0.2）——真正可生产代码的多 Agent 集群
+
+> 状态：已完成（T9.1–T9.6），288 项测试全绿。
+
+- T9.1 `src/agent_cluster/tools.py`：ToolPermission（read/workspace_write/dangerous）、
+  ToolSpec/ToolCall/ToolResult、ToolRegistry、ToolSession（工作区绑定、写锁、越界拦截、
+  审批缓存幂等）；18 个内置工具（只读 6 + 写工作区 8 + 危险 4）。
+- T9.2/T9.3 `runtime.py`：ChatResponse + 双轨协议（原生 function calling + fenced JSON
+  action 回退）；`make_agent_handler(..., tool_session=...)` 工具模式 ReAct 循环；
+  危险工具 interrupt 审批门（`--yes` 自动拒绝，bypass-immune）；分岗位质量门槛
+  （QA/reviewer/debugger 必须 run_tests 真实通过才 Done）；max_rounds 截断 → review。
+- T9.4 `src/agent_cluster/mcp_client.py`：轻量 MCP stdio 客户端（JSON-RPC 2.0），外部工具
+  一律 dangerous 权限。
+- T9.5 `cli.py`/示例/文档：`--workspace`/`--mcp`/`--max-rounds`/`--tool-script`/
+  `--skills-root`；`tools list`/`mcp list`；`examples/flows/build-new-project.yaml` +
+  `examples/tool-scripts/build-new-project.json`；README/PRODUCT/MANUAL 更新至 0.2.0。
+- T9.6 验收：场景 A（空工作区生成可运行新项目：真实文件 + 测试通过 + git 提交）与
+  场景 B（既有仓库修复）测试通过；工具模式存在未完成任务 → CLI 退出码 1。

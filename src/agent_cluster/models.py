@@ -135,6 +135,9 @@ class TokenUsage(BaseModel):
     estimated_total: int | None = Field(
         default=None, description="同一次调用的启发式估算总 token（真实 usage 时附带，供 estimate_accuracy）"
     )
+    cache_read_tokens: int = Field(
+        default=0, ge=0, description="前缀缓存命中的输入 token 数（v0.5，成本折算与缓存指标用）"
+    )
 
 
 class ProposalStatus(StrEnum):

@@ -7,3 +7,6 @@ __pycache__/
 .venv/
 build/
 dist/
+
+# 本地演示工作区（工具模式 --workspace 示例产物）
+.agent-cluster-demo/

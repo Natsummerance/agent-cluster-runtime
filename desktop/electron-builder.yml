@@ -1,0 +1,19 @@
+# electron-builder 配置（桌面工作台 v0.5.0）
+appId: com.natsummerance.agent-cluster
+productName: AgentClusterWorkbench
+directories:
+  output: dist
+  buildResources: build
+files:
+  - main.js
+  - preload.js
+  - package.json
+  - dist-frontend/**
+  - resources/**
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false

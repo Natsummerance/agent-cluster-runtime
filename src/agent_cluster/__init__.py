@@ -3,7 +3,10 @@
 当前阶段覆盖：数据模型层（models.py）、技能层（skills.py）、流程引擎
 （workflow.py）、审批门（gates.py）、组织角色（roles.py）、角色执行运行时
 （runtime.py）、会议（meetings.py）、账本/任务板（ledger.py）、进化闭环
-（evolution.py）与绩效度量（metrics.py）；后续任务将加入 CLI。
+（evolution.py）、绩效度量（metrics.py）、工具执行层（tools.py）、MCP 客户端
+（mcp_client.py）、会话构建（session.py）与 CLI（cli.py）；v0.4 新增环境预检
+（doctor.py）、插件层（plugins.py）、连续开发 REPL（repl.py）、Docker 沙箱
+（sandbox.py）、git worktree 隔离（worktree.py）与有界子代理（subagent.py）。
 """
 
 from agent_cluster.models import (
@@ -94,7 +97,7 @@ from agent_cluster.skills import (
     format_skill_context,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 __all__ = [
     "ActionRequest",

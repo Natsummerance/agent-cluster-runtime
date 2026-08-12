@@ -1,7 +1,7 @@
 # 用户手册：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 安装、配置、运行与扩展指南。
-> 适用版本：0.2.0 ｜ 环境：Windows / macOS / Linux（Python 3.11+）
+> 适用版本：0.4.0 ｜ 环境：Windows / macOS / Linux（Python 3.11+）
 
 ---
 
@@ -13,15 +13,23 @@
 4. 工具模式（真实工作区执行）
 5. CLI 命令参考
 6. 接入真实 LLM（DeepSeek / Codex 当前模型 / OpenAI）
-7. 流程文件（YAML）编写指南
-8. 会议与审批门操作
-9. 技能系统
-10. 岗位系统与扩展
-11. 进化提案
-12. 绩效度量与信号
-13. 退出码与错误处理
-14. 常见问题（FAQ）
-15. 目录结构
+7. 三协议模型接入（v0.4）
+8. 连续开发 REPL：chat（v0.4）
+9. 插件与 hooks（v0.4）
+10. doctor 环境预检（v0.4）
+11. Docker 沙箱（v0.4）
+12. git worktree 隔离（v0.4）
+13. 有界子代理（v0.4）
+14. 工具层扩展：apply_patch / http_fetch / MCP resources / AGENTS.md 项目记忆（v0.4）
+15. 流程文件（YAML）编写指南
+16. 会议与审批门操作
+17. 技能系统
+18. 岗位系统与扩展
+19. 进化提案
+20. 绩效度量与信号
+21. 退出码与错误处理
+22. 常见问题（FAQ）
+23. 目录结构
 
 ---
 
@@ -29,10 +37,13 @@
 
 | 能力 | 命令 | 说明 |
 |---|---|---|
-| 运行流程 | `agent-cluster run --flow <yaml>` | 编译并运行 YAML 流程，含审批交互 |
+| 运行流程 | `agent-cluster run --flow <yaml> [--sandbox docker] [--worktrees]` | 编译并运行 YAML 流程，含审批交互；可选容器沙箱与按角色 worktree 隔离 |
 | 工具模式 | `agent-cluster run --flow <yaml> --workspace <dir>` | 岗位 Agent 在真实工作区读文件/改代码/跑测试/走 git |
 | 工具清单 | `agent-cluster tools list` | 列出内置工具与权限分层（read/workspace_write/dangerous） |
 | MCP 清单 | `agent-cluster mcp list --server NAME=CMD` | 连接 MCP stdio 服务器并列出其工具 |
+| 连续开发 REPL | `agent-cluster chat --workspace <dir>` | v0.4 连续多轮开发：关键词选岗 + 工具模式 + token 计量 + 斜杠命令 |
+| 环境预检 | `agent-cluster doctor` | v0.4 Python/git/Docker 硬依赖 + 模型/工作区/插件/MCP 检查 |
+| 插件清单 | `agent-cluster plugins list` | v0.4 列出发现的插件、技能与 hooks（双清单 + marketplace） |
 | 技能列表 | `agent-cluster skills list --root <dir>` | 列出 SKILL.md 技能目录 |
 | 岗位列表 | `agent-cluster roles list` | 列出 12 个岗位与审批范围 |
 | 进化演示 | `agent-cluster proposals demo` | 六步进化闭环演示 |
@@ -96,13 +107,14 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 
 ### 4.2 工具与权限分层
 
-内置 18 个工具，按风险分三层；`tools list` 可查看实时清单：
+内置 23 个工具，按风险分四层；`tools list` 可查看实时清单：
 
 | 权限 | 行为 | 工具 |
 |---|---|---|
-| `read` | 自动执行，无需审批 | `list_dir` / `read_file` / `grep` / `glob` / `git_status` / `git_diff` |
-| `workspace_write` | 自动执行 + 审计留痕 | `write_file` / `edit_file`（多 hunk）/ `mkdir` / `git_add` / `git_commit` / `git_revert` / `git_init` / `run_tests` |
-| `dangerous` | 走审批门（HITL interrupt） | `run_shell`（非白名单）/ `run_python` / `delete_file` / `git_push` |
+| `read` | 自动执行，无需审批 | `list_dir` / `read_file` / `grep` / `glob` / `git_status` / `git_diff` / `count_tokens` |
+| `workspace_write` | 自动执行 + 审计留痕 | `write_file` / `edit_file`（多 hunk）/ `apply_patch`（codex 风格补丁块）/ `mkdir` / `git_add` / `git_commit` / `git_revert` / `git_init` / `run_tests` |
+| `dangerous` | 走审批门（HITL interrupt） | `run_shell`（非白名单）/ `run_python` / `delete_file` / `git_push` / `run_service` / `http_fetch`（出网抓取） |
+| `human_interaction` | 向人工提问，等待自由文本回答 | `ask_user`（PM 需求澄清） |
 
 - 路径统一 `resolve` 后校验必须落在工作区内（`../`、绝对路径、符号链接外逃一律拒绝）。
 - `run_tests` 为白名单命令执行器（默认 `uv run pytest -q`，可配置测试/构建命令前缀）。
@@ -160,6 +172,7 @@ usage: agent-cluster build [--goal GOAL] [--workspace DIR] [--flow YAML]
                            [--max-rework N] [--deterministic] [--yes]
                            [--qa-script JSON] [--tool-script JSON]
                            [--role-tool-script JSON] [--skills-root DIR]
+                           [--sandbox none|docker] [--plugin-dir DIR]
                            [--mcp NAME=COMMAND] [--max-rounds N]
 ```
 
@@ -169,6 +182,7 @@ usage: agent-cluster build [--goal GOAL] [--workspace DIR] [--flow YAML]
 |---|---|
 | `--goal GOAL` | 产品需求目标（`--resume` 时可省略） |
 | `--workspace DIR` | 工作区；缺省 `build-out/<目标>` |
+| `--sandbox MODE` | 执行沙箱：`none`（本机，缺省）/ `docker`（容器内执行；无 Docker 时给指引并退出非零码） |
 | `--flow YAML` | 生命周期流程（缺省 `examples/flows/build-product.yaml`） |
 | `--model MODEL` | `codex`（缺省，解析当前对话模型）/ `deterministic`（演示）/ `deepseek-*` |
 | `--resume` | 断点续跑：从 `.agent-cluster/` 检查点继续 |
@@ -179,6 +193,7 @@ usage: agent-cluster build [--goal GOAL] [--workspace DIR] [--flow YAML]
 | `--qa-script JSON` | 脚本化澄清问答（字符串数组），供演示/测试 |
 | `--role-tool-script JSON` | 按岗位工具脚本（`{role: [tool_call]}`） |
 | `--mcp NAME=COMMAND` | MCP stdio 服务器（可重复），外部工具一律危险权限 |
+| `--plugin-dir DIR` | 插件搜索目录（可重复；缺省包含 ~/.codex/plugins/cache），插件技能与 hooks 自动接入 |
 
 **交互命令**（向导等待输入时）：`/status`（token 消耗/剩余/阶段）、`/budget`（预算明细）、
 `/skip`（跳过当前澄清/接受当前门）、`/abort`（保存检查点退出，退出码 2）。
@@ -206,7 +221,8 @@ uv run agent-cluster build --workspace build-out/todo --resume
 ```
 usage: agent-cluster run [-h] --flow FLOW [--project PROJECT] [--yes]
                          [--thread THREAD] [--model MODEL]
-                         [--workspace WORKSPACE] [--mcp NAME=COMMAND]
+                         [--workspace WORKSPACE] [--sandbox none|docker]
+                         [--worktrees] [--mcp NAME=COMMAND]
                          [--max-rounds MAX_ROUNDS] [--tool-script TOOL_SCRIPT]
                          [--skills-root SKILLS_ROOT]
 ```
@@ -219,12 +235,61 @@ usage: agent-cluster run [-h] --flow FLOW [--project PROJECT] [--yes]
 | `--thread THREAD` | 线程 id；缺省用流程 YAML 的 `thread_id` |
 | `--model MODEL` | 岗位模型后端：`deterministic`（缺省）/ `deepseek-*` / `codex`；缺省可经环境变量 `DEEPSEEK_MODEL` |
 | `--workspace DIR` | 启用工具模式：工作区目录（空目录=新项目，已有 git 目录=既有仓库功能开发） |
+| `--sandbox MODE` | 执行沙箱：`none`（本机，缺省）/ `docker`（容器内执行 shell/python/tests/service；需 `--workspace`，无 Docker 时给指引并退出非零码） |
+| `--worktrees` | git worktree 隔离：每开发角色独立 worktree 提交，节点完成后合并回主工作区（需 `--workspace`） |
 | `--mcp NAME=COMMAND` | MCP stdio 服务器（可重复）；工具注册为 `mcp_<name>_<tool>`，危险权限 |
 | `--max-rounds N` | 工具模式 ReAct 最大轮数（缺省 6） |
 | `--tool-script JSON` | 确定性工具脚本（`[{name, args}, ...]`），无 API key 跑通工具全链路 |
 | `--skills-root DIR` | 技能根目录（把岗位技能上下文注入工具模式 system prompt） |
 
-### 5.2 `skills list` —— 技能列表
+### 5.3 `chat` —— 连续多轮开发 REPL（v0.4）
+
+```
+usage: agent-cluster chat [--workspace DIR] [--model MODEL] [--sandbox none|docker]
+                          [--budget N] [--max-rounds N] [--deterministic] [--yes]
+                          [--skills-root DIR] [--plugin-dir DIR] [--mcp NAME=COMMAND]
+```
+
+| 参数 | 说明 |
+|---|---|
+| `--workspace DIR` | 工作区（缺省当前目录）；空目录=新项目，已有 git 目录=既有仓库开发 |
+| `--model MODEL` | `codex`（缺省）/ `deterministic`（演示）/ `deepseek-*` |
+| `--sandbox MODE` | 执行沙箱：`none` / `docker` |
+| `--budget N` | 全局 token 预算（缺省 500000） |
+| `--max-rounds N` | 单轮 ReAct 最大轮数（缺省 6） |
+| `--deterministic` | 确定性演示模式（无需 API key） |
+| `--yes` | 无人值守：危险工具自动拒绝、澄清用缺省答案 |
+| `--skills-root DIR` | 技能根目录（挂载岗位技能上下文） |
+| `--plugin-dir DIR` | 插件搜索目录（可重复；缺省包含 ~/.codex/plugins/cache） |
+| `--mcp NAME=COMMAND` | MCP stdio 服务器（可重复），外部工具一律危险权限 |
+
+每轮指令按关键词自动选择岗位（详见 §8），进入工具模式 ReAct 循环；跨轮保留模型消息历史
+（至多 12 条）。斜杠命令：`/status`（token 消耗/剩余）、`/budget`（预算明细）、
+`/skills`（已挂载技能）、`/plugins`（已发现插件与 hooks）、`/exit`（退出，0）。
+插件 hooks（session_start / session_end / user_prompt_submit / stop）随会话自动执行。
+退出码：0 正常 / 1 运行失败 / 2 中断（Ctrl+C）。
+
+### 5.4 `doctor` —— 环境预检（v0.4）
+
+```
+agent-cluster doctor [--model MODEL] [--workspace DIR] [--plugin-dir DIR]
+                     [--mcp NAME=COMMAND] [--skip-docker-check]
+```
+
+检查项：python（≥3.11，硬性）、git（硬性）、docker（v0.4 硬依赖，缺失给安装指引，
+`--skip-docker-check` 跳过）、model / workspace / plugin_dirs / mcp（信息性）。
+全部硬性项通过返回 0，否则打印阻塞项并返回 1（详见 §10）。
+
+### 5.5 `plugins list` —— 插件清单（v0.4）
+
+```
+agent-cluster plugins list [--plugin-dir DIR]
+```
+
+输出发现的插件（name@version / 技能数 / hooks 事件）与插件技能；搜索目录 =
+显式 `--plugin-dir` + 缺省目录（`~/.codex/plugins/cache` 与 `AGENT_CLUSTER_PLUGIN_DIRS`）。
+
+### 5.6 `skills list` —— 技能列表
 
 ```
 agent-cluster skills list --root <技能根目录>
@@ -232,7 +297,7 @@ agent-cluster skills list --root <技能根目录>
 
 输出技能 `name@version` 与描述；要求目录下技能按 `name/SKILL.md` 组织。
 
-### 5.3 `roles list` —— 岗位列表
+### 5.7 `roles list` —— 岗位列表
 
 ```
 agent-cluster roles list
@@ -240,7 +305,7 @@ agent-cluster roles list
 
 输出 12 个岗位的 id / 名称 / 类别 / 审批范围。
 
-### 5.4 `proposals` —— 进化提案
+### 5.8 `proposals` —— 进化提案
 
 ```
 agent-cluster proposals demo
@@ -251,7 +316,7 @@ agent-cluster proposals submit --title <标题> --rollback-plan <回滚方案> \
 - `--rollback-plan` 必填且不可为空白（防止不可回滚的进化）。
 - `--category` 取值：`skill` / `knowledge` / `process` / `organization`。
 
-### 5.5 `tools list` —— 工具清单
+### 5.9 `tools list` —— 工具清单
 
 ```
 agent-cluster tools list
@@ -259,7 +324,7 @@ agent-cluster tools list
 
 输出内置工具的名称、权限分层（read / workspace_write / dangerous）与描述。
 
-### 5.6 `mcp list` —— MCP 服务器工具清单
+### 5.10 `mcp list` —— MCP 服务器工具清单
 
 ```
 agent-cluster mcp list --server "NAME=COMMAND"
@@ -267,7 +332,7 @@ agent-cluster mcp list --server "NAME=COMMAND"
 
 连接 MCP stdio 服务器并列出其暴露的工具；连接失败退出码 1。
 
-### 5.7 `metrics demo` —— 度量演示
+### 5.11 `metrics demo` —— 度量演示
 
 ```
 agent-cluster metrics demo
@@ -330,9 +395,139 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml \
 
 岗位 `Role.model` 偏好 > 运行时默认（`--model` / `DEEPSEEK_MODEL`）> `deterministic`。
 
-## 7. 流程文件（YAML）编写指南
+## 7. 三协议模型接入（v0.4）
 
-### 7.1 顶层结构
+`ModelConfig.wire_api` 决定线上协议，`ChatModelFactory` 自动路由：
+
+| wire_api | 后端 | 端点 | 环境变量 |
+|---|---|---|---|
+| `chat`（缺省） | DeepSeekClient / OpenAIClient | `/v1/chat/completions` | `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` |
+| `responses` | OpenAIResponsesClient | `/v1/responses` | `OPENAI_API_KEY` |
+| `anthropic` | AnthropicClient | `/v1/messages` | `ANTHROPIC_API_KEY` |
+
+- 三协议均支持原生工具调用（function calling / tool_use）与 usage 计量；推理类
+  reasoning 输出不作为任务结果。
+- `--model codex` 时以 Codex `config.toml` 供应商的 `wire_api` 为权威（协议优先）；
+  显式 `ModelConfig.wire_api` 次之，缺省 `chat`。
+- 全部走 stdlib `urllib` 直连，零新增依赖；缺 key 启动即 fail-fast 报错退出 1。
+
+## 8. 连续开发 REPL：chat（v0.4）
+
+`agent-cluster chat` 是连续多轮开发入口：每轮用户指令 → 关键词启发式选岗 → 工具模式
+ReAct 循环（真实工作区执行）→ 下一轮。
+
+| 指令关键词 | 岗位 |
+|---|---|
+| 测试 / 检查 / 验收 / 回归 / 质检 | qa |
+| 部署 / 发布 / 上线 / docker / 镜像 / 运维 / 监控 | devops |
+| 文档 / 手册 / README / 说明 | docs |
+| 架构 / 设计评审 / 方案 / 技术选型 / 数据库设计 | architect |
+| 前端 / 页面 / UI / 界面 / 组件 / 样式 / 交互 | frontend |
+| 算法 / 模型 / 训练 / 推理 / 特征 / 数据 | algorithm |
+| 接口 / API / 后端 / 数据库 / 服务 / 登录 / 业务 | backend |
+| 需求 / PRD / 竞品 / 产品 / 用户 | pm |
+
+未命中关键词回落到 backend。跨轮上下文：模型消息历史在轮次间保留（至多 12 条）；
+token 计量经 TokenLedger 记账（`/status` / `/budget` 查看）；插件 hooks
+（session_start / session_end / user_prompt_submit / stop）自动执行。
+
+```bash
+# 确定性演示（零 key）
+uv run agent-cluster chat --workspace .agent-cluster-demo/ws-chat --deterministic
+```
+
+## 9. 插件与 hooks（v0.4）
+
+- **双清单合并**：`.codex-plugin/plugin.json` 与 `.claude-plugin/plugin.json`
+  （name/version/description/keywords/skills/hooks/interface）合并为
+  `PluginManifest`，对应 codex-rs `PluginManifestPaths`。
+- **11 事件 hooks**：`PreToolUse` / `PermissionRequest` / `PostToolUse` /
+  `PreCompact` / `PostCompact` / `SessionStart` / `SessionEnd` /
+  `UserPromptSubmit` / `SubagentStart` / `SubagentStop` / `Stop`
+  （PascalCase 与 snake_case 均接受）。
+- 每个事件可配 `MatcherGroup`（多个 handler）；handler `type` 支持
+  `command` / `mcp_tool` / `prompt` / `agent`——本平台执行 `command`
+  （含 `commandWindows` 平台回退、timeout、async），其余类型记录为「不支持」。
+- hook 输入：子进程 stdin 写 JSON payload（session_id / cwd / hook_event_name /
+  model / permission_mode / source 等），并注入 `AGENT_CLUSTER_*` 环境变量。
+- 插件技能以 `plugin:<插件名>:<技能名>` 命名空间加载进 SkillRegistry。
+- 搜索目录：显式 `--plugin-dir`（可重复）+ 缺省 `~/.codex/plugins/cache` +
+  `AGENT_CLUSTER_PLUGIN_DIRS`；`plugins list` 查看发现结果。
+
+```bash
+uv run agent-cluster plugins list
+uv run agent-cluster chat --workspace ws --plugin-dir .codex-plugins
+```
+
+## 10. doctor 环境预检（v0.4）
+
+`agent-cluster doctor` 运行环境预检：
+
+| 检查项 | 级别 | 说明 |
+|---|---|---|
+| python | 硬性 | 运行时版本 ≥ 3.11 |
+| git | 硬性 | git 可用（工具模式依赖） |
+| docker | 硬性（v0.4） | Docker 可用；缺失给安装指引，`--skip-docker-check` 跳过（沙箱功能将不可用） |
+| model | 信息性 | 模型配置可构造客户端（缺 key 不阻断，可回落 deterministic） |
+| workspace | 信息性 | 工作区目录可写（传参时检查） |
+| plugin_dirs | 信息性 | 插件目录存在（传参时检查） |
+| mcp | 信息性 | MCP 服务器参数可解析（传参时检查） |
+
+全部硬性项通过 → 退出码 0；存在阻塞项 → 打印指引并退出码 1。
+
+## 11. Docker 沙箱（v0.4）
+
+`--sandbox docker`（run / build / chat）把工具执行放入容器：
+
+- 前置：Docker 可用（`docker version`）；需要 `--workspace`（沙箱挂载工作区到
+  `/workspace`）。
+- 执行位置：`run_shell` / `run_tests` / `run_python` / `run_service` 均在容器内执行。
+- 镜像：默认 `python:3.11-slim`，可用环境变量 `AGENT_CLUSTER_SANDBOX_IMAGE` 覆盖；
+  镜像内需自备测试工具（如 uv/pytest），否则命令以明确错误返回。
+- 权限语义不变：沙箱只改变执行位置，白名单 / 审批仍由 ToolSession 负责
+  （`--yes` 危险工具自动拒绝）。
+- 无 Docker 时：CLI 打印安装指引（「请安装 Docker Desktop 并启动，或用
+  `--sandbox none` 在本机执行」）并以退出码 1 结束，不执行流程。
+
+## 12. git worktree 隔离（v0.4）
+
+`--worktrees`（run，需同时 `--workspace`）启用按角色 worktree 隔离：
+
+- 工作区不是 git 仓库时自动 `git init` + 初始提交（worktree add 需要 HEAD）；
+  git 身份未配置时提交失败并给出明确错误。
+- 每个开发角色在独立 worktree 分支（前缀 `acs-`）提交，节点完成后 `merge_back`
+  （`--no-ff`）合并回主工作区并清理 worktree，避免并行写冲突。
+- 越界校验：worktree 会话的 ToolSession 以 worktree 路径为根，`../` 逃逸天然拒绝。
+- 合并冲突时不删除 worktree（保留现场），返回失败信息由上层决定处理。
+
+## 13. 有界子代理（v0.4）
+
+工具模式（run / build / chat）自动注册 `run_subagent` 工具（危险权限，需人工审批，
+`--yes` 自动拒绝）：
+
+- 独立 ReAct 循环：子任务 prompt + 工具 schema → 逐轮推理 → 执行工具 → 回传结果。
+- 双截断：token 预算（缺省 20,000）与 `max_rounds`（缺省 6），超限即返回
+  （truncated=true），不无限循环。
+- 权限收敛：子代理只使用只读 + 工作区写工具，不内置危险工具。
+- 计量不旁路：子代理消耗的 token 经 usage_hook 记入现有 TokenLedger / 运行时报表。
+
+## 14. 工具层扩展：apply_patch / http_fetch / MCP resources / AGENTS.md 项目记忆（v0.4）
+
+- `apply_patch`：codex 风格补丁块工具（`*** Begin Patch` / `*** Update File: <rel>` /
+  `@@` 多 hunk / `-` 删除 / `+` 新增），workspace_write 权限（自动执行 + 审计），
+  适合大范围多文件原子修改，格式错误即报错不落盘。
+- `http_fetch`：HTTP(S) URL 抓取（只读网络工具），dangerous 权限（出网需人工审批，
+  `--yes` 自动拒绝）；默认 15s 超时、单次最多 200,000 字节。
+- MCP resources：服务器支持时自动注册 `mcp_<server>_read_resource` 工具（dangerous），
+  经 `resources/list` 发现、`resources/read` 按 URI 读取结构化数据（配置/schema/文档）；
+  服务器不支持 resources 时跳过注册。
+- AGENTS.md 项目记忆：工具模式（run / build / chat）自动读取工作区根目录
+  `AGENTS.md`（`load_agents_md`），注入岗位 ReAct 的 system 上下文（上限 20,000
+  字符，超长截断附注）；无文件则跳过，跨会话保持项目约定。
+
+## 15. 流程文件（YAML）编写指南
+
+### 15.1 顶层结构
 
 ```yaml
 name: fullstack-sprint          # 流程名（也是缺省项目名）
@@ -343,7 +538,7 @@ nodes: [...]                    # 节点列表
 edges: [...]                    # 边列表
 ```
 
-### 7.2 节点类型
+### 15.2 节点类型
 
 | 类型 | 字段 | 说明 |
 |---|---|---|
@@ -359,7 +554,7 @@ edges: [...]                    # 边列表
 门类型：`requirement_confirmation` / `design_review` / `iteration_acceptance` /
 `release` / `evolution_apply` / `dangerous_tool`。
 
-### 7.3 边与条件路由
+### 15.3 边与条件路由
 
 ```yaml
 edges:
@@ -373,7 +568,7 @@ edges:
   - `reject` → 回流（如设计门拒绝回设计节点）；
   - `edit` → 带修改意见进入目标节点。
 
-### 7.4 完整示例（内置 `examples/flows/fullstack-sprint.yaml`）
+### 15.4 完整示例（内置 `examples/flows/fullstack-sprint.yaml`）
 
 ```yaml
 name: fullstack-sprint
@@ -411,9 +606,9 @@ edges:
   - {from: release_gate, to: end, on_accept: end, on_reject: release}
 ```
 
-## 8. 会议与审批门操作
+## 16. 会议与审批门操作
 
-### 8.1 交互式审批
+### 16.1 交互式审批
 
 流程运行到门节点会打印待审批请求（类别 / 风险 / bypass-immune / 说明）并挂起：
 
@@ -428,18 +623,18 @@ edges:
 | `response <内容>` | 附人工意见通过（进入 `on_accept` 目标） |
 | `edit <内容>` | 带修改意见进入 `on_edit` 目标 |
 
-### 8.2 无人值守（`--yes`）
+### 16.2 无人值守（`--yes`）
 
 - 自动对全部门给出 `accept`；
 - `bypass-immune`（不可绕过）的高风险门自动转为 `reject`，防止无人值守时越权放行。
 
-### 8.3 挂起与恢复
+### 16.3 挂起与恢复
 
 挂起时运行写入检查点（`MemorySaver`）；恢复后从断点继续，事件流与审批记录不丢失。
 
-## 9. 技能系统
+## 17. 技能系统
 
-### 9.1 目录约定
+### 17.1 目录约定
 
 ```text
 skills_root/
@@ -450,7 +645,7 @@ skills_root/
     scripts/                 # 可执行辅助脚本
 ```
 
-### 9.2 查看技能
+### 17.2 查看技能
 
 ```bash
 uv run agent-cluster skills list --root examples/skills
@@ -459,7 +654,7 @@ uv run agent-cluster skills list --root examples/skills
 内置技能：`requirement-analysis@1.0.0`、`backend-api-design@2.1.0`、
 `frontend-design@1.0.0`、`qa-testing@1.0.0`。
 
-### 9.3 新增技能
+### 17.3 新增技能
 
 1. 在技能根目录下新建 `技能名/SKILL.md`，frontmatter 声明 `name` / `version` /
    `description`；
@@ -467,21 +662,21 @@ uv run agent-cluster skills list --root examples/skills
 3. 资源放 `assets` / `references` / `scripts` 子目录；
 4. 在岗位的 `skills` 字段（`roles.py`）按 `name@version` 挂载。
 
-## 10. 岗位系统与扩展
+## 18. 岗位系统与扩展
 
-### 10.1 查看岗位
+### 18.1 查看岗位
 
 ```bash
 uv run agent-cluster roles list
 ```
 
-### 10.2 Role 字段
+### 18.2 Role 字段
 
 `Role` 模型字段（`agent_cluster/models.py`）：`id` / `name` / `kind` / `goal` /
 `backstory` / `skills`（name@version 列表）/ `tools` / `model`（岗位偏好模型，None 走
 运行时默认）/ `approval_scope`（可审批的门类别）。
 
-### 10.3 新增/调整岗位
+### 18.3 新增/调整岗位
 
 编辑 `agent_cluster/roles.py` 的 `build_role_catalog()`：
 
@@ -489,7 +684,7 @@ uv run agent-cluster roles list
 - `approval_scope` 控制该岗位可审批的门；
 - 会议默认参与者由 `RoleRegistry` 按会议类型返回。
 
-## 11. 进化提案
+## 19. 进化提案
 
 ```bash
 # 六步闭环演示
@@ -509,7 +704,7 @@ uv run agent-cluster proposals submit \
 - 进化生效（`evolution_apply`）属于治理层审批范围；
 - 禁止 Agent 自我扩权（提案不可扩大自己的审批权限）。
 
-## 12. 绩效度量与信号
+## 20. 绩效度量与信号
 
 ```bash
 uv run agent-cluster metrics demo
@@ -518,12 +713,14 @@ uv run agent-cluster metrics demo
 指标：评审通过率 / 返工率 / 行动项关闭率 / 循环迭代次数 / 门等待时长等；
 `MetricRules` 按阈值触发进化信号（severity 分级），供进化闭环消费。
 
-## 13. 退出码与错误处理
+## 21. 退出码与错误处理
 
 | 退出码 | 含义 |
 |---|---|
 | 0 | 成功 |
-| 1 | 失败（流程校验失败 / 运行异常 / 模型配置无效 / 提案参数缺失 / MCP 连接失败 / 工具模式存在未完成任务等） |
+| 1 | 失败（流程校验失败 / 运行异常 / 模型配置无效 / 提案参数缺失 / MCP 连接失败 / 工具模式存在未完成任务 / doctor 存在阻塞项 / chat 运行失败 / `--sandbox docker` 无 Docker 等） |
+| 2 | build 用户中止（检查点已保存，可 `--resume`）/ chat 中断（Ctrl+C） |
+| 3 | build 升级结束（预算超限 / 返工上限，保存现状） |
 
 工具模式（`--workspace`）下，运行结束若任务板仍有验收未通过的岗位任务
 （review / blocked，如 QA 测试未通过、开发任务未完成），视为验收未通过，退出码 1；
@@ -536,7 +733,7 @@ uv run agent-cluster metrics demo
 - `流程挂起但未从检查点找到待审批请求` —— 检查点状态异常（正常运行不会出现）；
 - 流程 YAML 校验失败 —— 检查节点 id 引用、`max_iterations ≥ 节点总数`、边引用有效性。
 
-## 14. 常见问题（FAQ）
+## 22. 常见问题（FAQ）
 
 **Q1：不想用任何 API key，能否运行？**
 可以。缺省 `deterministic` 后端零依赖，`uv run agent-cluster run --flow ... --yes` 即可
@@ -580,17 +777,37 @@ uv run agent-cluster metrics demo
 用 `--tool-script` 指定确定性工具脚本 JSON（`examples/tool-scripts/build-new-project.json`），
 配合 `--workspace` 即可无 key 跑通「写文件 → 跑测试 → git 提交」真实执行。
 
-## 15. 目录结构
+**Q12：没有 Docker 能不能用 v0.4？**
+可以。本机执行是缺省路径；`doctor` 会提示 Docker 缺失（`--skip-docker-check` 跳过），
+`--sandbox docker` 在无 Docker 时给出安装指引并退出非零码，改用缺省 `--sandbox none`
+即可本机执行。
+
+**Q13：chat 和 build / run 的区别？**
+`chat` 是连续多轮开发 REPL（边聊边改，跨轮上下文 + token 计量）；`build` 是输入一个
+需求一次产出完整交付包；`run` 是编译并运行 YAML 流程（最底层执行模型）。
+
+**Q14：插件 hooks 如何配置？**
+在插件目录下提供 `.codex-plugin/plugin.json` 或 `.claude-plugin/plugin.json`
+（含 hooks 段），`chat` / `build` 传 `--plugin-dir` 即自动发现；11 个事件
+（PreToolUse / PermissionRequest / PostToolUse / PreCompact / PostCompact /
+SessionStart / SessionEnd / UserPromptSubmit / SubagentStart / SubagentStop / Stop）
+支持 PascalCase 与 snake_case 两种写法，`command` 类型 hook 由平台执行（stdin 传
+JSON payload，另注入 `AGENT_CLUSTER_*` 环境变量）。
+
+
+## 23. 目录结构
 
 ```text
 agent-cluster-runtime/
 ├── src/agent_cluster/
 │   ├── models.py        # pydantic v2 数据模型与枚举
 │   ├── workflow.py      # YAML 流程 DSL → StateGraph 编译与执行
-│   ├── runtime.py       # AgentRuntime / ChatModelClient（deterministic/deepseek/openai）+ 工具模式 ReAct handler
-│   ├── tools.py         # v0.2 工具模型/注册表/会话执行器（18 内置工具 + 权限分层 + 路径越界拦截）
+│   ├── runtime.py       # AgentRuntime / ChatModelClient（chat/responses/anthropic 三协议）+ 工具模式 ReAct handler
+│   ├── tools.py         # v0.2 工具模型/注册表/会话执行器（23 内置工具，含 apply_patch/http_fetch + 权限分层 + 路径越界拦截）
 │   ├── mcp_client.py    # v0.2 轻量 MCP stdio 客户端（JSON-RPC 2.0）
 │   ├── providers.py     # Codex config.toml 解析与 DeepSeek 默认值
+│   ├── session.py       # v0.3 会话构建（build）与 TokenLedger 计量
+│   ├── tokens.py        # v0.3 token 估算与计量
 │   ├── roles.py         # 12 岗位目录与注册表
 │   ├── meetings.py      # 7 类会议模板
 │   ├── gates.py         # 审批门（interrupt HITL）
@@ -598,13 +815,20 @@ agent-cluster-runtime/
 │   ├── ledger.py        # 任务账本与任务板
 │   ├── evolution.py     # 六步进化闭环
 │   ├── metrics.py       # 度量采集与阈值规则
-│   └── cli.py           # 命令行入口（run/workspace/mcp/tools/skills/roles/proposals/metrics）
+│   ├── doctor.py        # v0.4 环境预检（Python/git/Docker 硬依赖）
+│   ├── plugins.py       # v0.4 插件层（双清单 + 11 事件 hooks + marketplace）
+│   ├── repl.py          # v0.4 chat REPL（连续多轮开发）
+│   ├── sandbox.py       # v0.4 Docker 沙箱执行器
+│   ├── worktree.py      # v0.4 git worktree 隔离
+│   ├── subagent.py      # v0.4 有界子代理
+│   └── cli.py           # 命令行入口（run/build/chat/doctor/tools/mcp/plugins/skills/roles/proposals/metrics）
 ├── examples/
 │   ├── flows/fullstack-sprint.yaml
 │   ├── flows/build-new-project.yaml   # v0.2 新项目全流程（含前后端并行/返工边）
+│   ├── flows/build-product.yaml       # v0.3 会话式全生命周期流程
 │   ├── tool-scripts/build-new-project.json  # 确定性工具脚本（无 key 演示）
 │   └── skills/          # 4 个示例技能包
-├── tests/               # 288 项自动化测试
+├── tests/               # 451 项自动化测试
 ├── docs/PRODUCT.md      # 产品介绍
 ├── docs/MANUAL.md       # 本手册
 └── README.md

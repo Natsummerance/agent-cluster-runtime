@@ -1,7 +1,7 @@
 # 产品介绍：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.3.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 默认零 LLM 依赖可运行
+> 版本：0.4.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 默认零 LLM 依赖可运行
 
 ---
 
@@ -34,7 +34,7 @@
 | 决策 | 无审计 | 无审计 | 审批记录全量留存（append-only） |
 | 进化 | 无 | 无 | 六步闭环：技能/经验/SOP/组织可进化 |
 | 可观测 | 无 | 事件日志 | 事件流 + 检查点 + 度量信号 |
-| 模型 | 固定 | 固定 | 可插拔：deterministic / DeepSeek / OpenAI / Codex 当前模型 |
+| 模型 | 固定 | 固定 | 可插拔：deterministic / DeepSeek / OpenAI / Codex 当前模型；三协议 wire_api（chat/responses/anthropic）自动路由 |
 | 流程 | 不可控 | 弱可控 | YAML 流程 DSL → 编译期校验 → 图执行 |
 
 ## 4. 核心特性
@@ -60,9 +60,22 @@
    可一键切换 DeepSeek（`deepseek-*` / `codex`）或 OpenAI（`gpt-*`）。
 10. **可观测与审计**：append-only 事件流 + 检查点 + 审批记录 + 任务账本/任务板。
 11. **工具执行层（v0.2）**：岗位 Agent 在**真实工作区**读文件、改代码、跑测试、走 git，
-    最终产出可运行代码库；18 个内置工具按 read / workspace_write / dangerous 三级权限
-    分层，危险工具走审批门；模型双轨协议（原生 function calling + 文本 JSON action
-    回退）；MCP stdio 外部工具可插拔。
+    最终产出可运行代码库；23 个内置工具（含 apply_patch / http_fetch）按 read /
+    workspace_write / dangerous / human_interaction 分层，危险工具走审批门；模型
+    双轨协议（原生 function calling + 文本 JSON action 回退）；MCP stdio 外部工具
+    与 resources 可插拔。
+12. **连续开发 REPL（v0.4）**：`agent-cluster chat` 连续多轮开发——指令关键词自动
+    选岗、工具模式真实执行、跨轮上下文保持（至多 12 条）、token 计量与插件 hooks
+    自动接入、`/status /budget /skills /plugins /exit` 全程可控。
+13. **插件生态（v0.4）**：`.codex-plugin` / `.claude-plugin` 双清单合并、11 事件
+    hooks（PreToolUse / PermissionRequest / PostToolUse / SessionStart / ...）、
+    marketplace 与 `plugins list`，对齐 codex-cli 插件契约。
+14. **模型三协议（v0.4）**：`wire_api` 自动路由 chat/completions、OpenAI Responses、
+    Anthropic Messages 三种线上协议；Codex 配置协议优先，stdlib urllib 直连零新依赖。
+15. **执行安全与隔离（v0.4）**：`doctor` 预检（Python/git/Docker 硬依赖）、
+    `--sandbox docker` 容器沙箱、`--worktrees` 按角色 worktree 隔离、`run_subagent`
+    有界子代理（token 预算 + max_rounds 双截断）；工具层扩展 `apply_patch` /
+    `http_fetch` / MCP resources / AGENTS.md 项目记忆。
 
 ## 5. 系统架构
 
@@ -71,7 +84,7 @@ flowchart TD
     subgraph 七层运行时
         P1[流程编排层<br/>WorkflowEngine：YAML→StateGraph]
         P2[角色执行层<br/>AgentRuntime / RoleRegistry / 工具模式 ReAct]
-        P3[工具执行层<br/>ToolSession 18 工具 / 权限分层 / MCP stdio]
+        P3[工具执行层<br/>ToolSession 23 工具 / 权限分层 / MCP stdio]
         P4[技能层<br/>SkillLoader / SkillCatalog]
         P5[会议与审批门<br/>MeetingHost / 审批门 interrupt]
         P6[记忆与账本<br/>Ledger / TaskBoard / 检查点]
@@ -181,6 +194,12 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 `tool_calls`；不支持原生工具调用的模型回退解析回复中的 fenced JSON action
 （`{"name": ..., "args": {...}}`）。
 
+模型三协议（v0.4）：`ModelConfig.wire_api` 决定线上协议——`chat`（chat/completions，
+缺省）/ `responses`（OpenAI Responses `/v1/responses`，读 `OPENAI_API_KEY`）/
+`anthropic`（Anthropic Messages `/v1/messages`，读 `ANTHROPIC_API_KEY`）；三协议均
+支持原生工具调用与 usage 计量，`--model codex` 时以 Codex `config.toml` 供应商的
+`wire_api` 为准。
+
 ## 12. 技术栈
 
 - Python 3.11+（`from __future__ import annotations`，类型标注贯穿）
@@ -190,6 +209,9 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 - 运行依赖极简：`pydantic / langgraph / langgraph-checkpoint / PyYAML`（模型直连走 stdlib）
 - v0.2 工具执行层：stdlib `subprocess` + `asyncio` 实现工具会话与 MCP stdio 客户端
   （JSON-RPC 2.0，无新增硬依赖；`mcp` 官方包为可选 extra）
+- v0.4 连续开发与执行安全：`chat` REPL（asyncio 单进程）+ 插件层（pydantic 清单 +
+  subprocess hooks）+ Docker 沙箱（`docker` CLI 子进程）+ git worktree（`git`
+  子进程）+ 有界子代理（独立 ReAct 循环），全部 stdlib 实现、无新增硬依赖
 
 ## 13. 设计参照与组合式架构
 
@@ -236,11 +258,29 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
   run_service 本地冒烟工具（启动→健康检查→关闭）。
 - 335 项自动化测试；确定性演示与真实 LLM 双模式。
 
+**已实现（0.4.0）—— 连续开发与执行安全层**
+
+- `doctor` 环境预检：Python/git/Docker 硬依赖 + 模型/工作区/插件/MCP 信息性检查；
+  Docker 缺失非零退出并给安装指引，`--skip-docker-check` 可跳过。
+- `chat` REPL：连续多轮开发（关键词选岗 → 工具模式 ReAct → 跨轮上下文 → token
+  计量），`/status /budget /skills /plugins /exit` 全程可控。
+- 插件层：`.codex-plugin` / `.claude-plugin` 双清单合并 + 11 事件 hooks +
+  marketplace + `plugins list`；插件技能以 `plugin:<插件>:<技能>` 命名空间挂载。
+- 模型三协议：`wire_api` 路由 chat / responses / anthropic，零新依赖。
+- Docker 沙箱：`--sandbox docker` 把 shell/python/测试/服务冒烟放入容器执行
+  （镜像可 `AGENT_CLUSTER_SANDBOX_IMAGE` 覆盖）。
+- git worktree 隔离：`--worktrees` 每开发角色独立分支提交，节点完成后 `merge_back`
+  合并回主工作区，冲突保留现场。
+- 有界子代理：`run_subagent` 独立 ReAct 循环 + token 预算（缺省 20K）/ max_rounds
+  （缺省 6）双截断，计量回传主管线。
+- 工具层扩展：`apply_patch` / `http_fetch` / MCP resources / AGENTS.md 项目记忆。
+- 451 项自动化测试；本版验收测试覆盖空工作区全流程与既有仓库修复两场景。
+
 **路线图（后续版本）**
 
-- 实时 stdin 注入「随时打断改需求」与 Web 运行面板（v0.4）。
+- 实时 stdin 注入「随时打断改需求」与 Web 运行面板。
 - 记忆持久化：经验库从内存到文件/向量库，跨迭代沉淀。
-- 多项目并发与项目组合管理；git 分支隔离与 Docker 沙箱。
+- 多项目并发与项目组合管理。
 - 企业集成：Jira/Linear/Slack 等外部系统适配。
 
 ## 15. 许可说明

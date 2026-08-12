@@ -20,3 +20,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 
 | Task 7 CLI 与示例集成 | complete | 31d666a..2041acc | Approved; fix round 1/5 addressed (217 passed) | proposals submit 已补; 任务全部 done+artifacts。Minor: msgpack 反序列化警告、parallel ledger 后写者胜、--yes 死代码分支、缺末尾换行——记入最终评审 |
 
+| 最终整体评审 | complete | d791d02..19b4b3c | 4 项修复通过复审（221 passed） | 边校验/msgpack allowlist/门默认拒绝/评审通过逻辑。Minor 记录: msgpack 回归测试经 logging 断言偏弱；artifacts 为路径声明非实体文件；parallel ledger 后写者胜 |
+

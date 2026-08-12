@@ -91,7 +91,7 @@ def build_role_catalog() -> dict[str, Role]:
             goal="输出系统设计、技术选型、模块划分与接口契约，冻结架构基线。",
             backstory="架构工程师属于管理层：负责系统设计、技术选型、模块划分、接口契约与"
             "非功能需求；可批准「架构基线」（design_review 门）。",
-            skills=["system-design@0.1.0", "api-contract@0.1.0", "security-review@0.1.0"],
+            skills=["system-design@0.1.0", "architecture-design@0.1.0", "api-contract@0.1.0", "security-review@0.1.0"],
             tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "git_status", "git_diff", "run_tests"],
             approval_scope=[GateKind.DESIGN_REVIEW],
         ),
@@ -114,7 +114,7 @@ def build_role_catalog() -> dict[str, Role]:
             backstory="运维维护（SRE）属于执行层：负责部署、CI/CD、监控告警、故障恢复与"
             "发布执行；可批准「发布窗口」（release 门）。",
             skills=["ci-cd@0.1.0", "deployment@0.1.0", "observability@0.1.0", "incident-response@0.1.0"],
-            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_shell", "git_init", "git_status", "git_diff", "git_add", "git_commit", "git_revert", "git_push", "delete_file"],
+            tools=["read_file", "write_file", "edit_file", "mkdir", "list_dir", "grep", "glob", "run_shell", "run_service", "git_init", "git_status", "git_diff", "git_add", "git_commit", "git_revert", "git_push", "delete_file"],
             approval_scope=[GateKind.RELEASE],
         ),
         Role(

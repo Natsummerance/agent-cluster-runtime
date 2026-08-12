@@ -1,0 +1,42 @@
+name: build-product
+description: v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end
+max_iterations: 60
+thread_id: "proj:build-product:iter:1"
+nodes:
+  - {id: start, type: start}
+  - {id: kickoff, type: meeting, meeting: kickoff, participants: [pm, pmo, architect, frontend, backend, algorithm, qa, devops, docs]}
+  - {id: requirements, type: agent, role: pm}
+  - {id: requirement_review, type: meeting, meeting: requirement_review, participants: [pm, pmo, architect, frontend, backend, qa]}
+  - {id: requirement_gate, type: gate, gate: requirement_confirmation}
+  - {id: design, type: agent, role: architect}
+  - {id: design_review, type: meeting, meeting: design_review, participants: [architect, pmo, frontend, backend, algorithm, qa, devops]}
+  - {id: design_gate, type: gate, gate: design_review}
+  - {id: develop_parallel, type: parallel, children: [develop_frontend, develop_backend, develop_algorithm]}
+  - {id: develop_frontend, type: agent, role: frontend}
+  - {id: develop_backend, type: agent, role: backend}
+  - {id: develop_algorithm, type: agent, role: algorithm}
+  - {id: code_review, type: meeting, meeting: code_review, participants: [frontend, backend, algorithm, reviewer]}
+  - {id: test, type: agent, role: qa}
+  - {id: iteration_gate, type: gate, gate: iteration_acceptance}
+  - {id: docs, type: agent, role: docs}
+  - {id: devops, type: agent, role: devops}
+  - {id: release_gate, type: gate, gate: release}
+  - {id: delivery, type: agent, role: docs}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: kickoff}
+  - {from: kickoff, to: requirements}
+  - {from: requirements, to: requirement_review}
+  - {from: requirement_review, to: requirement_gate}
+  - {from: requirement_gate, to: design, on_accept: design, on_reject: requirements, on_edit: requirements}
+  - {from: design, to: design_review}
+  - {from: design_review, to: design_gate}
+  - {from: design_gate, to: develop_parallel, on_accept: develop_parallel, on_reject: design, on_edit: design}
+  - {from: develop_parallel, to: code_review}
+  - {from: code_review, to: test}
+  - {from: test, to: iteration_gate}
+  - {from: iteration_gate, to: docs, on_accept: docs, on_reject: test, on_edit: develop_parallel}
+  - {from: docs, to: devops}
+  - {from: devops, to: release_gate}
+  - {from: release_gate, to: delivery, on_accept: delivery, on_reject: devops}
+  - {from: delivery, to: end}

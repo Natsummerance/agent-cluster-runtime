@@ -282,3 +282,64 @@ async def test_audit_records_tool_calls(session: ToolSession):
     assert session.audit[0]["permission"] == ToolPermission.WORKSPACE_WRITE.value
     assert session.audit[1]["ok"] is True
     assert "duration" in session.audit[1]
+
+
+# ---------------------------------------------------------------------------
+# v0.3 工具：run_service / count_tokens / ask_user
+# ---------------------------------------------------------------------------
+
+
+def test_v03_tool_permissions():
+    registry = build_default_tools()
+    assert registry.get("run_service").permission == ToolPermission.DANGEROUS
+    assert registry.get("count_tokens").permission == ToolPermission.READ
+    assert registry.get("ask_user").permission == ToolPermission.HUMAN_INTERACTION
+    assert "run_service" in registry.names()
+    assert "count_tokens" in registry.names()
+    assert "ask_user" in registry.names()
+
+
+async def test_run_service_requires_approval_and_smokes(session: ToolSession):
+    (session.workspace_root / "index.html").write_text("<h1>ok</h1>", encoding="utf-8")
+    call = ToolCall(
+        name="run_service",
+        args={
+            "command": "python -m http.server 8871",
+            "health": "curl -sf http://localhost:8871/",
+            "wait": 1,
+            "attempts": 10,
+        },
+    )
+    blocked = await session.execute(call)
+    assert blocked.needs_approval
+    assert "ok" not in blocked.output
+    approved = await session.execute(call, approved=True)
+    assert approved.ok
+    assert "健康检查通过" in approved.output
+
+
+async def test_run_service_unhealthy_fails(session: ToolSession):
+    call = ToolCall(
+        name="run_service",
+        args={
+            "command": "python -m http.server 8872",
+            "health": "curl -sf http://localhost:1/",  # 不可达端口
+            "wait": 1,
+            "attempts": 2,
+        },
+    )
+    result = await session.execute(call, approved=True)
+    assert not result.ok
+    assert "未通过" in result.output
+
+
+async def test_count_tokens_file_and_dir(session: ToolSession):
+    await session.execute(
+        ToolCall(name="write_file", args={"path": "a.txt", "content": "hello world 中文"})
+    )
+    await session.execute(ToolCall(name="mkdir", args={"path": "sub"}))
+    file_result = await session.execute(ToolCall(name="count_tokens", args={"path": "a.txt"}))
+    assert file_result.ok
+    assert "tokens" in file_result.output
+    dir_result = await session.execute(ToolCall(name="count_tokens", args={"path": "."}))
+    assert dir_result.ok

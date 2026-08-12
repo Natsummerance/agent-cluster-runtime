@@ -32,6 +32,7 @@ import asyncio
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -75,6 +76,8 @@ DEFAULT_SHELL_WHITELIST: tuple[str, ...] = (
     "npm run lint",
     "uv run python",
     "python -m pytest",
+    "docker compose config",
+    "docker-compose config",
 )
 
 # 单次工具输出截断上限（防止模型上下文被刷爆）
@@ -689,6 +692,75 @@ async def _tool_run_python(session: ToolSession, args: dict) -> dict[str, Any]:
     return {"ok": result["ok"], "output": output, "error": None if result["ok"] else f"Python 退出码 {result['exit_code']}"}
 
 
+async def _tool_run_service(session: ToolSession, args: dict) -> dict[str, Any]:
+    """devops 冒烟：启动服务 → 轮询健康检查 → 关闭进程（不常驻）。
+
+    - command：服务启动命令（如 ``python -m http.server 8000``）。
+    - health：健康检查命令（如 ``curl -sf http://localhost:8000/``），成功即就绪。
+    - 进程提前退出或健康检查超时视为失败；无论成败都会关闭启动的进程。
+    - 危险权限：启动任意进程需人工审批（--yes 自动拒绝即跳过冒烟）。
+    """
+    command = str(args.get("command") or "").strip()
+    health = str(args.get("health") or args.get("health_check") or "").strip()
+    if not command or not health:
+        raise ToolError("run_service 需要 command（启动命令）与 health（健康检查命令）参数")
+    timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
+    wait = max(float(args.get("wait") or 2.0), 0.1)
+    max_attempts = int(args.get("attempts") or max(1, int(timeout / wait)))
+    env = dict(os.environ)
+    env.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    proc = None
+    start = time.monotonic()
+    last_output = ""
+    healthy = False
+    try:
+        proc = subprocess.Popen(
+            shlex.split(command),
+            cwd=str(session.workspace_root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=creationflags,
+        )
+        for attempt in range(max_attempts):
+            if proc.poll() is not None:
+                try:
+                    last_output = (proc.stdout.read(2000) if proc.stdout else "") or "(服务进程提前退出，无输出)"
+                except Exception:  # noqa: BLE001
+                    last_output = "(服务进程提前退出，输出不可读)"
+                break
+            check = _run_subprocess(shlex.split(health), cwd=session.workspace_root, timeout=max(5, int(wait)))
+            last_output = check["output"]
+            if check["ok"]:
+                healthy = True
+                break
+            await asyncio.sleep(wait)
+        duration = round(time.monotonic() - start, 3)
+        if healthy:
+            return {
+                "ok": True,
+                "output": f"服务健康检查通过（{duration}s，尝试 {attempt + 1} 次）：{last_output[:500]}",
+            }
+        return {
+            "ok": False,
+            "output": (f"服务健康检查未通过（{duration}s，{max_attempts} 次尝试）：{last_output[:500]}"),
+            "error": "服务未就绪或进程提前退出",
+        }
+    finally:
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
 async def _tool_count_tokens(session: ToolSession, args: dict) -> dict[str, Any]:
     """统计文本/文件/目录的 token 大小（交付组装与 DELIVERY.md 计量表用）。"""
     text_arg = str(args.get("text") or "")
@@ -945,6 +1017,19 @@ def build_default_tools() -> ToolRegistry:
         permission=ToolPermission.DANGEROUS,
         parameters=_schema({"remote": {"type": "string"}, "branch": {"type": "string"}}),
         handler=_tool_git_push,
+    ))
+    registry.register(ToolSpec(
+        name="run_service",
+        description="本地冒烟：启动服务 → 轮询健康检查 → 关闭进程（危险工具，需人工审批；--yes 自动拒绝即跳过冒烟）。参数：command（启动命令）、health（健康检查命令）、wait（秒）、attempts、timeout",
+        permission=ToolPermission.DANGEROUS,
+        parameters=_schema({
+            "command": {"type": "string"},
+            "health": {"type": "string"},
+            "wait": {"type": "number"},
+            "attempts": {"type": "integer"},
+            "timeout": {"type": "integer"},
+        }, required=["command", "health"]),
+        handler=_tool_run_service,
     ))
     registry.register(ToolSpec(
         name="count_tokens",

@@ -717,6 +717,7 @@ class SessionDriver:
         event_printer: Callable[[Event], None] | None = None,
         phase_map: dict[str, str] | None = None,
         plugin_manager: Any | None = None,
+        sandbox: Any | None = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
         self.goal = goal.strip()
@@ -735,6 +736,7 @@ class SessionDriver:
         self.print_fn = print_fn if print_fn is not None else print
         self.event_printer = event_printer
         self.plugin_manager = plugin_manager
+        self.sandbox = sandbox
         self.phase_map = dict(
             phase_map
             or {
@@ -1136,7 +1138,7 @@ class SessionDriver:
                 mcp_client = StdioMCPClient(server_name, argv)
                 await mcp_client.connect()
                 await register_mcp_tools(registry, mcp_client, server_name)
-            tool_session = ToolSession(self.workspace, registry=registry)
+            tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
             self._tool_session = tool_session
 
         base_handlers = {

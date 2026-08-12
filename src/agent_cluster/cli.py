@@ -120,6 +120,7 @@ async def run_flow(
     tool_script: list[dict] | None = None,
     skills_root: str | None = None,
     role_tool_scripts: dict[str, list[dict]] | None = None,
+    sandbox: Any | None = None,
 ) -> RunSummary:
     """编译并运行 YAML 流程，处理审批门挂起/恢复，返回汇总结果。
 
@@ -170,7 +171,7 @@ async def run_flow(
             mcp_client = StdioMCPClient(server_name, argv)
             await mcp_client.connect()  # fail-fast：连不上立即报错
             await register_mcp_tools(registry, mcp_client, server_name)
-        tool_session = ToolSession(workspace_path, registry=registry)
+        tool_session = ToolSession(workspace_path, registry=registry, sandbox=sandbox)
 
     engine = WorkflowEngine(
         handlers={
@@ -389,6 +390,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
             print(f"tool_script 加载失败（{args.tool_script}）：{exc}", file=sys.stderr)
             return 1
+    sandbox, sandbox_err = _build_sandbox(
+        args.sandbox, Path(args.workspace).expanduser().resolve() if args.workspace else None
+    )
+    if sandbox_err:
+        print(sandbox_err, file=sys.stderr)
+        return 1
     try:
         summary = asyncio.run(
             run_flow(
@@ -404,6 +411,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 max_rounds=args.max_rounds,
                 tool_script=tool_script,
                 skills_root=args.skills_root,
+                sandbox=sandbox,
             )
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
@@ -710,6 +718,34 @@ def _build_plugin_manager(plugin_dirs: Sequence[str]) -> PluginManager | None:
 
 
 
+def _build_sandbox(mode: str | None, workspace: Path | None) -> tuple[Any | None, str | None]:
+    """构造 Docker 沙箱执行器；``--sandbox docker`` 且不可用时返回错误信息。
+
+    - mode 非 docker -> (None, None)（本机执行，向后兼容）。
+    - 需要 ``--workspace``（沙箱挂载工作区）；Docker 不可用返回安装指引。
+    - 返回 ``(runner, error)``：error 非空时调用方打印并退出非零码。
+    """
+    if not mode or mode == "none":
+        return None, None
+    if mode != "docker":
+        return None, f"未知沙箱模式：{mode!r}（支持 none / docker）"
+    if workspace is None:
+        return None, "--sandbox docker 需要 --workspace（沙箱把工作区挂载进容器）"
+    from agent_cluster.sandbox import SandboxRunner, SandboxUnavailableError, docker_available
+
+    if not docker_available():
+        return None, (
+            "--sandbox docker 需要 Docker（docker version 失败）；请安装 Docker Desktop "
+            "并启动，或用 --sandbox none 在本机执行。"
+        )
+    try:
+        return SandboxRunner(workspace), None
+    except SandboxUnavailableError as exc:
+        return None, str(exc)
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        return None, f"沙箱初始化失败：{exc}"
+
+
 def _slug(goal: str) -> str:
     """把需求目标转成安全的目录名（保留中文/字母数字，其余转 -）。"""
     safe = re.sub(r"[^\w\u4e00-\u9fff-]+", "-", goal.strip())
@@ -735,6 +771,10 @@ def _cmd_build(args: argparse.Namespace) -> int:
         print(f"流程文件不存在：{flow_path}（可用 --flow 指定自定义流程）", file=sys.stderr)
         return 1
     workspace = args.workspace or str(Path.cwd() / "build-out" / _slug(args.goal or "resume"))
+    _sandbox, sandbox_err = _build_sandbox(args.sandbox, Path(workspace))
+    if sandbox_err:
+        print(sandbox_err, file=sys.stderr)
+        return 1
 
     qa_script: list[str] | None = None
     if args.qa_script:
@@ -787,6 +827,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 max_rounds=args.max_rounds,
                 print_fn=lambda s: print(s, file=out),
                 plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
+                sandbox=_sandbox,
             ).run()
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
@@ -836,6 +877,10 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     - 退出码：0 正常退出 / 1 运行失败 / 2 中断。
     """
     workspace = args.workspace or str(Path.cwd())
+    _sandbox, sandbox_err = _build_sandbox(args.sandbox, Path(workspace))
+    if sandbox_err:
+        print(sandbox_err, file=sys.stderr)
+        return 1
     session = ReplSession(
         workspace=workspace,
         model=args.model or "codex",
@@ -846,6 +891,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         skills_root=args.skills_root,
         mcp_servers=list(args.mcp or []),
         plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
+        sandbox=_sandbox,
     )
     try:
         return session.run()
@@ -887,6 +933,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="工作区目录（启用工具模式：空目录=新项目，已有 git 目录=既有仓库功能开发）",
     )
     run_parser.add_argument(
+        "--sandbox",
+        default=None,
+        choices=["none", "docker"],
+        help="执行沙箱：none（本机，缺省）/ docker（容器内执行 shell/python/tests/service）",
+    )
+    run_parser.add_argument(
         "--mcp",
         action="append",
         default=[],
@@ -917,6 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     build_parser.add_argument("--goal", default=None, help="产品需求目标（--resume 时可省略）")
     build_parser.add_argument("--workspace", default=None, help="工作区目录（缺省 build-out/<目标>）")
+    build_parser.add_argument("--sandbox", default=None, choices=["none", "docker"], help="执行沙箱：none（本机，缺省）/ docker（容器内执行）")
     build_parser.add_argument("--flow", default=None, help="生命周期流程 YAML（缺省 examples/flows/build-product.yaml）")
     build_parser.add_argument(
         "--model",
@@ -948,6 +1001,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="连续多轮开发 REPL（v0.4）：工具模式 + 插件 hooks + token 计量，多轮上下文保持",
     )
     chat_parser.add_argument("--workspace", default=None, help="工作区目录（缺省当前目录）")
+    chat_parser.add_argument("--sandbox", default=None, choices=["none", "docker"], help="执行沙箱：none（本机，缺省）/ docker（容器内执行）")
     chat_parser.add_argument("--model", default="codex", help="模型后端：codex（缺省）/ deterministic / deepseek-*")
     chat_parser.add_argument("--budget", type=int, default=None, help="全局 token 预算（缺省 500000）")
     chat_parser.add_argument("--max-rounds", type=int, default=None, help="单轮 ReAct 最大轮数（缺省 6）")

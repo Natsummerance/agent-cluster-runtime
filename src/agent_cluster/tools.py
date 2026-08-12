@@ -290,12 +290,14 @@ class ToolSession:
         registry: ToolRegistry | None = None,
         shell_whitelist: tuple[str, ...] | None = None,
         enable_replay_cache: bool = True,
+        sandbox: Any | None = None,
     ) -> None:
         root = Path(workspace_root).expanduser()
         self.workspace_root = root.resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.registry = registry if registry is not None else build_default_tools()
         self.shell_whitelist: tuple[str, ...] = tuple(shell_whitelist or DEFAULT_SHELL_WHITELIST)
+        self.sandbox: Any = sandbox
         self._write_lock = asyncio.Lock()
         self.audit: list[dict[str, Any]] = []
         self._replay: dict[str, ToolResult] = {}
@@ -652,7 +654,10 @@ async def _tool_run_tests(session: ToolSession, args: dict) -> dict[str, Any]:
             "其他命令请使用 run_shell 并走人工审批）"
         )
     timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
-    result = _run_subprocess(command.split(), cwd=session.workspace_root, timeout=timeout)
+    if session.sandbox is not None:
+        result = await session.sandbox.run_tests(command, timeout=timeout)
+    else:
+        result = _run_subprocess(command.split(), cwd=session.workspace_root, timeout=timeout)
     output = result["output"]
     if len(output) > MAX_OUTPUT_CHARS:
         output = output[:MAX_OUTPUT_CHARS] + "\n...(输出截断)"
@@ -664,7 +669,10 @@ async def _tool_run_shell(session: ToolSession, args: dict) -> dict[str, Any]:
     if not command:
         raise ToolError("run_shell 需要 command 参数")
     timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
-    result = _run_subprocess(command.split(), cwd=session.workspace_root, timeout=timeout)
+    if session.sandbox is not None:
+        result = await session.sandbox.run_shell(command, timeout=timeout)
+    else:
+        result = _run_subprocess(command.split(), cwd=session.workspace_root, timeout=timeout)
     output = result["output"]
     if len(output) > MAX_OUTPUT_CHARS:
         output = output[:MAX_OUTPUT_CHARS] + "\n...(输出截断)"
@@ -681,7 +689,11 @@ async def _tool_run_python(session: ToolSession, args: dict) -> dict[str, Any]:
     tmp_dir.mkdir(parents=True, exist_ok=True)
     script = tmp_dir / f"run_{uuid.uuid4().hex[:8]}.py"
     script.write_text(code, encoding="utf-8")
-    result = _run_subprocess([sys.executable, str(script)], cwd=session.workspace_root, timeout=timeout)
+    if session.sandbox is not None:
+        rel = script.relative_to(session.workspace_root).as_posix()
+        result = await session.sandbox.run_python(rel, timeout=timeout)
+    else:
+        result = _run_subprocess([sys.executable, str(script)], cwd=session.workspace_root, timeout=timeout)
     output = result["output"]
     if len(output) > MAX_OUTPUT_CHARS:
         output = output[:MAX_OUTPUT_CHARS] + "\n...(输出截断)"
@@ -707,6 +719,14 @@ async def _tool_run_service(session: ToolSession, args: dict) -> dict[str, Any]:
     timeout = int(args.get("timeout") or DEFAULT_TIMEOUT)
     wait = max(float(args.get("wait") or 2.0), 0.1)
     max_attempts = int(args.get("attempts") or max(1, int(timeout / wait)))
+    if session.sandbox is not None:
+        result = await session.sandbox.run_service(
+            command, health, timeout=timeout, wait=wait, max_attempts=max_attempts
+        )
+        output = result["output"]
+        if len(output) > MAX_OUTPUT_CHARS:
+            output = output[:MAX_OUTPUT_CHARS] + "\n...(输出截断)"
+        return {"ok": result["ok"], "output": output, "error": result.get("error")}
     env = dict(os.environ)
     env.update({"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
     creationflags = 0

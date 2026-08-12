@@ -75,6 +75,7 @@ class ReplConfig:
     skills_root: str | None = None
     mcp_servers: list[str] = field(default_factory=list)
     tool_script: list[dict] | None = None
+    sandbox: Any | None = None
     plugin_manager: Any | None = None
 
 
@@ -93,6 +94,7 @@ class ReplSession:
         skills_root: str | None = None,
         mcp_servers: Sequence[str] | None = None,
         tool_script: Sequence[dict] | None = None,
+        sandbox: Any | None = None,
         plugin_manager: Any | None = None,
         prompt_fn: Callable[[str], str] | None = None,
         print_fn: Callable[[str], None] | None = None,
@@ -132,6 +134,7 @@ class ReplSession:
         # 工具会话（工作区 + MCP）：MCP 连接延迟到 _setup（单一事件循环内）
         self.mcp_servers = list(mcp_servers or [])
         self.tool_script = list(tool_script or [])
+        self.sandbox = sandbox
         self.tool_session: ToolSession | None = None
         self.client: Any | None = None
         self._mcp_clients: list[StdioMCPClient] = []
@@ -149,7 +152,7 @@ class ReplSession:
             self._mcp_clients.append(client)
             await client.connect()  # 连接失败 fail-fast（与 run/build 一致）
             await register_mcp_tools(registry, client, server_name)
-        self.tool_session = ToolSession(self.workspace, registry=registry)
+        self.tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
         effective_model = "deterministic" if self.deterministic else self.model
         config = AgentConfig(model=ModelConfig(model_name=effective_model))
         if self.tool_script:

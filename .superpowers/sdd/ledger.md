@@ -13,3 +13,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 
 | Task 4 审批门 | complete | 81a1639 | Approved (87 passed) | T7 依赖①: bypass-immune 自动DENY 需由 T6/7 接线（handler 现硬编码 bypass_immune=False）; T7 依赖②: 需公开 compile_graph(checkpointer) 或 approval_pending 接收 checkpointer，避免私有 _compile_graph。Minor: role_scope 未用、approval_pending 无守卫 |
 
+| Task 5 组织角色与会议 | complete | 485c762..7794e58 | Approved; fix round 1/5 addressed (150 passed) | handler契约: agent→{tasks,messages,ledger}, meeting→{meetings,tasks,messages}, 事件走ctx.events。Minor: DAILY_STANDUP参与人偏离§4.1、无锁store、未类型化参数、空agenda/participants未测——记入最终评审 |
+

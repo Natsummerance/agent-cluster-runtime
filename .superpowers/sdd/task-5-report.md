@@ -83,3 +83,42 @@
 - `LedgerStore.get` 对缺失任务抛 KeyError，而 append/mark 系列自动建账本（存储层语义，文档化）。
 - `MeetingHost.run` 的 `state` 参数为签名契约（会议上下文），当前确定性实现不依赖其内容。
 - 未创建 `evolution.py` / `metrics.py`（Task 6 范围）；未实现任务未要求的额外功能。
+
+
+## 修复报告（review findings：1 Important + 2 Minor）
+
+- 提交：`20e7dc94ee4e1897b16a8e881705031ed00cbbc6`（`Task 5: 修复运行时耦合与会议模板一致性`）
+- 状态：完成，全部测试绿（150 passed = 145 既有 + 5 新增）
+
+### Finding 1（Important）— 消除 make_agent_handler 私有 API 耦合
+
+- 变更：`AgentRuntime` 新增公开方法 `async def complete_for(self, role: Role, task: Task | None = None) -> str`——经公开工厂（`ChatModelFactory.create`）构造客户端并返回岗位任务的模型完成文本（`task` 缺省时按角色画像生成提示）；`_model_messages_for_task` 相应支持 `task=None`。`make_agent_handler` 第 2 步改为调用 `runtime.complete_for(role, task)`，不再触碰 `runtime._model_factory` 私有成员、不再自行拼装 `AgentConfig(ModelConfig(...))`。模型接入路径统一为「公开工厂 → 客户端 → complete」，行为保持确定性后端不变（端到端事件/通道验证一致：10 个唯一任务、2 场会议、事件顺序相同）。
+- 覆盖测试：`tests/test_runtime.py` 新增
+  - `test_complete_for_returns_deterministic_completion_with_task`：`complete_for(role, task)` 回显任务上下文（含任务标题）。
+  - `test_complete_for_works_without_task`：`complete_for(role)` 无任务时按角色画像生成提示。
+  - `test_agent_handler_uses_public_complete_for_method`：以毒化工厂（`_PoisonFactory.create` 一旦被调用即抛 `AssertionError`）+ 记录调用的 `_PublicApiRuntime` 运行 handler，断言 handler 只经 `complete_for` 获取模型完成（毒化工厂未触发、调用参数为 architect 岗位与新建任务、消息内容以返回文本结尾）。
+
+### Finding 2（Minor）— code_review 决策与 transcript 裁决一致
+
+- 变更：`_MeetingTemplate` 增加可选 `decision_conclusion_reject` / `decision_reason_reject` 字段（仅 code_review 使用）；新增确定性裁决辅助 `_speech_verdict(participant_index)`（第 3 位发言者 LBTM）与 `_review_passed(participants)`（参与者 < 3 时无 LBTM 发言者，判定通过）；`MeetingHost.run` 的决策循环对 code_review 按实际裁决选择结论与理由：通过=`「{agenda}」评审通过（LGTM）：无 P0/P1，注释完整且测试通过。`，未通过=`「{agenda}」评审未通过（LBTM）：需修复高优问题后复审。`（理由同步区分）。transcript 与 `Meeting.decisions` 不再自相矛盾。
+- 覆盖测试：`tests/test_meetings.py` 新增 `test_code_review_decision_matches_verdict`——3 位参与者（含第 3 位 LBTM 发言）→ 全部决策含「LBTM」且「未通过」；2 位参与者（无 LBTM 发言）→ 全部决策含「LGTM」且「通过」。
+
+### Finding 3（Minor）— algorithm 岗位 backstory 与 approval_scope 一致
+
+- 变更：`roles.py` 中 algorithm 岗位 backstory 删除“可批准「算法方案与评估标准」”的越权表述，改为如实说明“算法方案与评估标准经设计评审门（architect/qa/pm 审批范围）把关”，与 `approval_scope == []` 一致（选择了 review 给出的「document」选项，未新增 GateKind）。
+- 覆盖测试：`tests/test_roles.py` 新增 `test_algorithm_role_approval_scope_consistent_with_backstory`——断言 `approval_scope == []`、backstory 不含「可批准」、含「设计评审门」。
+
+### 覆盖测试运行与全量结果
+
+```
+> uv run pytest -q tests/test_runtime.py tests/test_meetings.py tests/test_roles.py
+48 passed in 0.87s
+
+> uv run pytest -q
+........................................................................ [ 48%]
+........................................................................ [ 96%]
+......                                                                   [100%]
+150 passed in 1.57s
+```
+
+另：端到端回归（`WorkflowEngine` + 真实 handler + `MemorySaver` 跑通 start→需求评审→架构 agent→代码评审→后端 agent→end）事件序列与通道终态与修复前一致（`meeting_held`×2 / `agent_step`×2 / `workflow_end`，tasks 10 唯一无重复，meetings 2）。

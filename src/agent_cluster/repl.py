@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
+from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_resource_tool, register_mcp_tools
 from agent_cluster.models import AgentConfig, ModelConfig, Role, TokenUsage
 from agent_cluster.runtime import ChatModelFactory
 from agent_cluster.session import DEFAULT_TOKEN_BUDGET, TokenLedger
@@ -31,6 +31,7 @@ from agent_cluster.tools import (
     ToolResult,
     ToolSession,
     build_default_tools,
+    load_agents_md,
 )
 
 __all__ = ["ReplSession", "ReplConfig", "choose_role_id", "DEFAULT_REPL_MODEL"]
@@ -152,7 +153,13 @@ class ReplSession:
             self._mcp_clients.append(client)
             await client.connect()  # 连接失败 fail-fast（与 run/build 一致）
             await register_mcp_tools(registry, client, server_name)
-        self.tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
+            await register_mcp_resource_tool(registry, client, server_name)
+        self.tool_session = ToolSession(
+            self.workspace,
+            registry=registry,
+            sandbox=self.sandbox,
+            agents_md=load_agents_md(self.workspace),
+        )
         from agent_cluster.subagent import SubagentBroker, register_subagent_tool
 
         register_subagent_tool(
@@ -255,6 +262,8 @@ class ReplSession:
         if self.catalog is not None:
             for skill in self.catalog.mounted_skills(role):
                 system_parts.append(format_skill_context(skill, DisclosureLevel.LEVEL_2))
+        if self.tool_session is not None and self.tool_session.agents_md:
+            system_parts.append(f"项目记忆（AGENTS.md）：\n{self.tool_session.agents_md}")
         messages: list[dict] = [{"role": "system", "content": "\n".join(system_parts)}]
         messages.extend(self.messages)
         messages.append({"role": "user", "content": instruction})

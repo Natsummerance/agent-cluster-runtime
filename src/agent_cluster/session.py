@@ -40,7 +40,7 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
-from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
+from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_resource_tool, register_mcp_tools
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.models import (
     ActionRequest,
@@ -59,7 +59,7 @@ from agent_cluster.roles import RoleRegistry
 from agent_cluster.runtime import AgentRuntime, make_agent_handler
 from agent_cluster.skills import SkillCatalog, SkillLoader
 from agent_cluster.tokens import estimate_tokens
-from agent_cluster.tools import ToolSession, build_default_tools
+from agent_cluster.tools import ToolSession, build_default_tools, load_agents_md
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowEngine
 
 __all__ = [
@@ -1138,7 +1138,13 @@ class SessionDriver:
                 mcp_client = StdioMCPClient(server_name, argv)
                 await mcp_client.connect()
                 await register_mcp_tools(registry, mcp_client, server_name)
-            tool_session = ToolSession(self.workspace, registry=registry, sandbox=self.sandbox)
+                await register_mcp_resource_tool(registry, mcp_client, server_name)
+            tool_session = ToolSession(
+                self.workspace,
+                registry=registry,
+                sandbox=self.sandbox,
+                agents_md=load_agents_md(self.workspace),
+            )
             from agent_cluster.subagent import SubagentBroker, register_subagent_tool
 
             register_subagent_tool(

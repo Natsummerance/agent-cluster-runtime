@@ -12,10 +12,11 @@
 内置工具（``build_default_tools()``）：
 - 只读：``list_dir`` / ``read_file`` / ``grep`` / ``glob`` / ``git_status`` / ``git_diff``。
 - 写工作区（自动执行 + 审计）：``write_file`` / ``edit_file``（apply_text_edits
-  多 hunk）/ ``mkdir`` / ``git_add`` / ``git_commit`` / ``git_revert`` /
-  ``run_tests``（默认 ``uv run pytest -q``，shell 白名单最小集）。
+  多 hunk）/ ``apply_patch``（codex 风格补丁块）/ ``mkdir`` / ``git_add`` /
+  ``git_commit`` / ``git_revert`` / ``run_tests``（默认 ``uv run pytest -q``，
+  shell 白名单最小集）。
 - 危险（需人工审批，``--yes`` 自动拒绝）：``run_shell``（非白名单）/
-  ``run_python`` / ``delete_file`` / ``git_push``。
+  ``run_python`` / ``delete_file`` / ``git_push`` / ``http_fetch``（出网抓取）。
 
 安全约束（§6.5 与 v0.2 决策）：
 - 所有路径先 ``resolve()``（跟随符号链接）再校验位于工作区内，越界即拒绝。
@@ -37,6 +38,8 @@ import subprocess
 import sys
 import time
 import uuid
+import urllib.parse
+import urllib.request
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from pathlib import Path
@@ -57,8 +60,10 @@ __all__ = [
     "ToolSession",
     "build_default_tools",
     "apply_text_edits",
+    "apply_patch_text",
     "result_ok",
     "DEFAULT_SHELL_WHITELIST",
+    "load_agents_md",
     "MCP_TOOL_PREFIX",
 ]
 
@@ -90,6 +95,11 @@ MAX_DIR_ENTRIES = 200
 MAX_GREP_MATCHES = 100
 # 子进程默认超时（秒）
 DEFAULT_TIMEOUT = 300
+# http_fetch：只读网络工具默认值（DANGEROUS，出网需人工审批）
+HTTP_FETCH_DEFAULT_TIMEOUT = 15.0
+HTTP_FETCH_DEFAULT_MAX_BYTES = 200_000
+# AGENTS.md 项目记忆注入上限（防止上下文被刷爆）
+MAX_AGENTS_MD_CHARS = 20000
 
 
 class ToolPermission(StrEnum):
@@ -234,6 +244,24 @@ def _relative(workspace: Path, path: Path) -> str:
         return path.as_posix()
 
 
+def load_agents_md(workspace: str | Path) -> str:
+    """读取工作区 AGENTS.md 项目记忆（工具模式注入 system 上下文）。
+
+    - 仅读取 ``<workspace>/AGENTS.md``；文件不存在或读取失败返回空串（跳过）。
+    - 超过 ``MAX_AGENTS_MD_CHARS`` 截断并附注，防止上下文被刷爆。
+    """
+    agents_md = Path(workspace).expanduser() / "AGENTS.md"
+    if not agents_md.is_file():
+        return ""
+    try:
+        text = agents_md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    if len(text) > MAX_AGENTS_MD_CHARS:
+        text = text[:MAX_AGENTS_MD_CHARS] + "\n...(AGENTS.md 内容过长已截断)"
+    return text
+
+
 def _run_subprocess(
     cmd: list[str],
     *,
@@ -291,6 +319,7 @@ class ToolSession:
         shell_whitelist: tuple[str, ...] | None = None,
         enable_replay_cache: bool = True,
         sandbox: Any | None = None,
+        agents_md: str | None = None,
     ) -> None:
         root = Path(workspace_root).expanduser()
         self.workspace_root = root.resolve()
@@ -298,6 +327,8 @@ class ToolSession:
         self.registry = registry if registry is not None else build_default_tools()
         self.shell_whitelist: tuple[str, ...] = tuple(shell_whitelist or DEFAULT_SHELL_WHITELIST)
         self.sandbox: Any = sandbox
+        # AGENTS.md 项目记忆（工具模式注入 system 上下文；无文件时为 None）
+        self.agents_md: str | None = agents_md
         self._write_lock = asyncio.Lock()
         self.audit: list[dict[str, Any]] = []
         self._replay: dict[str, ToolResult] = {}
@@ -617,6 +648,149 @@ def apply_text_edits(text: str, edits: list[dict]) -> str:
     return result
 
 
+# codex 风格补丁块标记
+PATCH_BEGIN_MARKER = "*** Begin Patch"
+PATCH_END_MARKER = "*** End Patch"
+PATCH_FILE_MARKER = "*** Update File:"
+
+
+def _parse_patch_blocks(
+    patch_text: str,
+) -> list[tuple[str, list[tuple[str | None, list[tuple[str, str]]]]]]:
+    """解析 codex 风格补丁块为 [(文件标题, [(@@头部, [(符号, 内容)])])]。
+
+    - 支持 ``*** Begin Patch`` / ``*** Update File: <rel>`` / ``@@`` 多 hunk /
+      ``-`` 删除行 / ``+`` 新增行 / 空格上下文行 / ``*** End Patch``。
+    - 格式错误（缺标记/非法行）抛 ToolError；空行与 ``@@`` 行作为 hunk 分隔。
+    """
+    lines = patch_text.splitlines()
+    begin = end = None
+    for index, line in enumerate(lines):
+        if line.strip() == PATCH_BEGIN_MARKER:
+            begin = index
+        elif line.strip() == PATCH_END_MARKER:
+            end = index
+    if begin is None:
+        raise ToolError("apply_patch 补丁缺少 *** Begin Patch 标记")
+    if end is None:
+        raise ToolError("apply_patch 补丁缺少 *** End Patch 标记")
+    if end <= begin:
+        raise ToolError("apply_patch 补丁格式错误：*** End Patch 必须在 *** Begin Patch 之后")
+
+    blocks: list[tuple[str, list[tuple[str | None, list[tuple[str, str]]]]]] = []
+    current_file = ""
+    hunks: list[tuple[str | None, list[tuple[str, str]]]] = []
+    current: list[tuple[str, str]] = []
+    header: str | None = None
+    for line in lines[begin + 1 : end]:
+        stripped = line.strip()
+        if stripped.startswith(PATCH_FILE_MARKER):
+            if current_file or hunks or current:
+                blocks.append((current_file, hunks + ([(header, current)] if current else [])))
+            current_file = stripped[len(PATCH_FILE_MARKER) :].strip()
+            hunks, current, header = [], [], None
+            continue
+        if stripped.startswith("@@"):
+            if current:
+                hunks.append((header, current))
+                current = []
+            header = stripped
+            continue
+        if not stripped:
+            if current:
+                hunks.append((header, current))
+                current = []
+            header = None
+            continue
+        if line.startswith(("-", "+", " ")):
+            current.append((line[0], line[1:]))
+            continue
+        raise ToolError(f"apply_patch 非法补丁行：{line!r}")
+    if current_file or hunks or current:
+        blocks.append((current_file, hunks + ([(header, current)] if current else [])))
+    return blocks
+
+
+def _find_sequence(lines: list[str], sequence: list[str]) -> int | None:
+    """在行列表中定位子序列的首次出现位置；找不到返回 None。"""
+    if not sequence:
+        return 0
+    first = sequence[0]
+    limit = len(lines) - len(sequence) + 1
+    for index in range(limit):
+        if lines[index] != first:
+            continue
+        if lines[index : index + len(sequence)] == sequence:
+            return index
+    return None
+
+
+def _patch_mismatch_message(
+    file_title: str, hunk_index: int, header: str | None, old_seq: list[str], lines: list[str]
+) -> str:
+    """构造 hunk 未匹配的错误消息（含定位信息：hunk 序号/@@ 头/首锚行与近似位置）。"""
+    anchor = old_seq[0]
+    located = ""
+    for index, line in enumerate(lines, start=1):
+        if line == anchor:
+            located = f"；锚点行在文件第 {index} 行单独出现过，但前后文不匹配"
+            break
+    head = header or f"hunk {hunk_index}"
+    return (
+        f"apply_patch 补丁未匹配：文件 {file_title} 的 {head} 找不到 "
+        f"删除行 {anchor!r}{located}"
+    )
+
+
+def apply_patch_text(text: str, patch_text: str) -> str:
+    """应用 codex 风格补丁块（apply_patch）：多文件块、每块多 hunk。
+
+    - hunk 匹配规则：``-`` 删除行与空格上下文行按顺序构成匹配序列，``+``
+      新增行替换对应位置；逐 hunk 顺序在文本中定位首次出现。
+    - 任一 hunk 未匹配（或纯新增无锚点）抛 ToolError 并给出定位信息；
+      先整体校验再应用，保证原子性（不产生部分修改）。
+    - 返回应用后的完整文本。
+    """
+    blocks = _parse_patch_blocks(patch_text)
+    if not blocks:
+        raise ToolError("apply_patch 补丁为空（缺少 *** Update File 块）")
+    for file_title, _hunks in blocks:
+        if not file_title:
+            raise ToolError("apply_patch 补丁块缺少 *** Update File: <相对路径> 行")
+    # 校验阶段：在副本上模拟全部 hunk，未匹配立即报错（不产生部分修改）
+    probe = text.splitlines()
+    for file_title, hunks in blocks:
+        for hunk_index, (header, hunk) in enumerate(hunks, start=1):
+            old_seq = [content for sign, content in hunk if sign in ("-", " ")]
+            new_seq = [content for sign, content in hunk if sign in ("+", " ")]
+            if not old_seq:
+                raise ToolError(
+                    f"apply_patch hunk {hunk_index}（{file_title}）只有新增行，缺少可匹配的删除/上下文行"
+                )
+            position = _find_sequence(probe, old_seq)
+            if position is None:
+                raise ToolError(_patch_mismatch_message(file_title, hunk_index, header, old_seq, probe))
+            probe = probe[:position] + new_seq + probe[position + len(old_seq) :]
+    # 应用阶段：与校验阶段结果一致，顺序应用
+    result_lines = text.splitlines()
+    for file_title, hunks in blocks:
+        for _hunk_index, (_header, hunk) in enumerate(hunks, start=1):
+            old_seq = [content for sign, content in hunk if sign in ("-", " ")]
+            new_seq = [content for sign, content in hunk if sign in ("+", " ")]
+            position = _find_sequence(result_lines, old_seq)
+            result_lines = result_lines[:position] + new_seq + result_lines[position + len(old_seq) :]
+    result = "\n".join(result_lines)
+    # splitlines() 会丢弃末尾空行/换行符：原文以换行结尾时保留
+    if text.endswith("\n") and not result.endswith("\n"):
+        result += "\n"
+    return result
+
+
+def _patch_file_titles(patch_text: str) -> list[str]:
+    """返回补丁引用的文件相对路径列表（工具层校验 path 一致性用）。"""
+    return [title for title, _hunks in _parse_patch_blocks(patch_text)]
+
+
 async def _tool_edit_file(session: ToolSession, args: dict) -> dict[str, Any]:
     path = _resolve_within(session.workspace_root, str(args.get("path", "")))
     if not path.is_file():
@@ -843,6 +1017,73 @@ async def _tool_delete_file(session: ToolSession, args: dict) -> dict[str, Any]:
     raise ToolError(f"路径不存在：{_relative(session.workspace_root, path)}")
 
 
+async def _tool_apply_patch(session: ToolSession, args: dict) -> dict[str, Any]:
+    """apply_patch：按 codex 风格补丁块修改文件（workspace_write）。
+
+    - path 必须已存在且经 ``_resolve_within`` 校验；补丁 ``*** Update File``
+      引用的文件必须与 path 一致（防错改其他文件）。
+    - 任一 hunk 未匹配抛 ToolError（含定位信息），不产生部分修改。
+    """
+    path = _resolve_within(session.workspace_root, str(args.get("path", "")))
+    if not path.is_file():
+        raise ToolError(f"文件不存在：{_relative(session.workspace_root, path)}")
+    patch_text = str(args.get("patch_text") or "")
+    if not patch_text.strip():
+        raise ToolError("apply_patch 需要 patch_text 参数（codex 风格补丁块）")
+    for rel in _patch_file_titles(patch_text):
+        try:
+            resolved_ref = _resolve_within(session.workspace_root, rel)
+        except ToolError as exc:
+            raise ToolError(f"apply_patch 补丁文件越界：{rel!r}（{exc}）") from exc
+        if resolved_ref != path:
+            raise ToolError(
+                f"apply_patch 补丁引用 {rel!r}，与 path 参数 {_relative(session.workspace_root, path)!r} 不一致"
+            )
+    original = path.read_text(encoding="utf-8", errors="replace")
+    updated = apply_patch_text(original, patch_text)
+    if updated == original:
+        return {"ok": True, "output": "无需修改（补丁未改变文件内容）"}
+    path.write_text(updated, encoding="utf-8")
+    hunk_count = sum(len(hunks) for _title, hunks in _parse_patch_blocks(patch_text))
+    return {"ok": True, "output": f"已应用补丁 {_relative(session.workspace_root, path)}（{hunk_count} 个 hunk）"}
+
+
+async def _tool_http_fetch(session: ToolSession, args: dict) -> dict[str, Any]:
+    """http_fetch：只读网络抓取（DANGEROUS：出网需人工审批，--yes 自动拒绝）。
+
+    - stdlib ``urllib.request`` GET，默认超时 15s、默认响应上限 200_000 字节；
+      超限截断并在输出标注。
+    - 仅允许 http/https；网络异常统一转为失败 ToolResult。
+    """
+    url = str(args.get("url") or "").strip()
+    if not url:
+        raise ToolError("http_fetch 需要 url 参数")
+    timeout = float(args.get("timeout") or HTTP_FETCH_DEFAULT_TIMEOUT)
+    max_bytes = int(args.get("max_bytes") or HTTP_FETCH_DEFAULT_MAX_BYTES)
+    if timeout <= 0:
+        raise ToolError("timeout 必须为正数")
+    if max_bytes <= 0:
+        raise ToolError("max_bytes 必须为正整数")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ToolError(f"http_fetch 仅允许 http/https URL（收到 {parsed.scheme or '无协议'}）")
+    status = 0
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            status = getattr(response, "status", 200)
+            data = response.read(max_bytes + 1)
+    except Exception as exc:  # noqa: BLE001 —— 网络异常统一转失败 ToolResult
+        message = f"HTTP 请求失败：{type(exc).__name__}: {exc}"
+        return {"ok": False, "output": message, "error": message}
+    truncated = len(data) > max_bytes
+    body = data[:max_bytes].decode("utf-8", errors="replace")
+    if len(body) > MAX_OUTPUT_CHARS:
+        body = body[:MAX_OUTPUT_CHARS] + "\n...(输出截断)"
+        truncated = True
+    notice = f"（响应已截断至 {max_bytes} 字节）" if truncated else ""
+    return {"ok": True, "output": f"HTTP {status} {url}{notice}\n{body}"}
+
+
 async def _tool_git_add(session: ToolSession, args: dict) -> dict[str, Any]:
     raw = args.get("paths")
     if isinstance(raw, str):
@@ -972,6 +1213,14 @@ def build_default_tools() -> ToolRegistry:
         handler=_tool_edit_file,
     ))
     registry.register(ToolSpec(
+        name="apply_patch",
+        replayable=True,
+        description="按 codex 风格补丁块修改文件（多 hunk）。参数：path（必填，相对工作区）、patch_text（必填：*** Begin Patch / *** Update File: <rel> / @@ / - 旧行 / + 新行 / *** End Patch；文件必须已存在）",
+        permission=ToolPermission.WORKSPACE_WRITE,
+        parameters=_schema({"path": {"type": "string"}, "patch_text": {"type": "string"}}, required=["path", "patch_text"]),
+        handler=_tool_apply_patch,
+    ))
+    registry.register(ToolSpec(
         name="mkdir",
         replayable=True,
         description="创建目录（含父目录）。参数：path（必填）",
@@ -1057,6 +1306,17 @@ def build_default_tools() -> ToolRegistry:
         permission=ToolPermission.READ,
         parameters=_schema({"text": {"type": "string"}, "path": {"type": "string"}}),
         handler=_tool_count_tokens,
+    ))
+    registry.register(ToolSpec(
+        name="http_fetch",
+        description="抓取 http/https URL 文本内容（只读网络工具；DANGEROUS：出网需人工审批，--yes 自动拒绝）。参数：url（必填）、timeout（秒，缺省 15）、max_bytes（响应上限字节，缺省 200000）",
+        permission=ToolPermission.DANGEROUS,
+        parameters=_schema({
+            "url": {"type": "string"},
+            "timeout": {"type": "number"},
+            "max_bytes": {"type": "integer"},
+        }, required=["url"]),
+        handler=_tool_http_fetch,
     ))
     registry.register(ToolSpec(
         name="ask_user",

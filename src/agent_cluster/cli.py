@@ -38,7 +38,12 @@ from agent_cluster import models
 from agent_cluster.doctor import run_doctor
 from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
-from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
+from agent_cluster.mcp_client import (
+    StdioMCPClient,
+    parse_server_command,
+    register_mcp_resource_tool,
+    register_mcp_tools,
+)
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.plugins import PluginManager, default_plugin_search_dirs
 from agent_cluster.repl import ReplSession
@@ -58,7 +63,7 @@ from agent_cluster.roles import RoleRegistry, build_role_catalog
 from agent_cluster.runtime import AgentRuntime, ChatModelFactory, make_agent_handler
 from agent_cluster.session import BuildResult, SessionDriver
 from agent_cluster.skills import SkillCatalog, SkillLoader
-from agent_cluster.tools import ToolSession, build_default_tools
+from agent_cluster.tools import ToolSession, build_default_tools, load_agents_md
 from agent_cluster.workflow import WorkflowEngine
 
 __all__ = ["main", "run_flow", "RunSummary"]
@@ -172,7 +177,13 @@ async def run_flow(
             mcp_client = StdioMCPClient(server_name, argv)
             await mcp_client.connect()  # fail-fast：连不上立即报错
             await register_mcp_tools(registry, mcp_client, server_name)
-        tool_session = ToolSession(workspace_path, registry=registry, sandbox=sandbox)
+            await register_mcp_resource_tool(registry, mcp_client, server_name)
+        tool_session = ToolSession(
+            workspace_path,
+            registry=registry,
+            sandbox=sandbox,
+            agents_md=load_agents_md(workspace_path),
+        )
         from agent_cluster.subagent import SubagentBroker, register_subagent_tool
 
         register_subagent_tool(

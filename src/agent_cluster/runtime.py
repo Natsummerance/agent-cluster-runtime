@@ -1362,6 +1362,8 @@ async def _tool_mode_agent_step(
     if catalog is not None:
         for skill in catalog.mounted_skills(role):
             system_parts.append(format_skill_context(skill, DisclosureLevel.LEVEL_2))
+    if session.agents_md:
+        system_parts.append(f"项目记忆（AGENTS.md）：\n{session.agents_md}")
     task = Task(
         id=uuid.uuid4().hex,
         project_id=project_id,

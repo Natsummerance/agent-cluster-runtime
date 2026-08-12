@@ -1,10 +1,12 @@
-"""MCP 轻量 stdio 客户端（v0.2）：JSON-RPC 2.0 逐行协议，零新依赖。
+"""MCP 轻量 stdio 客户端（v0.2，T11.8 扩展 resources）：JSON-RPC 2.0 逐行协议，零新依赖。
 
 - ``StdioMCPClient``：spawn 子进程 → ``initialize`` → ``notifications/initialized``
-  → ``tools/list`` → ``tools/call``（新行分隔 JSON-RPC 2.0，参考 goose/openclaw
-  的 stdio 模式）。
+  → ``tools/list`` → ``tools/call`` / ``resources/list`` → ``resources/read``
+  （新行分隔 JSON-RPC 2.0，参考 goose/openclaw 的 stdio 模式）。
 - ``register_mcp_tools(registry, client, server_name)``：把发现到的 MCP 工具注册为
   ``mcp_<server>_<tool>``，权限一律 ``dangerous``（外部工具不可信，需人工审批）。
+- ``register_mcp_resource_tool(registry, client, server_name)``：注册外部资源读取
+  工具 ``mcp_<server>_read_resource``（dangerous；服务器不支持 resources 时跳过）。
 
 设计说明：
 - MCP stdio 传输 = 每行一个 JSON-RPC 2.0 消息（非 LSP 的 Content-Length 分帧）。
@@ -16,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -23,6 +26,7 @@ from typing import Any
 from agent_cluster.tools import (
     MCP_TOOL_PREFIX,
     ToolCall,
+    ToolError,
     ToolPermission,
     ToolResult,
     ToolSession,
@@ -32,6 +36,7 @@ from agent_cluster.tools import (
 __all__ = [
     "MCPError",
     "StdioMCPClient",
+    "register_mcp_resource_tool",
     "register_mcp_tools",
     "parse_server_command",
 ]
@@ -167,6 +172,16 @@ class StdioMCPClient:
         """调用 tools/call，返回 {content: [{type, text}], isError}。"""
         return await self.request("tools/call", {"name": name, "arguments": dict(arguments or {})})
 
+    async def list_resources(self) -> list[dict[str, Any]]:
+        """调用 resources/list，返回 [{uri, name, description, mimeType}]。"""
+        result = await self.request("resources/list", {})
+        resources = result.get("resources") or []
+        return [dict(resource) for resource in resources if isinstance(resource, dict)]
+
+    async def read_resource(self, uri: str) -> dict[str, Any]:
+        """调用 resources/read，返回 {contents: [{uri, mimeType, text|blob}]}。"""
+        return await self.request("resources/read", {"uri": uri})
+
     # ------------------------------------------------------------------
     # 底层 JSON-RPC
     # ------------------------------------------------------------------
@@ -260,6 +275,31 @@ def _format_mcp_content(content: list[dict] | None) -> str:
     return "\n".join(part for part in parts if part) or "(空内容)"
 
 
+def _format_mcp_resource_contents(contents: list[dict] | None) -> str:
+    """把 resources/read 的 contents 数组格式化为文本（text 直接展示，blob 解码）。"""
+    if not contents:
+        return "(无内容)"
+    parts: list[str] = []
+    for item in contents:
+        if not isinstance(item, dict):
+            continue
+        uri = str(item.get("uri") or "")
+        text = item.get("text")
+        if isinstance(text, str):
+            parts.append(f"resource: {uri}\n{text}")
+            continue
+        blob = item.get("blob")
+        if isinstance(blob, str):
+            try:
+                decoded = base64.b64decode(blob).decode("utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                decoded = f"（blob 解码失败：{len(blob)} 字符 base64）"
+            parts.append(f"resource: {uri} (blob)\n{decoded}")
+            continue
+        parts.append(f"resource: {uri}\n{json.dumps(item, ensure_ascii=False, default=str)}")
+    return "\n\n".join(part for part in parts if part) or "(空内容)"
+
+
 async def register_mcp_tools(
     registry: Any,
     client: StdioMCPClient,
@@ -300,3 +340,44 @@ async def register_mcp_tools(
         )
         registered.append(full_name)
     return registered
+
+
+async def register_mcp_resource_tool(
+    registry: Any,
+    client: StdioMCPClient,
+    server_name: str,
+) -> str | None:
+    """注册 MCP 外部资源读取工具 ``mcp_<server>_read_resource``（dangerous）。
+
+    - 服务器不支持 resources（``resources/list`` 抛 MCPError）时返回 None 跳过，
+      不阻断流程。
+    - 注册成功返回工具名；资源读取走人工审批门（--yes 自动拒绝）。
+    """
+    try:
+        resources = await client.list_resources()
+    except MCPError:
+        return None
+    tool_name = f"{MCP_TOOL_PREFIX}{server_name}_read_resource"
+
+    async def handler(session: ToolSession, args: dict) -> dict[str, Any]:
+        uri = str(args.get("uri") or "").strip()
+        if not uri:
+            raise ToolError("read_resource 需要 uri 参数")
+        result = await client.read_resource(uri)
+        return {"ok": True, "output": _format_mcp_resource_contents(result.get("contents"))}
+
+    known = ", ".join(str(resource.get("uri")) for resource in resources[:10]) or "（服务器未声明资源）"
+    registry.register(
+        ToolSpec(
+            name=tool_name,
+            description=(
+                f"MCP 外部资源读取工具（服务器 {server_name}）：按 uri 读取 MCP resource。"
+                f"已知资源：{known}"
+            ),
+            permission=ToolPermission.DANGEROUS,
+            parameters={"type": "object", "properties": {"uri": {"type": "string"}}, "required": ["uri"]},
+            handler=handler,
+            mcp_server=server_name,
+        )
+    )
+    return tool_name

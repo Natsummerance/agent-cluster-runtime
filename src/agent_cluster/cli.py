@@ -121,6 +121,7 @@ async def run_flow(
     skills_root: str | None = None,
     role_tool_scripts: dict[str, list[dict]] | None = None,
     sandbox: Any | None = None,
+    worktrees: bool = False,
 ) -> RunSummary:
     """编译并运行 YAML 流程，处理审批门挂起/恢复，返回汇总结果。
 
@@ -173,6 +174,15 @@ async def run_flow(
             await register_mcp_tools(registry, mcp_client, server_name)
         tool_session = ToolSession(workspace_path, registry=registry, sandbox=sandbox)
 
+    worktree_manager = None
+    if worktrees and workspace:
+        from agent_cluster.worktree import WorktreeManager
+
+        worktree_manager = WorktreeManager(workspace_path)
+        prepared = worktree_manager.ensure_repo()
+        if not prepared["ok"]:
+            raise ValueError(f"worktree 初始化失败：{prepared['output']}")
+
     engine = WorkflowEngine(
         handlers={
             "agent": make_agent_handler(
@@ -181,6 +191,7 @@ async def run_flow(
                 catalog=catalog,
                 tool_session=tool_session,
                 max_rounds=max_rounds,
+                worktree_manager=worktree_manager,
             ),
             "meeting": make_meeting_handler(host, role_registry),
             "gate": make_gate_handler(auto_mode="accept" if yes else "ask"),
@@ -396,6 +407,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if sandbox_err:
         print(sandbox_err, file=sys.stderr)
         return 1
+    if args.worktrees and not args.workspace:
+        print("--worktrees 需要 --workspace（git worktree 基于工作区仓库）", file=sys.stderr)
+        return 1
     try:
         summary = asyncio.run(
             run_flow(
@@ -412,6 +426,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 tool_script=tool_script,
                 skills_root=args.skills_root,
                 sandbox=sandbox,
+                worktrees=args.worktrees,
             )
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
@@ -937,6 +952,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         choices=["none", "docker"],
         help="执行沙箱：none（本机，缺省）/ docker（容器内执行 shell/python/tests/service）",
+    )
+    run_parser.add_argument(
+        "--worktrees",
+        action="store_true",
+        help="git worktree 隔离：每开发角色独立 worktree 提交，节点完成后合并回主工作区",
     )
     run_parser.add_argument(
         "--mcp",

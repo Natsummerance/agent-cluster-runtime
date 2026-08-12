@@ -1175,6 +1175,7 @@ def make_agent_handler(
     tool_session: ToolSession | None = None,
     max_rounds: int | None = None,
     interrupt_fn: Callable | None = None,
+    worktree_manager: Any | None = None,
 ) -> NodeHandler:
     """构造注册进 ``WorkflowEngine`` 的 "agent" 节点 handler。
 
@@ -1204,6 +1205,35 @@ def make_agent_handler(
         iteration_id = state.iterations[0].id if state.iterations else "iter:1"
         thread_id = ctx.spec.thread_id or "default"
 
+        if worktree_manager is not None:
+            session = worktree_manager.session_for(role.id)
+            result = await _tool_mode_agent_step(
+                runtime,
+                role,
+                node,
+                ctx,
+                project_id,
+                iteration_id,
+                thread_id,
+                state,
+                session,
+                max_rounds,
+                catalog,
+                interrupt_fn,
+            )
+            merge = worktree_manager.merge_back(role.id)
+            if not merge["ok"]:
+                result["messages"] = list(result.get("messages") or []) + [
+                    Message(
+                        id=uuid.uuid4().hex,
+                        thread_id=thread_id,
+                        source="governance",
+                        target="",
+                        type=MessageType.TEXT,
+                        payload={"content": f"worktree 合并失败：{merge['output']}", "node": ctx.node_id},
+                    )
+                ]
+            return result
         if tool_session is None:
             return await _deterministic_agent_step(runtime, role, node, ctx, project_id, iteration_id, thread_id, state)
         return await _tool_mode_agent_step(

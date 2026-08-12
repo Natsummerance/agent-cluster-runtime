@@ -716,6 +716,7 @@ class SessionDriver:
         print_fn: Callable[[str], None] | None = None,
         event_printer: Callable[[Event], None] | None = None,
         phase_map: dict[str, str] | None = None,
+        plugin_manager: Any | None = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
         self.goal = goal.strip()
@@ -733,6 +734,7 @@ class SessionDriver:
         self.prompt_fn = prompt_fn if prompt_fn is not None else input
         self.print_fn = print_fn if print_fn is not None else print
         self.event_printer = event_printer
+        self.plugin_manager = plugin_manager
         self.phase_map = dict(
             phase_map
             or {
@@ -1094,6 +1096,8 @@ class SessionDriver:
         thread_id = self.store.record.thread_id or spec_thread or "default"
         self._thread_id = thread_id
 
+        await self._run_plugin_hooks("session_start", thread_id)
+
         effective_model = (
             "deterministic"
             if self.deterministic
@@ -1110,10 +1114,17 @@ class SessionDriver:
         host = MeetingHost()
 
         catalog = None
-        if self.skills_root:
+        plugin_skills: list = []
+        if self.plugin_manager is not None:
+            try:
+                plugin_skills = self.plugin_manager.list_skills()
+            except Exception as exc:  # noqa: BLE001 —— 插件技能失败不阻断会话
+                self.print_fn(f"[插件] 技能加载失败：{exc}")
+        if self.skills_root or plugin_skills:
             loader = SkillLoader()
             catalog = SkillCatalog()
-            skills = loader.list_skills(self.skills_root)
+            skills = loader.list_skills(self.skills_root) if self.skills_root else []
+            skills = list(skills) + list(plugin_skills)
             for role in role_registry.list():
                 catalog.mount(role, skills)
 
@@ -1274,6 +1285,8 @@ class SessionDriver:
         else:
             self.store.update(status="completed")
 
+        await self._run_plugin_hooks("session_end", thread_id)
+
         return BuildResult(
             session_id=self.store.record.session_id,
             thread_id=thread_id,
@@ -1288,6 +1301,28 @@ class SessionDriver:
             token_summary=token_summary,
         )
 
+
+
+    async def _run_plugin_hooks(self, event: str, thread_id: str) -> None:
+        """执行插件生命周期钩子（失败仅打印，不中断会话）。"""
+        if self.plugin_manager is None:
+            return
+        try:
+            results = await self.plugin_manager.run_hooks(
+                event,
+                workspace=str(self.workspace),
+                thread_id=thread_id,
+                session_id=self.store.record.session_id,
+            )
+        except Exception as exc:  # noqa: BLE001 —— 钩子失败不阻断会话
+            self.print_fn(f"[插件] {event} 钩子执行失败：{exc}")
+            return
+        for result in results:
+            if not result.ok:
+                self.print_fn(
+                    f"[插件] {result.plugin} {event} 钩子失败（{result.command}）："
+                    f"{result.error or result.output[:200]}"
+                )
 
 
     # ------------------------------------------------------------------

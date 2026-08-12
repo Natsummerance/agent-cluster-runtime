@@ -40,6 +40,7 @@ from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_tools
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
+from agent_cluster.plugins import PluginManager, default_plugin_search_dirs
 from agent_cluster.metrics import MetricRules, MetricsCollector
 from agent_cluster.models import (
     ActionRequest,
@@ -660,11 +661,52 @@ def _cmd_mcp_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plugins_list(args: argparse.Namespace) -> int:
+    """plugins list 子命令：列出发现的插件、技能与 hooks。"""
+    from agent_cluster.plugins import PluginManager, default_plugin_search_dirs
+
+    search_dirs = list(args.plugin_dir or []) + default_plugin_search_dirs()
+    manager = PluginManager(search_dirs=search_dirs)
+    try:
+        plugins = manager.list_plugins()
+        skills = manager.load_skills()
+    except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
+        print(f"插件列表失败：{exc}", file=sys.stderr)
+        return 1
+    print(f"共 {len(plugins)} 个插件（搜索目录：{len(search_dirs)} 个）：")
+    for manifest in plugins:
+        hook_events = [event for event, specs in manifest.hooks.items() if specs]
+        print(
+            f"  - {manifest.name}@{manifest.version}：{(manifest.description or '')[:60]}"
+            f" | 技能：{len(manifest.skill_dirs)} | hooks：{', '.join(hook_events) or '-'}"
+        )
+    print(f"共 {len(skills)} 个插件技能：")
+    for skill in skills:
+        print(f"  - {skill.name}@{skill.version}：{skill.description[:60]}")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # build 子命令（v0.3 会话式产品构建）
 # ---------------------------------------------------------------------------
 
 DEFAULT_BUILD_FLOW = "examples/flows/build-product.yaml"
+
+
+def _build_plugin_manager(plugin_dirs: Sequence[str]) -> PluginManager | None:
+    """构造插件管理器：显式目录 + 默认搜索目录；扫描失败返回 None（不阻断会话）。"""
+    search_dirs = list(plugin_dirs or []) + default_plugin_search_dirs()
+    if not search_dirs:
+        return None
+    manager = PluginManager(search_dirs=search_dirs)
+    try:
+        manager.scan()
+        manager.load_skills()
+    except Exception:  # noqa: BLE001 —— 插件扫描失败不阻断主流程
+        return None
+    return manager
+
+
 
 
 def _slug(goal: str) -> str:
@@ -743,6 +785,7 @@ def _cmd_build(args: argparse.Namespace) -> int:
                 mcp_servers=list(args.mcp or []),
                 max_rounds=args.max_rounds,
                 print_fn=lambda s: print(s, file=out),
+                plugin_manager=_build_plugin_manager(list(args.plugin_dir or [])),
             ).run()
         )
     except Exception as exc:  # noqa: BLE001 —— CLI 顶层统一错误出口
@@ -859,6 +902,10 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--role-tool-script", default=None, help="按岗位工具脚本 JSON 文件（{role: [tool_call]}）")
     build_parser.add_argument("--skills-root", default=None, help="技能根目录（挂载岗位技能上下文）")
     build_parser.add_argument(
+        "--plugin-dir", action="append", default=[], metavar="DIR",
+        help="插件搜索目录（可重复；缺省包含 ~/.codex/plugins/cache），插件技能与 hooks 自动接入",
+    )
+    build_parser.add_argument(
         "--mcp", action="append", default=[], metavar="NAME=COMMAND",
         help="MCP stdio 服务器（可重复），外部工具一律危险权限",
     )
@@ -896,6 +943,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="name=command 格式的 MCP stdio 服务器（如 fs='npx -y @modelcontextprotocol/server-filesystem C:\\tmp'）",
     )
     mcp_list.set_defaults(func=_cmd_mcp_list)
+
+    plugins_parser = subparsers.add_parser("plugins", help="插件管理（双规范清单 + marketplace + hooks）")
+    plugins_sub = plugins_parser.add_subparsers(dest="plugins_command", required=True)
+    plugins_list = plugins_sub.add_parser("list", help="列出发现的插件、技能与 hooks")
+    plugins_list.add_argument(
+        "--plugin-dir", action="append", default=[], metavar="DIR",
+        help="插件搜索目录（可重复；缺省包含 ~/.codex/plugins/cache 与 AGENT_CLUSTER_PLUGIN_DIRS）",
+    )
+    plugins_list.set_defaults(func=_cmd_plugins_list)
 
     skills_parser = subparsers.add_parser("skills", help="技能管理")
     skills_sub = skills_parser.add_subparsers(dest="skills_command", required=True)

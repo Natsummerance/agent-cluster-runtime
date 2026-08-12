@@ -39,6 +39,7 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent_cluster.changes import ChangeHistory
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import StdioMCPClient, parse_server_command, register_mcp_resource_tool, register_mcp_tools
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
@@ -786,6 +787,11 @@ class SessionDriver:
         self.store.record.token_ledger.budget = effective_budget
         self.store.save()
 
+        # 需求变更基建（v0.5 T12.4：实时打断 + 版本化 + 回滚）
+        self.change_history = ChangeHistory(self.workspace)
+        self._injected_changes: list[str] = []
+        self._change_lock = threading.Lock()
+
         self.current_node = ""
         self.current_phase = "start"
         self._graph: Any = None
@@ -806,6 +812,48 @@ class SessionDriver:
         )
         phase.tokens_used = self.store.record.token_ledger.phase_used(self.current_phase)
         self.store.save()
+
+    # ------------------------------------------------------------------
+    # 需求变更（v0.5 T12.4：实时打断 + 版本化 + 回滚）
+    # ------------------------------------------------------------------
+
+    def inject_change(self, text: str) -> bool:
+        """线程安全地注入一条需求变更（在下一个门/挂起点生效并驱动返工重规划）。"""
+        text = str(text).strip()
+        if not text:
+            return False
+        with self._change_lock:
+            self._injected_changes.append(text)
+        return True
+
+    def _drain_change(self) -> str | None:
+        """取出一条待处理的变更（线程安全）。"""
+        with self._change_lock:
+            if not self._injected_changes:
+                return None
+            return self._injected_changes.pop(0)
+
+    def _apply_change(self, text: str) -> None:
+        """记录变更（快照 + 版本 +1）并发布事件；不抛异常。"""
+        try:
+            record = self.change_history.record(
+                text=text, node=self.current_node or "", phase=self.current_phase
+            )
+            self.print_fn(f"[需求变更] v{record.version} 已记录：{text}")
+        except Exception as exc:  # noqa: BLE001 —— 变更记录失败不阻断流程
+            self.print_fn(f"[需求变更] 记录失败：{exc}")
+            record = None
+        if record is not None:
+            self.on_event(
+                Event(
+                    id=uuid.uuid4().hex,
+                    run_id=self.store.record.thread_id,
+                    thread_id=self.store.record.thread_id,
+                    type="change.applied",
+                    actor="human",
+                    payload={"version": record.version, "text": text, "phase": self.current_phase},
+                )
+            )
 
     def record_tool_usage(self, total_tokens: int = 0, role: str = "") -> None:
         """工具执行占位记账（可选，用于工具耗时折算；默认不计入模型预算）。"""
@@ -905,6 +953,10 @@ class SessionDriver:
     def _prompt(self, hint: str) -> str:
         """读取一行输入，支持 /status /budget /abort（返回原样命令）。"""
         while True:
+            change = self._drain_change()
+            if change:
+                self._apply_change(change)
+                return "__change__"
             raw = str(self.prompt_fn(hint)).strip()
             if not raw:
                 continue
@@ -919,6 +971,12 @@ class SessionDriver:
 
     def decide_response(self, request: ActionRequest) -> HumanResponse | str:
         """按请求类别决定人工响应（返回 "/abort" 表示中止，"/skip" 表示跳过）。"""
+        change = self._drain_change()
+        if change:
+            self._apply_change(change)
+            if request.kind != GateKind.HUMAN_INTERACTION:
+                # 门/危险工具：以 reject 驱动返工重规划（变更在下一个阶段重跑中生效）
+                return HumanResponse(type="reject", args={"reason": f"需求变更：{change}"})
         if self.yes:
             if request.kind == GateKind.HUMAN_INTERACTION:
                 # 非交互 --yes：缺省答案并留痕（transcript source=auto）
@@ -944,7 +1002,10 @@ class SessionDriver:
         raw = self._prompt(hint)
         if raw == "/abort":
             return "/abort"
-        if raw.lower() == "/skip":
+        if raw == "__change__":
+            answer = DEFAULT_ASK_DEFAULT
+            self.print_fn("  （需求变更已记录，当前澄清采用缺省答案）")
+        elif raw.lower() == "/skip":
             answer = DEFAULT_ASK_DEFAULT
         else:
             answer = raw
@@ -961,6 +1022,8 @@ class SessionDriver:
         raw = self._prompt(hint)
         if raw == "/abort":
             return "/abort"
+        if raw == "__change__":
+            return HumanResponse(type="reject", args={"reason": "需求变更：跳过该危险工具"})
         kind = raw.lower()
         if kind.startswith("accept"):
             return HumanResponse(type="accept")
@@ -979,6 +1042,12 @@ class SessionDriver:
         raw = self._prompt(hint)
         if raw == "/abort":
             return "/abort"
+        if raw == "__change__":
+            record.rejections += 1
+            record.last_decision = "reject"
+            record.escalated = True
+            self.store.save()
+            return HumanResponse(type="reject", args={"reason": "需求变更：返工重规划"})
         if raw.lower() == "/skip":
             record.last_decision = "accept"
             self.store.save()
@@ -1039,6 +1108,8 @@ class SessionDriver:
             raw = self._prompt(hint)
             if raw == "/abort":
                 return "abort"
+            if raw == "__change__":
+                return HumanResponse(type="reject", args={"reason": "需求变更：缩减范围重跑"})
             low = raw.lower()
             if low == "end":
                 return "end"

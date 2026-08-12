@@ -186,7 +186,7 @@ class ServerSession:
     # ------------------------------------------------------------------
 
     def _prompt_fn(self, hint: str) -> str:
-        """会话线程阻塞等待 API 提交的答案；change 队列优先（T12.4 消费）。"""
+        """会话线程阻塞等待 API 提交的答案；需求变更由 driver 在下一个挂起点消费。"""
         self.pending_hint = hint
         self.status = "waiting_approval"
         self.log.append({"type": "approval.pending", "session_id": self.session_id, "payload": {"hint": hint}})
@@ -195,19 +195,6 @@ class ServerSession:
                 answer = self._answer_queue.get(timeout=30)
             except queue.Empty:
                 continue
-            if answer == "__change__":
-                # T12.4：需求变更以 reject 语义驱动返工重规划
-                try:
-                    text = self._change_queue.get_nowait()
-                except queue.Empty:
-                    continue
-                self.log.append(
-                    {"type": "change.queued", "session_id": self.session_id, "payload": {"text": text}}
-                )
-                return f"reject 需求变更：{text}"
-            if answer.startswith("__change__:"):
-                text = answer[len("__change__:") :]
-                return f"reject 需求变更：{text}"
             return answer
 
     def _print_fn(self, text: str) -> None:
@@ -228,10 +215,18 @@ class ServerSession:
         self._answer_queue.put(text)
 
     def inject_change(self, text: str) -> None:
-        """队列一个需求变更（驱动在下一个门挂起点消费，T12.4 完整语义）。"""
-        self._change_queue.put(text)
-        # 唤醒等待中的 prompt（发送哨兵，prompt 循环内消费 change 队列）
-        self._answer_queue.put("__change__")
+        """注入需求变更：写入 driver（下一个门/挂起点生效），并唤醒阻塞的 prompt。"""
+        import time as _time
+
+        deadline = _time.time() + 5.0
+        while self.driver is None and _time.time() < deadline:
+            _time.sleep(0.05)
+        if self.driver is not None:
+            self.driver.inject_change(text)
+        else:
+            self._change_queue.put(text)
+        # 唤醒等待中的 prompt（返回 reject，driver 在下一个 decide_response 消费变更并返工）
+        self._answer_queue.put("reject")
 
     # ------------------------------------------------------------------
     # 启动
@@ -492,7 +487,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_sse(parts[3])
             if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 4 and parts[3] != "events":
                 return self._handle_session_detail(parts[3])
-            if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[3] == "changes":
+            if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "changes":
                 return self._handle_changes(parts[3])
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
@@ -530,8 +525,18 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                     return self._handle_answer(sid, "reject")
                 if action in ("edit", "response"):
                     return self._handle_answer(sid, f"{action} {self._read_json().get('text', '')}")
-                if action == "interrupt":
-                    return self._handle_interrupt(sid, self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "sessions"]
+                and len(parts) == 5
+                and parts[4] == "interrupt"
+            ):
+                return self._handle_interrupt(parts[3], self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "sessions"]
+                and len(parts) == 5
+                and parts[4] == "rollback"
+            ):
+                return self._handle_rollback(parts[3], self._read_json())
             if (
                 len(parts) == 5
                 and parts[:3] == ["api", "v1", "memory"]
@@ -652,19 +657,31 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 202, {"ok": True, "data": {"queued": text}})
 
     def _handle_changes(self, session_id: str) -> None:
-        # T12.4 提供完整变更历史；此处返回当前会话的变更队列计数
         session = self.server.workbench.get_session(session_id)
+        if session.driver is None:
+            _send_json(self, 200, {"ok": True, "data": {"records": [], "summary": {"count": 0}}})
+            return
+        records = [r.model_dump() for r in session.driver.change_history.list()]
         _send_json(
             self,
             200,
-            {
-                "ok": True,
-                "data": {
-                    "queued": list(session._change_queue.queue),
-                    "note": "完整变更历史由 T12.4 提供",
-                },
-            },
+            {"ok": True, "data": {"records": records, "summary": session.driver.change_history.summary()}},
         )
+
+    def _handle_rollback(self, session_id: str, body: dict) -> None:
+        session = self.server.workbench.get_session(session_id)
+        if session.driver is None:
+            _send_json(self, 409, {"ok": False, "error": "会话尚未就绪"})
+            return
+        version = int(body.get("version") or 0)
+        ok = session.driver.change_history.rollback(version)
+        if not ok:
+            _send_json(self, 404, {"ok": False, "error": f"版本 {version} 不存在或快照缺失"})
+            return
+        session.log.append(
+            {"type": "change.rollback", "session_id": session_id, "payload": {"version": version}}
+        )
+        _send_json(self, 200, {"ok": True, "data": {"rolled_back": version}})
 
     def _resolve_workspace_path(self, project_id: str, rel_path: str) -> Path:
         root = self.server.workbench.project_workspace(project_id)

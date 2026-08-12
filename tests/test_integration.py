@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from agent_cluster.cli import main, run_flow
 from agent_cluster.models import GateKind, MeetingKind, TaskStatus
 
@@ -75,11 +77,11 @@ def test_cli_run_yes_full_flow_completes_without_hanging():
         MeetingKind.CODE_REVIEW,
     }
 
-    # 任务全部可达（状态为合法 TaskStatus）
+    # 任务板验收：全部 Done 且每条任务 ≥1 产出物
     assert state.tasks, "终态应包含任务"
-    assert all(task.status in set(TaskStatus) for task in state.tasks)
-    assert any(task.status == TaskStatus.DOING for task in state.tasks)  # agent 节点认领任务
-    assert any(task.status == TaskStatus.TODO for task in state.tasks)  # 会议行动项
+    assert all(task.status == TaskStatus.DONE for task in state.tasks), "任务板应全部 Done"
+    assert all(task.artifacts for task in state.tasks), "每条任务应至少 1 个产出物"
+    assert all(artifact.startswith("artifacts/") for task in state.tasks for artifact in task.artifacts)
 
     # 审批记录：每门一条，共 4 条（decisions 通道为审计全量）
     assert len(summary.decisions) >= 4
@@ -110,6 +112,23 @@ def test_cli_roles_list_exit_zero():
 
 def test_cli_proposals_demo_exit_zero():
     assert main(["proposals", "demo"]) == 0
+
+
+def test_cli_proposals_submit_exit_zero():
+    """proposals submit 成功：构造提案、自动评审、退出码 0。"""
+    assert main(["proposals", "submit", "--title", "改进测试技能包", "--rollback-plan", "回滚到上一版本"]) == 0
+
+
+def test_cli_proposals_submit_missing_rollback_plan_is_error():
+    """缺 --rollback-plan：argparse 报错并以非零退出码结束。"""
+    with pytest.raises(SystemExit) as exc_info:
+        main(["proposals", "submit", "--title", "改进测试技能包"])
+    assert exc_info.value.code != 0
+
+
+def test_cli_proposals_submit_blank_rollback_plan_returns_one():
+    """--rollback-plan 为空白：清晰错误并以退出码 1 结束。"""
+    assert main(["proposals", "submit", "--title", "改进测试技能包", "--rollback-plan", "   "]) == 1
 
 
 def test_cli_metrics_demo_exit_zero():

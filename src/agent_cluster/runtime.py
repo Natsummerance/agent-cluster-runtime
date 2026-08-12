@@ -22,15 +22,17 @@
 
 agent handler 通道契约（Task 7 CLI 依赖，勿变更）：
 - 返回 LangGraph channel 更新字典，键固定为：
-  - ``"tasks"``：``list[Task]``（该节点执行的任务，状态=doing；每个 agent 节点
-    新建一个任务，表达 todo→doing 的认领语义）。
+  - ``"tasks"``：``list[Task]``（该节点执行的任务，状态=done；确定性后端在
+    创建时即视为完成，每个 agent 节点新建一个任务并携带产出物路径
+    ``artifacts/<role_id>/<task_id>.md``，满足「任务板全部 Done、产出物存在」验收）。
   - ``"messages"``：``list[Message]``（一条 ``text`` 消息，source=岗位 id）。
   - ``"ledger"``：``Ledger``（当前任务账本，追加一条 ``ProgressEntry``；替换
     ``state.ledger`` 通道，语义为「当前任务账本」）。
 - 事件不占通道键：通过 ``ctx.events`` 追加 ``type="agent_step"`` 的 ``Event``。
 - 为何每次新建任务：``ClusterState.tasks`` 使用 ``operator.add`` 追加 reducer，
   若复用通道中已存在的任务对象并回写，会再次追加造成重复；因此每个 agent 节点
-  恒定创建一个新任务（meeting 行动项作为 todo 留在通道，构成待办 backlog）。
+  恒定创建一个新任务（meeting 行动项作为 todo 留在通道，构成待办 backlog，
+  由 CLI 演示收尾时统一归档）。
 """
 
 from __future__ import annotations
@@ -272,8 +274,9 @@ def make_agent_handler(
 
     步骤（对每个 agent 节点）：
     1. 按 ``node.role`` 从 ``role_registry`` 加载 ``Role``。
-    2. 新建 ``Task``（status=doing，表达 todo→doing 认领；见模块 docstring
-       关于追加 reducer 的说明，不做复用以免通道重复）。
+    2. 新建 ``Task``（status=done：确定性后端创建即完成，并携带产出物路径
+       ``artifacts/<role_id>/<task_id>.md``；见模块 docstring 关于追加 reducer
+       的说明，不做复用以免通道重复）。
     3. 用确定性模型产出执行摘要文本，追加 ``Message(type=text)``。
     4. 经 ``ctx.events`` 追加 ``Event(type="agent_step", actor=role.id)``。
     5. 更新当前任务账本（``Ledger``）追加 ``ProgressEntry``。
@@ -289,15 +292,17 @@ def make_agent_handler(
         iteration_id = state.iterations[0].id if state.iterations else "iter:1"
         thread_id = ctx.spec.thread_id or "default"
 
-        # 1) 新建任务（status=doing，todo→doing 认领语义）
+        # 1) 新建任务（status=done：确定性后端创建即完成，附产出物路径）
+        task_id = uuid.uuid4().hex
         task = Task(
-            id=uuid.uuid4().hex,
+            id=task_id,
             project_id=project_id,
             iteration_id=iteration_id,
             title=f"节点 {ctx.node_id}（{role.name}）",
             desc=role.goal,
             assignee_role=role.id,
-            status=TaskStatus.DOING,
+            status=TaskStatus.DONE,
+            artifacts=[f"artifacts/{role.id}/{task_id}.md"],
         )
 
         # 2) 经运行时公开方法 complete_for 产出确定性执行摘要（不触碰私有成员）

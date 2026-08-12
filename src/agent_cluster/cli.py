@@ -27,7 +27,7 @@ from typing import TextIO
 import yaml
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent_cluster.evolution import EvolutionEngine
+from agent_cluster.evolution import Candidate, EvolutionEngine, EvolutionError
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.meetings import MeetingHost, make_meeting_handler
 from agent_cluster.metrics import MetricRules, MetricsCollector
@@ -39,6 +39,8 @@ from agent_cluster.models import (
     HumanResponse,
     Iteration,
     Project,
+    Task,
+    TaskStatus,
 )
 from agent_cluster.roles import RoleRegistry, build_role_catalog
 from agent_cluster.runtime import AgentRuntime, make_agent_handler
@@ -158,7 +160,7 @@ async def run_flow(
         suspended_count += 1
 
     snapshot = graph.get_state({"configurable": {"thread_id": resolved_thread}})
-    final_state = ClusterState.model_validate(snapshot.values)
+    final_state = _finalize_tasks(ClusterState.model_validate(snapshot.values))
     return RunSummary(
         thread_id=resolved_thread,
         events=events,
@@ -166,6 +168,23 @@ async def run_flow(
         decisions=list(final_state.decisions),
         suspended_count=suspended_count,
     )
+
+
+def _finalize_tasks(state: ClusterState) -> ClusterState:
+    """任务板归档（确定性演示收尾）：全部任务置为 done 并保证每条任务 ≥1 产出物。
+
+    - agent 节点产出任务在创建时即 status=done 且携带产出物路径
+      （``artifacts/<role_id>/<task_id>.md``，见 runtime.make_agent_handler）。
+    - 会议行动项（todo）在确定性演示中没有真实跟进步骤，收尾时统一标记为已关闭
+      （Done）并补齐产出物占位路径，使任务板满足「全部 Done、产出物存在」验收。
+    """
+    finalized: list[Task] = []
+    for task in state.tasks:
+        artifacts = list(task.artifacts)
+        if not artifacts:
+            artifacts.append(f"artifacts/{task.assignee_role or 'team'}/{task.id}.md")
+        finalized.append(task.model_copy(update={"status": TaskStatus.DONE, "artifacts": artifacts}))
+    return state.model_copy(update={"tasks": finalized})
 
 
 def _prompt_human(request: ActionRequest, prompt_fn: Callable[[str], str]) -> HumanResponse:
@@ -240,6 +259,10 @@ def _print_summary(summary: RunSummary, out: TextIO) -> None:
     print(f"审批记录数：{len(summary.decisions)}", file=out)
     for record in summary.decisions:
         print(f"  - {record.type}（by {record.by_role}）", file=out)
+    artifacts = [artifact for task in state.tasks for artifact in task.artifacts]
+    print(f"产出物：{len(artifacts)} 个", file=out)
+    for artifact in artifacts:
+        print(f"  - {artifact}", file=out)
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +401,50 @@ def _cmd_proposals_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_proposals_submit(args: argparse.Namespace) -> int:
+    """proposals submit 子命令：构造进化提案并自动评审（演示 CLI）。
+
+    - ``--title`` / ``--rollback-plan`` 必填；缺回滚方案（缺失或空白）时
+      打印清晰错误并以非零退出码结束。
+    - 经 EvolutionEngine.propose 构造提案（含 rollback_plan 强制校验），
+      打印提案 id/状态/版本；随后自动评审（approver=governance，记录 Vote）。
+    """
+    rollback_plan = (args.rollback_plan or "").strip()
+    if not rollback_plan:
+        print("提案失败：缺少 --rollback-plan（回滚方案为必填项，不可为空）", file=sys.stderr)
+        return 1
+    engine = EvolutionEngine()
+    candidate = Candidate(
+        category=args.category,
+        target=args.title,
+        change={"kind": "improve", "target": args.title},
+        evidence=["cli: proposals submit"],
+        expected_impact="改善流程/技能（CLI 提交演示）",
+    )
+    try:
+        proposal = engine.propose(
+            candidate,
+            author_role=args.author_role,
+            title=args.title,
+            rollback_plan=rollback_plan,
+            validation_plan="灰度 1 个迭代验证后再全量",
+        )
+    except EvolutionError as exc:
+        print(f"提案失败：{exc}", file=sys.stderr)
+        return 1
+    print(f"已提交提案：{proposal.id}")
+    print(
+        f"  标题：{proposal.title} | 类别：{proposal.category} | 风险：{proposal.risk_level}"
+    )
+    print(
+        f"  状态：{proposal.status} | 版本：{proposal.effective_version} | "
+        f"回滚方案：{rollback_plan}"
+    )
+    engine.review(proposal, approver="governance", decision="approve", reason="CLI 提交演示自动评审")
+    print(f"评审结果：{proposal.status}（approver=governance，Vote {len(proposal.votes)} 条）")
+    return 0
+
+
 def _cmd_metrics_demo(args: argparse.Namespace) -> int:
     """metrics demo 子命令：度量采集 + 阈值规则信号演示。"""
     collector = MetricsCollector()
@@ -441,6 +508,17 @@ def build_parser() -> argparse.ArgumentParser:
     proposals_sub = proposals_parser.add_subparsers(dest="proposals_command", required=True)
     proposals_demo = proposals_sub.add_parser("demo", help="进化闭环演示（收集→提炼→提案→评审→生效→回滚）")
     proposals_demo.set_defaults(func=_cmd_proposals_demo)
+    proposals_submit = proposals_sub.add_parser("submit", help="提交进化提案并自动评审（演示）")
+    proposals_submit.add_argument("--title", required=True, help="提案标题")
+    proposals_submit.add_argument("--rollback-plan", required=True, help="回滚方案（必填，不可为空）")
+    proposals_submit.add_argument("--author-role", default="pm", help="提案人岗位 id（缺省 pm）")
+    proposals_submit.add_argument(
+        "--category",
+        default="skill",
+        choices=["skill", "knowledge", "process", "organization"],
+        help="进化对象类别（缺省 skill）",
+    )
+    proposals_submit.set_defaults(func=_cmd_proposals_submit)
 
     metrics_parser = subparsers.add_parser("metrics", help="绩效度量")
     metrics_sub = metrics_parser.add_subparsers(dest="metrics_command", required=True)

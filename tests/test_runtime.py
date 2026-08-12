@@ -211,7 +211,7 @@ async def test_agent_handler_updates_tasks_messages_and_ledger():
     assert len(tasks) == 1
     task = tasks[0]
     assert task.assignee_role == "architect"
-    assert task.status == TaskStatus.DOING  # todo→doing
+    assert task.status == TaskStatus.DONE  # 确定性后端创建即完成
     assert task.project_id == "proj1"
     assert task.iteration_id == "iter1"
 
@@ -282,7 +282,7 @@ async def test_agent_handler_creates_fresh_task_per_invocation():
     first = await handler(state, node, _make_context(node))
     second = await handler(state, node, _make_context(node))
     assert first["tasks"][0].id != second["tasks"][0].id
-    assert first["tasks"][0].status == TaskStatus.DOING
-    assert second["tasks"][0].status == TaskStatus.DOING
+    assert first["tasks"][0].status == TaskStatus.DONE
+    assert second["tasks"][0].status == TaskStatus.DONE
     # 通道内既有任务不受影响，返回的任务为新增实例
     assert state.tasks == []

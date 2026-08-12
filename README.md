@@ -152,7 +152,7 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 
 ## 许可与致谢
 
-- 本项目代码许可：MIT（见各文件头声明约定；仓库内未附 LICENSE 文件时按 MIT 理解）。
+- 本项目代码许可：MIT（见仓库根目录 [`LICENSE`](LICENSE)）。
 - 设计依据：[`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)
   及其 8 份参考项目研读（`agent-clusters/docs/`）。
 - 参考项目许可提示：`gpt-pilot` 为自定义许可（已停止维护且曾遭供应链投毒，**切勿运行源码**）；

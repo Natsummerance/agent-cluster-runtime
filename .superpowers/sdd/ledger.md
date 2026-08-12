@@ -18,3 +18,5 @@ Plan: docs/superpowers/plans/implementation-plan.md
 | Task 6 进化闭环与度量 | complete | 49afa69..e621c56 | Approved; fix round 1/5 addressed (200 passed) | Minor: 自我扩权子串匹配过宽、voting状态无API过渡、auto_mode=ask下L3可被调用方绕过——记入最终评审 |
 | Task 7 CLI 与示例流程 | complete | 31d666a | 214 passed（200 既有 + 14 新增） | 闭环打通：CLI run/skills/roles/proposals/metrics；bypass-immune 接线 + auto_mode；公开 compile_graph；parallel 并发 ledger reducer；fullstack-sprint 示例与 README |
 
+| Task 7 CLI 与示例集成 | complete | 31d666a..2041acc | Approved; fix round 1/5 addressed (217 passed) | proposals submit 已补; 任务全部 done+artifacts。Minor: msgpack 反序列化警告、parallel ledger 后写者胜、--yes 死代码分支、缺末尾换行——记入最终评审 |
+

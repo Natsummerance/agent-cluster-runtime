@@ -917,6 +917,9 @@ class SessionDriver:
         """按请求类别决定人工响应（返回 "/abort" 表示中止，"/skip" 表示跳过）。"""
         if self.yes:
             if request.kind == GateKind.HUMAN_INTERACTION:
+                # 非交互 --yes：缺省答案并留痕（transcript source=auto）
+                question = request.title or request.description
+                self.record_qa(question, DEFAULT_ASK_DEFAULT, source="auto")
                 return HumanResponse(type="response", args={"text": DEFAULT_ASK_DEFAULT})
             return resolve_auto_response(request, "accept")
         if request.kind == GateKind.HUMAN_INTERACTION:

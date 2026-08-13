@@ -1460,11 +1460,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": decided.model_dump(mode="json")})
 
     def _handle_dashboard(self, project_id: str) -> None:
-        try:
-            data = self.server.workbench._dashboard(project_id)
-        except KeyError as exc:
-            _send_error(self, 404, str(exc), "not_found")
+        workbench = self.server.workbench
+        if project_id not in workbench.index.projects:
+            _send_error(self, 404, f"项目不存在: {project_id}", "not_found")
             return
+        try:
+            data = workbench._dashboard(project_id)
+        except KeyError:
+            # 全局索引存在但 ProjectStore 未双写（v0.6 T13.5 前旧项目）：返回空三轴而非 404
+            data = {
+                "cost": {"used": 0, "limit": 0, "ratio": 0.0, "score": 1.0, "status": "ok", "estimated_usd": 0.0},
+                "progress": {"score": 0.0, "status": "ok", "phases": {"total": 0, "done": 0}},
+                "health": {"score": 0.0, "status": "ok", "sessions": {}},
+                "updated_at": _now_iso(),
+            }
         _send_json(self, 200, {"ok": True, "data": data})
 
     def _handle_tasks(self, project_id: str) -> None:

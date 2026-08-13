@@ -127,3 +127,20 @@ def test_serve_json_responses_carry_cors_header(workbench):
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+
+def test_serve_dashboard_empty_axes_for_index_only_project(workbench):
+    """旧项目（全局索引有、ProjectStore 未双写）dashboard 返回空三轴而非 404。"""
+    port, ws = workbench
+    ws.index.add_project("legacy1", "旧项目", "C:/tmp/legacy1")
+    status, body = _get(port, "/api/v1/projects/legacy1/dashboard")
+    assert status == 200
+    assert body["data"]["cost"]["status"] == "ok"
+    assert body["data"]["progress"]["phases"] == {"total": 0, "done": 0}
+    assert body["data"]["health"]["sessions"] == {}
+
+
+def test_serve_dashboard_404_for_unknown_project(workbench):
+    port, _ = workbench
+    status, body = _get(port, "/api/v1/projects/doesnotexist/dashboard")
+    assert status == 404
+    assert body["code"] == "not_found"

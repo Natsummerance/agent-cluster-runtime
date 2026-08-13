@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, message, Select, Space, Switch, Typography } from 'antd';
-import { CheckCircleOutlined, SaveOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Form, Input, message, Select, Space, Spin, Switch, Tag, Typography } from 'antd';
+import { CheckCircleOutlined, ReloadOutlined, SaveOutlined } from '@ant-design/icons';
 import { useAppStore, apiErrorMessage } from '../store/appStore';
+import { fetchDoctor, fixDocker } from '../api/endpoints';
+import type { DoctorReport } from '../api/types';
 import { LOCALES } from '../i18n';
 import type { Locale } from '../i18n';
 import { useIntl } from '../i18n';
@@ -45,6 +47,45 @@ export default function Settings() {
     } catch (err) {
       if (isValidationError(err)) return;
       message.error(apiErrorMessage(err));
+    }
+  };
+
+  const [doctor, setDoctor] = useState<DoctorReport | null>(null);
+  const [doctorLoading, setDoctorLoading] = useState(false);
+  const [doctorError, setDoctorError] = useState<string | null>(null);
+  const [fixingDocker, setFixingDocker] = useState(false);
+
+  useEffect(() => {
+    void loadDoctor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const loadDoctor = async () => {
+    setDoctorLoading(true);
+    setDoctorError(null);
+    try {
+      setDoctor(await fetchDoctor());
+    } catch (err) {
+      setDoctorError(apiErrorMessage(err));
+    } finally {
+      setDoctorLoading(false);
+    }
+  };
+
+  const fixDockerAction = async () => {
+    setFixingDocker(true);
+    try {
+      const report = await fixDocker();
+      setDoctor(report);
+      if (report.ok) {
+        message.success(
+          intl.formatMessage({ id: 'settings.envFixDone', defaultMessage: 'Docker fix finished, checks re-run' }),
+        );
+      }
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    } finally {
+      setFixingDocker(false);
     }
   };
 
@@ -198,6 +239,90 @@ export default function Settings() {
               data-testid="settings-language-select"
             />
           </Space>
+        </Space>
+      </Card>
+      <Card
+        title={intl.formatMessage({ id: 'settings.envCard', defaultMessage: 'Environment' })}
+        style={{ marginTop: 16 }}
+        data-testid="settings-env-card"
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Typography.Text type="secondary">
+            {intl.formatMessage({ id: 'settings.envDesc', defaultMessage: 'Runtime environment checks' })}
+          </Typography.Text>
+          {doctorLoading && !doctor ? <Spin /> : null}
+          {!doctorLoading && !doctor && !doctorError ? (
+            <Typography.Text type="secondary">
+              {intl.formatMessage({ id: 'settings.envNoReport', defaultMessage: 'No doctor report yet' })}
+            </Typography.Text>
+          ) : null}
+          {doctorError && !doctor ? (
+            <Alert
+              type="error"
+              showIcon
+              message={doctorError}
+              data-testid="settings-env-error"
+            />
+          ) : null}
+          {doctor && Array.isArray(doctor.checks) ? (
+            <>
+              {doctor.checks.map((check) => (
+                <div key={check.name} data-testid={`env-check-${check.name}`}>
+                  <Space align="baseline" wrap>
+                    <Tag color={check.ok ? 'green' : check.required ? 'red' : 'orange'}>
+                      {check.ok
+                        ? intl.formatMessage({ id: 'settings.envPassed', defaultMessage: 'Passed' })
+                        : check.required
+                          ? intl.formatMessage({ id: 'settings.envFailed', defaultMessage: 'Failed' })
+                          : intl.formatMessage({ id: 'settings.envWarned', defaultMessage: 'Warning' })}
+                    </Tag>
+                    <Typography.Text strong>{check.name}</Typography.Text>
+                    <Typography.Text type="secondary">{check.detail}</Typography.Text>
+                  </Space>
+                  {check.action ? (
+                    <div style={{ marginTop: 4 }}>
+                      <Typography.Text type="secondary">
+                        {intl.formatMessage({ id: 'settings.envAction', defaultMessage: 'Fix action' })}:{' '}
+                      </Typography.Text>
+                      <Typography.Text code>{check.action}</Typography.Text>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+              {doctor.fix ? (
+                <Alert
+                  type={doctor.fix.exit_code === 0 ? 'success' : 'warning'}
+                  showIcon
+                  message={intl.formatMessage({ id: 'settings.envFixOutput', defaultMessage: 'Fix output' })}
+                  description={doctor.fix.output || '-'}
+                  data-testid="settings-env-fix-output"
+                />
+              ) : null}
+              <Space>
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={doctorLoading}
+                  onClick={() => void loadDoctor()}
+                  data-testid="env-refresh-btn"
+                >
+                  {intl.formatMessage({ id: 'settings.envRefresh', defaultMessage: 'Re-run checks' })}
+                </Button>
+                <Button
+                  type="primary"
+                  danger
+                  loading={fixingDocker}
+                  disabled={doctor.ok}
+                  onClick={() => void fixDockerAction()}
+                  data-testid="env-fix-docker-btn"
+                >
+                  {intl.formatMessage({
+                    id: fixingDocker ? 'settings.envFixing' : 'settings.envFix',
+                    defaultMessage: 'Fix Docker',
+                  })}
+                </Button>
+              </Space>
+            </>
+          ) : null}
         </Space>
       </Card>
       <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>

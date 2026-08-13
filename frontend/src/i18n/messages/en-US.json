@@ -282,5 +282,17 @@
   "token.byRole": "By role",
   "token.overBudget": "Token budget exceeded; manual intervention may be needed",
   "token.remaining": "Remaining",
-  "token.used": "Used"
+  "token.used": "Used",
+  "settings.envCard": "Environment",
+  "settings.envDesc": "Runtime environment checks (Docker sandbox dependency; one-click fix when failed)",
+  "settings.envPassed": "Passed",
+  "settings.envWarned": "Warning",
+  "settings.envFailed": "Failed",
+  "settings.envNoReport": "No doctor report yet",
+  "settings.envRefresh": "Re-run checks",
+  "settings.envFix": "Fix Docker",
+  "settings.envFixing": "Fixing...",
+  "settings.envFixDone": "Docker fix finished, checks re-run",
+  "settings.envFixOutput": "Fix output",
+  "settings.envAction": "Fix action"
 }

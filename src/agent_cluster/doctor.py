@@ -22,7 +22,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 __all__ = [
     "CheckResult",
@@ -42,6 +42,7 @@ class CheckResult:
     ok: bool = False
     detail: str = ""
     required: bool = True
+    action: str = ""
 
 
 @dataclass
@@ -49,6 +50,7 @@ class DoctorReport:
     """预检报告：检查项列表 + 汇总。"""
 
     checks: list[CheckResult] = field(default_factory=list)
+    fix_result: tuple[int, str] | None = None
 
     @property
     def ok(self) -> bool:
@@ -61,6 +63,8 @@ class DoctorReport:
         for check in self.checks:
             mark = "通过" if check.ok else ("警告" if not check.required else "失败")
             lines.append(f"[{mark}] {check.name}: {check.detail or ('OK' if check.ok else '未通过')}")
+            if check.action:
+                lines.append(f"      修复：{check.action}（或运行 agent-cluster doctor --fix-docker）")
         passed = sum(1 for check in self.checks if check.ok)
         lines.append(f"===== 结论：{passed}/{len(self.checks)} 通过" + ("（全部就绪）" if self.ok else "（存在阻塞项）") + " =====")
         return "\n".join(lines)
@@ -127,9 +131,63 @@ def _check_node() -> CheckResult:
     return CheckResult(name="node", ok=result.returncode == 0, detail=version or "Node.js 可用", required=False)
 
 
+def docker_action_for_platform() -> str:
+    """返回当前平台的 Docker 修复指引路径（仓库内脚本/文档，供 action 字段与 --fix-docker 使用）。
+
+    - Windows: ``scripts/install-docker.ps1``（自动安装脚本）
+    - macOS:   ``scripts/install-docker.sh``（自动安装脚本）
+    - Linux:   ``scripts/linux-docker-commands.md``（发行版命令清单，仅查看）
+    """
+    if sys.platform.startswith("win"):
+        return "scripts/install-docker.ps1"
+    if sys.platform == "darwin":
+        return "scripts/install-docker.sh"
+    return "scripts/linux-docker-commands.md"
+
+
+def _repo_root() -> Path:
+    """仓库根目录（src/agent_cluster/doctor.py -> 上溯三级）。"""
+    return Path(__file__).resolve().parents[2]
+
+
+def _run_docker_fix(action: str, script_runner) -> tuple[int, str]:
+    """执行 Docker 修复动作，返回 (退出码, 输出)。
+
+    - Windows/macOS：调用仓库内安装脚本（Windows 用 powershell -File，macOS 用 bash）。
+    - Linux：打印发行版命令清单（不自动执行），退出 0。
+    - script_runner 可注入（测试用）：签名 ``(command: str) -> tuple[int, str]``。
+    """
+    repo_root = _repo_root()
+    script = (repo_root / action).resolve()
+    allowed = {"scripts/install-docker.ps1", "scripts/install-docker.sh", "scripts/linux-docker-commands.md"}
+    rel = action.replace("\\", "/")
+    if rel not in allowed:
+        return 1, f"拒绝执行非白名单脚本：{action}"
+    if not script.is_file():
+        return 1, f"脚本不存在：{script}"
+    if action == "scripts/linux-docker-commands.md":
+        try:
+            guide = script.read_text(encoding="utf-8")
+            return 0, f"Linux 请按命令清单手动安装（本任务不自动执行）：\n{guide}"
+        except OSError as exc:
+            return 1, f"读取命令清单失败：{exc}"
+    if sys.platform.startswith("win"):
+        command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)]
+    else:
+        command = ["bash", str(script)]
+    if script_runner is not None:
+        return script_runner(" ".join(f'"{part}"' if " " in part else part for part in command))
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
+        return result.returncode, (result.stdout or result.stderr).strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        return 1, f"执行修复脚本失败：{exc}"
+
+
 def _check_docker(skip: bool) -> CheckResult:
     if skip:
         return CheckResult(name="docker", ok=True, detail="已跳过（--skip-docker-check）", required=False)
+    action = docker_action_for_platform()
     if not docker_cli_present():
         return CheckResult(
             name="docker",
@@ -140,6 +198,7 @@ def _check_docker(skip: bool) -> CheckResult:
                 "`docker info` 可用；或使用 --skip-docker-check 跳过本检查。"
             ),
             required=True,
+            action=action,
         )
     if not docker_daemon_ok():
         return CheckResult(
@@ -147,6 +206,7 @@ def _check_docker(skip: bool) -> CheckResult:
             ok=False,
             detail="Docker CLI 存在但守护进程不可用：请启动 Docker Desktop 后重试，或 --skip-docker-check 跳过。",
             required=True,
+            action=action,
         )
     return CheckResult(name="docker", ok=True, detail="Docker 可用", required=True)
 
@@ -254,8 +314,14 @@ def run_doctor(
     mcp_servers: Sequence[str] | None = None,
     mcp_http_servers: Sequence[str] | None = None,
     skip_docker_check: bool = False,
+    fix_docker: bool = False,
+    script_runner: Callable[[str], tuple[int, str]] | None = None,
 ) -> DoctorReport:
-    """执行全部预检并返回报告（python/git/docker/model/workspace/plugins/mcp/mcp_http/node）。"""
+    """执行全部预检并返回报告（python/git/docker/model/workspace/plugins/mcp/mcp_http/node）。
+
+    ``fix_docker=True`` 时：若 docker 检查失败且存在 action，先执行对应平台修复脚本
+    （或命令清单），再重跑 docker 检查；结果替换进报告。``script_runner`` 供测试注入。
+    """
     report = DoctorReport()
     report.checks.append(_check_python())
     report.checks.append(_check_git())
@@ -266,4 +332,10 @@ def run_doctor(
     report.checks.append(_check_mcp(mcp_servers or []))
     report.checks.append(_check_mcp_http(mcp_http_servers or []))
     report.checks.append(_check_node())
+    if fix_docker and not skip_docker_check:
+        docker_check = report.checks[2]
+        if not docker_check.ok and docker_check.action:
+            exit_code, output = _run_docker_fix(docker_check.action, script_runner)
+            report.fix_result = (exit_code, output)
+            report.checks[2] = _check_docker(False)
     return report

@@ -10,9 +10,27 @@ function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+function doctorReport() {
+  return {
+    ok: false,
+    checks: [
+      { name: 'python', ok: true, required: true, detail: 'Python 3.11', action: '' },
+      { name: 'docker', ok: false, required: true, detail: 'Docker 未安装', action: 'scripts/install-docker.ps1' },
+      { name: 'model', ok: false, required: false, detail: '未指定模型', action: '' },
+    ],
+    fix: null,
+  };
+}
+
 beforeEach(() => {
   localStorage.clear();
   useAppStore.getState().resetState();
+  // 默认 mock：环境卡片挂载即拉取 /api/v1/doctor
+  setFetchImpl(async (input) => {
+    const url = String(input);
+    if (url.includes('/api/v1/doctor')) return jsonResponse({ ok: true, data: doctorReport() });
+    return jsonResponse({ ok: false, error: 'not mocked' }, 404);
+  });
 });
 
 describe('Settings 页面', () => {
@@ -37,7 +55,13 @@ describe('Settings 页面', () => {
   });
 
   it('测试连接成功显示成功提示', async () => {
-    setFetchImpl(async () => jsonResponse({ ok: true, data: { version: '0.5.0', projects: 0, sessions: 0, active_sessions: 0, uptime: 1 } }));
+    setFetchImpl(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/v1/status')) {
+        return jsonResponse({ ok: true, data: { version: '0.5.0', projects: 0, sessions: 0, active_sessions: 0, uptime: 1 } });
+      }
+      return jsonResponse({ ok: true, data: doctorReport() });
+    });
     renderWithIntl(<Settings />);
     await userEvent.click(screen.getByTestId('test-connection-btn'));
     await waitFor(() => expect(useAppStore.getState().connected).toBe(true));
@@ -67,5 +91,39 @@ describe('Settings 页面', () => {
     renderWithIntl(<Settings />);
     await userEvent.click(screen.getByTestId('settings-dark-switch'));
     expect(useAppStore.getState().darkMode).toBe(true);
+  });
+
+  it('环境卡片渲染预检报告与 Docker 修复指引 action', async () => {
+    renderWithIntl(<Settings />);
+    expect(await screen.findByTestId('env-check-docker')).toBeInTheDocument();
+    expect(screen.getByText('scripts/install-docker.ps1')).toBeInTheDocument();
+    expect(screen.getByTestId('env-check-python')).toBeInTheDocument();
+  });
+
+  it('一键修复按钮触发 POST /api/v1/doctor/fix-docker 并展示输出', async () => {
+    const calls: string[] = [];
+    setFetchImpl(async (input, init) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (url.includes('/fix-docker')) {
+        return jsonResponse({
+          ok: true,
+          data: {
+            ...doctorReport(),
+            ok: true,
+            fix: { ran: true, exit_code: 0, output: 'installed ok' },
+          },
+        });
+      }
+      return jsonResponse({ ok: true, data: doctorReport() });
+    });
+    renderWithIntl(<Settings />);
+    const button = await screen.findByTestId('env-fix-docker-btn');
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(calls.some((c) => c.startsWith('POST') && c.includes('fix-docker'))).toBe(true),
+    );
+    expect(await screen.findByTestId('settings-env-fix-output')).toBeInTheDocument();
+    expect(screen.getByText(/installed ok/)).toBeInTheDocument();
   });
 });

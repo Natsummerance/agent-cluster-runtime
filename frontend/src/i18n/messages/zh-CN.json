@@ -282,5 +282,17 @@
   "token.byRole": "按角色",
   "token.overBudget": "Token 预算已超限，可能需要人工介入",
   "token.remaining": "剩余",
-  "token.used": "已用"
+  "token.used": "已用",
+  "settings.envCard": "环境",
+  "settings.envDesc": "运行环境预检（Docker 沙箱依赖；失败可一键修复）",
+  "settings.envPassed": "通过",
+  "settings.envWarned": "警告",
+  "settings.envFailed": "失败",
+  "settings.envNoReport": "未获取到预检报告",
+  "settings.envRefresh": "重新预检",
+  "settings.envFix": "一键修复 Docker",
+  "settings.envFixing": "修复中...",
+  "settings.envFixDone": "Docker 修复完成，已重新预检",
+  "settings.envFixOutput": "修复输出",
+  "settings.envAction": "修复指引"
 }

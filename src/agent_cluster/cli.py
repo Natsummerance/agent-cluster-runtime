@@ -735,11 +735,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         mcp_servers=list(args.mcp or []),
         mcp_http_servers=list(args.mcp_http or []),
         skip_docker_check=args.skip_docker_check,
+        fix_docker=args.fix_docker,
     )
     print(report.render())
     if not report.ok:
         print(
-            "存在阻塞项：请按上方指引修复（Docker 缺失可 --skip-docker-check 临时跳过）。",
+            "存在阻塞项：请按上方指引修复（Docker 缺失可 --fix-docker 自动安装，或 --skip-docker-check 临时跳过）。",
             file=sys.stderr,
         )
         return 1
@@ -1364,6 +1365,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument(
         "--skip-docker-check", action="store_true",
         help="跳过 Docker 硬依赖检查（沙箱功能将不可用）",
+    )
+    doctor_parser.add_argument(
+        "--fix-docker", action="store_true",
+        help="Docker 检查失败时自动调用本机安装脚本（Windows/macOS）或打印命令清单（Linux）后重查",
     )
     doctor_parser.set_defaults(func=_cmd_doctor)
 

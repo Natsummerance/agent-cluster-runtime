@@ -1099,6 +1099,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         try:
             if parts[:3] == ["api", "v1", "status"]:
                 return self._handle_status()
+            if parts[:3] == ["api", "v1", "doctor"]:
+                return self._handle_doctor()
             if parts[:3] == ["api", "v1", "projects"] and len(parts) == 3:
                 return self._handle_list_projects()
             if parts[:3] == ["api", "v1", "projects"] and len(parts) == 4:
@@ -1158,6 +1160,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return
         parts = self._path_parts()
         try:
+            if parts[:3] == ["api", "v1", "doctor"] and len(parts) == 4 and parts[3] == "fix-docker":
+                return self._handle_doctor_fix_docker()
             if parts[:3] == ["api", "v1", "projects"] and len(parts) == 3:
                 return self._handle_create_project(self._read_json())
             if len(parts) == 5 and parts[:3] == ["api", "v1", "projects"]:
@@ -1281,6 +1285,63 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                         1 for s in server.sessions.values() if s.status in ("running", "waiting_approval")
                     ),
                     "uptime": _now_iso(),
+                },
+            },
+        )
+
+    def _handle_doctor(self) -> None:
+        """GET /api/v1/doctor：环境预检报告（含 docker 检查的 action 修复指引）。"""
+        from agent_cluster.doctor import run_doctor
+
+        report = run_doctor()
+        _send_json(
+            self,
+            200,
+            {
+                "ok": True,
+                "data": {
+                    "ok": report.ok,
+                    "checks": [
+                        {
+                            "name": check.name,
+                            "ok": check.ok,
+                            "required": check.required,
+                            "detail": check.detail,
+                            "action": check.action,
+                        }
+                        for check in report.checks
+                    ],
+                },
+            },
+        )
+
+    def _handle_doctor_fix_docker(self) -> None:
+        """POST /api/v1/doctor/fix-docker：执行 Docker 修复脚本后重查，返回执行结果与最新报告。"""
+        from agent_cluster.doctor import run_doctor
+
+        report = run_doctor(fix_docker=True)
+        fix = None
+        if report.fix_result is not None:
+            exit_code, output = report.fix_result
+            fix = {"ran": True, "exit_code": exit_code, "output": (output or "")[-4000:]}
+        _send_json(
+            self,
+            200,
+            {
+                "ok": True,
+                "data": {
+                    "ok": report.ok,
+                    "fix": fix,
+                    "checks": [
+                        {
+                            "name": check.name,
+                            "ok": check.ok,
+                            "required": check.required,
+                            "detail": check.detail,
+                            "action": check.action,
+                        }
+                        for check in report.checks
+                    ],
                 },
             },
         )

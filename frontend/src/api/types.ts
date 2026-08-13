@@ -1,5 +1,19 @@
 // 后端契约类型（agent-cluster serve v0.5）
 
+export interface DoctorCheck {
+  name: string;
+  ok: boolean;
+  required: boolean;
+  detail: string;
+  action: string;
+}
+
+export interface DoctorReport {
+  ok: boolean;
+  checks: DoctorCheck[];
+  fix?: { ran: boolean; exit_code: number; output: string } | null;
+}
+
 export interface ApiEnvelope<T> {
   ok: boolean;
   data?: T;

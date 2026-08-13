@@ -13,6 +13,7 @@ import type {
   Project,
   SessionEvent,
   DashboardData,
+  DoctorReport,
   ForkResult,
   SessionSnapshot,
   StatusData,
@@ -35,6 +36,11 @@ function pidPath(pid: string, suffix = ''): string {
 // ---- 状态与总览 ----
 export const fetchStatus = () => apiRequest<StatusData>('/api/v1/status');
 export const fetchMetrics = () => apiRequest<MetricsData>('/api/v1/metrics');
+
+// ---- 环境预检（§13 Docker 联动） ----
+export const fetchDoctor = () => apiRequest<DoctorReport>('/api/v1/doctor');
+export const fixDocker = () =>
+  apiRequest<DoctorReport>('/api/v1/doctor/fix-docker', { method: 'POST' });
 
 // ---- 项目 ----
 export const fetchProjects = () => apiRequest<Project[]>('/api/v1/projects');

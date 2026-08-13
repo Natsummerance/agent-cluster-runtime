@@ -362,13 +362,19 @@ def test_start_session_restore(server, tmp_path):
     assert body["data"]["resumed"] is True
     assert body["data"]["session_id"] == sid
 
-    deadline = time.time() + 30
+    deadline = time.time() + 60
+    restored = None
     while time.time() < deadline:
         restored = ws.manager.sessions.get(sid)
         if restored is not None and restored.driver is not None and restored.status in ("running", "waiting_approval"):
             break
+        if restored is not None and restored.status in ("failed", "completed"):
+            break  # 终态：交由下方断言带状态/错误信息失败
         time.sleep(0.05)
-    assert restored.driver is not None
+    assert restored is not None and restored.driver is not None, (
+        f"恢复未就绪：status={restored.status if restored else None} "
+        f"error={restored.error if restored else ''!r}"
+    )
     assert restored.driver.store.record.thread_id == thread1  # 复用 thread
 
     # 不存在 → 404

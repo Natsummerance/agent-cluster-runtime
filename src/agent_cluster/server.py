@@ -47,6 +47,7 @@ from agent_cluster.projects import (
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.worktree import WorktreeError
+from agent_cluster.ws import WebSocketPeer, handle_ws
 from agent_cluster.trace import (
     JsonlExporter,
     Tracer,
@@ -1078,10 +1079,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
 
     def do_GET(self) -> None:  # noqa: N802
+        parts = self._path_parts()
+        if parts[:3] == ["api", "v1", "ws"]:
+            return self._handle_ws_upgrade()
         if not self._check_auth():
             _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
             return
-        parts = self._path_parts()
         try:
             if parts[:3] == ["api", "v1", "status"]:
                 return self._handle_status()
@@ -1487,6 +1490,30 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_session_detail(self, session_id: str) -> None:
         _send_json(self, 200, {"ok": True, "data": self.server.workbench.get_session(session_id).snapshot()})
+
+    def _handle_ws_upgrade(self) -> None:
+        """§6.4：WebSocket 握手升级。认证 = X-Auth-Token 头（优先）或 token 查询参数。"""
+        server = self.server.workbench
+        if server.auth_token:
+            token = self.headers.get("X-Auth-Token") or self._query().get("token") or ""
+            if token != server.auth_token:
+                _send_error(self, 401, "未授权（需要 X-Auth-Token 或 token 查询参数）", "not_authorized")
+                return
+        key = self.headers.get("Sec-WebSocket-Key") or ""
+        if not key:
+            _send_error(self, 400, "缺少 Sec-WebSocket-Key 头", "bad_request")
+            return
+        self.send_response(101)
+        self.send_header("Upgrade", "websocket")
+        self.send_header("Connection", "Upgrade")
+        self.send_header("Sec-WebSocket-Accept", WebSocketPeer.accept_key(key.strip()))
+        self.end_headers()
+        try:
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+        self.close_connection = True
+        handle_ws(self.connection, server, session_id=self._query().get("session_id") or None)
 
     def _handle_sse(self, session_id: str) -> None:
         server = self.server.workbench

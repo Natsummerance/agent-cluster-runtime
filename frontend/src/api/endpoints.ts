@@ -73,6 +73,10 @@ export const respondSession = (sid: string, text: string) =>
   apiRequest<Record<string, unknown>>(sidPath(sid, '/response'), { method: 'POST', body: { text } });
 export const interruptSession = (sid: string, text: string) =>
   apiRequest<Record<string, unknown>>(sidPath(sid, '/interrupt'), { method: 'POST', body: { text } });
+export const cancelSession = (sid: string) =>
+  apiRequest<Record<string, unknown>>(sidPath(sid, '/cancel'), { method: 'POST' });
+export const sendSessionStdin = (sid: string, text: string) =>
+  apiRequest<Record<string, unknown>>(sidPath(sid, '/stdin'), { method: 'POST', body: { text } });
 export const rollbackSession = (sid: string, version: string | number) =>
   apiRequest<Record<string, unknown>>(sidPath(sid, '/rollback'), { method: 'POST', body: { version } });
 

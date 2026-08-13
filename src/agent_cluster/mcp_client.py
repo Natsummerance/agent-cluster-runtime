@@ -216,7 +216,7 @@ class StreamableHTTPMCPClient:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": {"name": "agent-cluster", "version": "0.6.2"},
+                "clientInfo": {"name": "agent-cluster", "version": "0.6.3"},
             },
         )
         self.server_info = dict(info or {})

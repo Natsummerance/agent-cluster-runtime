@@ -151,11 +151,11 @@ flowchart TD
 ## 📦 下载与安装（桌面工作台发布版）
 
 无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)
-（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.6.2](https://github.com/Natsummerance/agent-cluster-runtime/releases/tag/v0.6.2)）：
+（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.6.3](https://github.com/Natsummerance/agent-cluster-runtime/releases/tag/v0.6.3)）：
 
-- **Windows**：`AgentClusterWorkbench-Setup-0.6.2.exe`（x64+arm64 合并安装包；或按架构的 `Setup 0.6.2 x64.exe` / `Setup 0.6.2 arm64.exe`）
-- **macOS**：`AgentClusterWorkbench-0.6.2-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
-- **Linux**：`AgentClusterWorkbench-0.6.2-amd64.deb`（Debian/Ubuntu x64）
+- **Windows**：`AgentClusterWorkbench-Setup-0.6.3.exe`（x64+arm64 合并安装包；或按架构的 `Setup 0.6.3 x64.exe` / `Setup 0.6.3 arm64.exe`）
+- **macOS**：`AgentClusterWorkbench-0.6.3-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
+- **Linux**：`AgentClusterWorkbench-0.6.3-amd64.deb`（Debian/Ubuntu x64）
 
 桌面应用内置 electron-updater 自动更新（启动时检查，读 Releases 的 `latest*.yml` 元数据），
 小版本升级无需手动下载；CLI 与源码运行方式见下节「安装与运行」。

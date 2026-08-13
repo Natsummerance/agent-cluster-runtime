@@ -1,4 +1,4 @@
-# electron-builder 配置（桌面工作台 v0.5.0）
+# electron-builder 配置（桌面工作台 v0.6.0：Windows NSIS x64+arm64 / macOS dmg+zip arm64+x64 / Linux deb x64）
 appId: com.natsummerance.agent-cluster
 productName: AgentClusterWorkbench
 directories:
@@ -7,13 +7,44 @@ directories:
 files:
   - main.js
   - preload.js
+  - updater.js
   - package.json
   - dist-frontend/**
   - resources/**
 win:
   target:
-    - nsis
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName} Setup ${version} ${arch}.${ext}
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   perMachine: false
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  category: public.app-category.developer-tools
+  artifactName: ${productName}-${version}-${arch}${env.UPDATER_SUFFIX}.${ext}
+linux:
+  target:
+    - target: deb
+      arch:
+        - x64
+  category: Development
+  maintainer: Natsummerance
+  artifactName: ${productName}-${version}-${arch}.${ext}
+afterSign: notarize.cjs
+afterAllArtifactBuild: notarize.cjs
+publish:
+  - provider: github
+    owner: natsummerance
+    repo: agent-cluster-runtime

@@ -15,6 +15,7 @@ const http = require('http');
 const { URL } = require('url');
 const path = require('path');
 const fs = require('fs');
+const updater = require('./updater.js');
 
 const SMOKE_MODE = process.argv.includes('--smoke');
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -271,7 +272,11 @@ function createWindow() {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    updater.markBootOk();
+    updater.writeLastKnownGood();
+  });
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -416,10 +421,42 @@ async function pollForApprovals() {
   }
 }
 
+/** 自动更新状态提示：版本钉扎强制升级 / 下载完成重启安装。 */
+function handleUpdateStatus(status) {
+  if (!status || !mainWindow || mainWindow.isDestroyed()) return;
+  if (status.state === 'update-required') {
+    dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      title: '版本过旧',
+      message: `当前版本低于最低要求 ${status.minimumVersion}`,
+      detail: '请前往 GitHub Releases 下载最新版本，或稍后重启工作台自动更新。',
+      buttons: ['知道了'],
+      defaultId: 0,
+    });
+  } else if (status.state === 'update-downloaded') {
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'info',
+      title: '更新已就绪',
+      message: `新版本 ${status.version} 已下载完成`,
+      detail: '重启应用即可完成安装。',
+      buttons: ['立即重启安装', '稍后'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (choice === 0) updater.quitAndInstall();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 生命周期
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
+  updater.init();
+  updater.registerIpc();
+  if (!SMOKE_MODE) {
+    updater.watchdogStartup();
+    updater.onStatus(handleUpdateStatus);
+  }
   try {
     await startBackend();
   } catch (err) {

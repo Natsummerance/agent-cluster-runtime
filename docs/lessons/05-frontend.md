@@ -19,3 +19,10 @@
 ## 测试成本
 - vitest 全量 140s+：只改少量文件时 `npx vitest run <file1> <file2> ...`。
 - 版本相关 mock 在 `frontend/src/test/{api-client,appStore,i18n,Settings}.test.*`。
+## CORS（浏览器/桌面直连 serve）
+- 浏览器 dev（5173）或桌面版（file://）fetch `http://127.0.0.1:8765` 会触发 CORS 预检；
+  后端必须返回 `Access-Control-Allow-Origin: *` 并实现 `do_OPTIONS`（允许 X-Auth-Token/Content-Type），
+  SSE 响应同样要带 ACAO 头。
+- 本地跑 dev：`.venv\Scripts\python.exe -m agent_cluster.cli serve` + `npm run dev`；
+  无头验证 = 页面 `fetch('http://127.0.0.1:8765/api/v1/status')` + 收集 console 错误。
+- Playwright 探活**不要用 networkidle**：SSE 长连接永不 idle，用 `domcontentloaded` + 元素等待。

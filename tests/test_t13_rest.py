@@ -320,9 +320,9 @@ def test_dashboard_and_tasks(server, tmp_path):
     assert any(entry["session_id"] == sid for entry in filtered["data"])
     status, filtered = _get(port, f"/api/v1/projects/{pid}/tasks?status=active")
     assert all(entry["session_id"] != sid for entry in filtered["data"])
-    status, filtered = _get(port, f"/api/v1/projects/{pid}/tasks?q={urllib.parse.quote("待办应用")}")
+    status, filtered = _get(port, f"/api/v1/projects/{pid}/tasks?q={urllib.parse.quote('待办应用')}")
     assert any(entry["session_id"] == sid for entry in filtered["data"])
-    status, filtered = _get(port, f"/api/v1/projects/{pid}/tasks?q={urllib.parse.quote("zzz不存在")}")
+    status, filtered = _get(port, f"/api/v1/projects/{pid}/tasks?q={urllib.parse.quote('zzz不存在')}")
     assert filtered["data"] == []
 
     # 指派 + 过滤 + 快照字段

@@ -16,6 +16,8 @@ on:
     branches:
       - main
       - '**'
+    tags:
+      - 'v*'
   pull_request:
   workflow_call:
 
@@ -159,6 +161,15 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           node desktop/scripts/patch-update-metadata.js --out-dir metadata "$VERSION" $(find artifacts -name 'latest*.yml')
+      - name: Normalize Windows asset names (match latest.yml urls)
+        shell: bash
+        run: |
+          for f in artifacts/package-win-x64-arm64/*; do
+            case "$(basename "$f")" in
+              *\ * )
+                mv "$f" "$(dirname "$f")/$(basename "$f" | tr ' ' '-')" ;;
+            esac
+          done
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

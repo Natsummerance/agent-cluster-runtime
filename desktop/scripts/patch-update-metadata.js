@@ -4,6 +4,8 @@
 //
 // 用法:
 //   node scripts/patch-update-metadata.js <minimumVersion> <latest*.yml...>
+//   node scripts/patch-update-metadata.js --out-dir <dir> <minimumVersion> <latest*.yml...>
+//     --out-dir：合并结果写到 <dir>/<basename>（CI release 收集产物用），默认原位写回。
 //
 // 行为（设计 §13：版本钉扎 + unsigned 标记）:
 //   - 每个输入文件注入/更新 `minimumVersion: <version>`（Claude Code minimumVersion 对标）。
@@ -124,11 +126,21 @@ function mergeSameName(inputs) {
 // 主流程
 // ---------------------------------------------------------------------------
 function main(argv) {
-  if (argv.length < 3) {
-    console.error('用法: node patch-update-metadata.js <minimumVersion> <latest*.yml...>');
+  if (argv.length < 4) {
+    console.error('用法: node patch-update-metadata.js [--out-dir <dir>] <minimumVersion> <latest*.yml...>');
     process.exit(1);
   }
-  const [minimumVersion, ...inputs] = argv.slice(2);
+  let outDir = null;
+  let rest = argv.slice(2);
+  if (rest[0] === '--out-dir') {
+    outDir = rest[1];
+    rest = rest.slice(2);
+  }
+  if (rest.length < 2) {
+    console.error('用法: node patch-update-metadata.js [--out-dir <dir>] <minimumVersion> <latest*.yml...>');
+    process.exit(1);
+  }
+  const [minimumVersion, ...inputs] = rest;
   const byName = new Map();
   for (const input of inputs) {
     const base = path.basename(input);
@@ -139,7 +151,13 @@ function main(argv) {
     const merged = mergeSameName(files);
     const text = joinYaml(merged);
     const patched = injectMetadata(text, minimumVersion);
-    const target = files.length === 1 ? files[0] : path.join(path.dirname(files[0]), base);
+    const target =
+      outDir !== null
+        ? path.join(outDir, base)
+        : files.length === 1
+          ? files[0]
+          : path.join(path.dirname(files[0]), base);
+    if (outDir !== null) fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(target, patched, { encoding: 'utf8' });
     console.log(`[patch-update-metadata] ${target}: minimumVersion=${minimumVersion}` +
       (patched.includes('unsigned: true') ? ', unsigned=true' : ''));

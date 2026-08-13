@@ -1,0 +1,83 @@
+# agent-delivery —— 第一方 Actions 模板（设计 §14，决策 D23）
+#
+# 复制到用户仓库 .github/workflows/agent-delivery.yml 即可使用（详见 workflow-templates/README.md）。
+#
+# 管道固定为：build（agent-cluster build 产出 PR）→ 人工审批（environment: production 必需 reviewer）
+# → ci（复用本仓库 ci.yml 的 workflow_call 测试管线）→ 失败默认停在失败评论（可选 auto_fix_on_failure=true
+# 重跑 agent 修复）。
+#
+# 安全默认：agent 生成的 PR 不得自动进入 CI/CD —— 人工审批前置；不自动合并（本模板不含任何
+# 合并/写默认分支的动作）。
+name: agent-delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      goal:
+        description: 'Agent 目标（任务描述）'
+        required: true
+        type: string
+      model:
+        description: '模型名（默认 deterministic）'
+        required: false
+        default: 'deterministic'
+        type: string
+      budget:
+        description: '会话 token 预算'
+        required: false
+        default: '200000'
+        type: string
+      auto_fix_on_failure:
+        description: 'CI 失败时自动重跑 agent 修复（默认关闭）'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install deps
+        run: uv sync --frozen
+      - name: Generate PR with agent-cluster build
+        run: |
+          uv run agent-cluster build --yes \
+            --goal "${{ github.event.inputs.goal }}" \
+            --model "${{ github.event.inputs.model }}" \
+            --budget "${{ github.event.inputs.budget }}"
+
+  approve:
+    needs: build
+    runs-on: ubuntu-latest
+    # 人工审批：environment 必需 reviewer；agent 生成的 PR 不得自动进 CI/CD（行业安全默认）
+    environment: production
+    steps:
+      - name: Human approval gate
+        run: 'echo "人工审批通过（environment: production 强制 reviewer）"'
+
+  ci:
+    needs: approve
+    # workflow_call 复用本仓库 CI 管线；复制到其他仓库后请改为该仓库自己的 ci.yml 路径
+    uses: Natsummerance/agent-cluster-runtime/.github/workflows/ci.yml@main
+
+  report:
+    needs: ci
+    if: always() && needs.ci.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Leave failure comment on PR
+        run: |
+          echo "CI 失败，请查看关联 PR 的失败详情后人工处理。"
+      - name: Re-run agent fix (optional)
+        if: ${{ github.event.inputs.auto_fix_on_failure == 'true' }}
+        run: |
+          uv run agent-cluster build --yes --rework \
+            --goal "${{ github.event.inputs.goal }}" \
+            --model "${{ github.event.inputs.model }}" \
+            --budget "${{ github.event.inputs.budget }}"

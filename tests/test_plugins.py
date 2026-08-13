@@ -133,7 +133,7 @@ def test_parse_manifest_hooks_file_path(tmp_path):
 
 def test_parse_manifest_hooks_command_windows_fallback(tmp_path, monkeypatch):
     """Windows 优先 commandWindows；非 Windows 用 command。"""
-    monkeypatch.setattr("agent_cluster.plugins.os.name", "nt")
+    monkeypatch.setattr("agent_cluster.plugins._platform_is_windows", lambda: True)
     root = tmp_path / "win-hooker"
     _write(
         root / "plugin.json",

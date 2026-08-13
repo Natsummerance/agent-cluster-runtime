@@ -32,6 +32,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent_cluster.skills import Skill, SkillError, SkillLoader, SkillRegistry
 
+def _platform_is_windows() -> bool:
+    """当前是否为 Windows（commandWindows 平台回退判断；独立函数便于测试注入）。"""
+    return os.name == "nt"
+
 __all__ = [
     "PluginError",
     "HookSpec",
@@ -190,7 +194,7 @@ def _parse_handler_config(raw: Any, event: str) -> HookSpec | None:
         if not command:
             return None
         # Windows 平台优先 commandWindows（codex-rs 同名字段回退）
-        if os.name == "nt" and str(raw.get("commandWindows") or "").strip():
+        if _platform_is_windows() and str(raw.get("commandWindows") or "").strip():
             command = str(raw["commandWindows"])
         return HookSpec(
             command=command,

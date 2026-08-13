@@ -10,31 +10,33 @@ import {
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { useProjectStore } from '../store/projectStore';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import LivePulse from '../components/LivePulse';
 import type { AxisStatus, Project } from '../api/types';
 
-function formatUptime(seconds: number): string {
+function formatUptime(intl: ReturnType<typeof useIntl>, seconds: number): string {
   if (!Number.isFinite(seconds)) return '-';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h} 小时 ${m} 分`;
-  return `${m} 分钟`;
+  if (h > 0) return intl.formatMessage({ id: 'dashboard.hours', defaultMessage: '{h} hours {m} min' }, { h, m });
+  return intl.formatMessage({ id: 'dashboard.minutes', defaultMessage: '{m} minutes' }, { m });
 }
 
-const AXIS_STATUS_META: Record<AxisStatus, { color: string; label: string }> = {
-  ok: { color: 'green', label: '正常' },
-  warn: { color: 'orange', label: '预警' },
-  critical: { color: 'red', label: '危险' },
+const AXIS_STATUS_ID: Record<AxisStatus, string> = {
+  ok: 'dashboard.axis.ok',
+  warn: 'dashboard.axis.warn',
+  critical: 'dashboard.axis.critical',
 };
 
-function axisTag(status?: AxisStatus) {
-  if (!status) return <Tag>无数据</Tag>;
-  const meta = AXIS_STATUS_META[status];
-  return <Tag color={meta.color}>{meta.label}</Tag>;
-}
+const AXIS_STATUS_COLOR: Record<AxisStatus, string> = {
+  ok: 'green',
+  warn: 'orange',
+  critical: 'red',
+};
 
 export default function Dashboard() {
+  const intl = useIntl();
   const status = useAppStore((s) => s.status);
   const metrics = useAppStore((s) => s.metrics);
   const connected = useAppStore((s) => s.connected);
@@ -57,22 +59,48 @@ export default function Dashboard() {
     }
   }, [projects, dashboardMap, loadDashboard]);
 
+  const axisTag = (axisStatus?: AxisStatus) => {
+    if (!axisStatus)
+      return <Tag>{intl.formatMessage({ id: 'dashboard.axis.noData', defaultMessage: 'No data' })}</Tag>;
+    return (
+      <Tag color={AXIS_STATUS_COLOR[axisStatus]}>
+        {intl.formatMessage({ id: AXIS_STATUS_ID[axisStatus], defaultMessage: axisStatus })}
+      </Tag>
+    );
+  };
+
   return (
     <div data-testid="dashboard">
       <PageHeader
-        title="仪表盘"
-        description="Agent Cluster 集群运行总览：状态、指标与快速入口"
+        title={intl.formatMessage({ id: 'dashboard.header.title', defaultMessage: 'Dashboard' })}
+        description={intl.formatMessage({
+          id: 'dashboard.header.desc',
+          defaultMessage: 'Agent Cluster overview: status, metrics and quick links',
+        })}
       />
       {connected === false && (
         <Alert
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message="连接失败，请启动 agent-cluster serve"
+          message={intl.formatMessage({
+            id: 'dashboard.connAlert.message',
+            defaultMessage: 'Connection failed; please start agent-cluster serve',
+          })}
           description={
             <span>
-              {error ?? '未检测到后端服务'} —— 可前往{' '}
-              <Link to="/settings">设置</Link> 修改服务器地址与认证令牌。
+              {error ??
+                intl.formatMessage({
+                  id: 'dashboard.connAlert.noError',
+                  defaultMessage: 'No backend service detected',
+                })}{' '}
+              —{' '}
+              <Link to="/settings">
+                {intl.formatMessage({
+                  id: 'dashboard.connAlert.hint',
+                  defaultMessage: 'Go to Settings to change the server address and auth token',
+                })}
+              </Link>
             </span>
           }
           data-testid="dashboard-connection-alert"
@@ -81,91 +109,128 @@ export default function Dashboard() {
       <Row gutter={[16, 16]}>
         <Col xs={24} md={12} xl={8}>
           <Card
-            title="集群脉搏"
+            title={intl.formatMessage({ id: 'dashboard.clusterPulse', defaultMessage: 'Cluster pulse' })}
             extra={<LivePulse connected={connected} activeSessions={status?.active_sessions} />}
             data-testid="status-card"
           >
             {status ? (
               <Row gutter={[8, 8]}>
                 <Col span={12}>
-                  <Statistic title="版本" value={status.version} prefix={<RocketOutlined />} />
+                  <Statistic
+                    title={intl.formatMessage({ id: 'dashboard.version', defaultMessage: 'Version' })}
+                    value={status.version}
+                    prefix={<RocketOutlined />}
+                  />
                 </Col>
                 <Col span={12}>
                   <Statistic
-                    title="运行时长"
-                    value={formatUptime(status.uptime)}
+                    title={intl.formatMessage({ id: 'dashboard.uptime', defaultMessage: 'Uptime' })}
+                    value={formatUptime(intl, status.uptime)}
                     prefix={<ClockCircleOutlined />}
                   />
                 </Col>
                 <Col span={8}>
-                  <Statistic title="项目" value={status.projects} prefix={<FolderOutlined />} />
-                </Col>
-                <Col span={8}>
-                  <Statistic title="会话" value={status.sessions} prefix={<ApiOutlined />} />
+                  <Statistic
+                    title={intl.formatMessage({ id: 'common.project', defaultMessage: 'Projects' })}
+                    value={status.projects}
+                    prefix={<FolderOutlined />}
+                  />
                 </Col>
                 <Col span={8}>
                   <Statistic
-                    title="活跃会话"
+                    title={intl.formatMessage({ id: 'common.session', defaultMessage: 'Sessions' })}
+                    value={status.sessions}
+                    prefix={<ApiOutlined />}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title={intl.formatMessage({ id: 'dashboard.activeSessions', defaultMessage: 'Active sessions' })}
                     value={status.active_sessions}
                     valueStyle={{ color: status.active_sessions > 0 ? colorSuccess : undefined }}
                   />
                 </Col>
               </Row>
             ) : (
-              <Typography.Text type="secondary">暂无状态数据</Typography.Text>
+              <Typography.Text type="secondary">
+                {intl.formatMessage({ id: 'dashboard.noStatus', defaultMessage: 'No status data' })}
+              </Typography.Text>
             )}
           </Card>
         </Col>
         <Col xs={24} md={12} xl={8}>
-          <Card title="运行指标" data-testid="metrics-card">
+          <Card
+            title={intl.formatMessage({ id: 'dashboard.metricsCard', defaultMessage: 'Runtime metrics' })}
+            data-testid="metrics-card"
+          >
             {metrics ? (
               <Row gutter={[8, 8]}>
                 <Col span={8}>
-                  <Statistic title="会话总数" value={metrics.sessions} />
-                </Col>
-                <Col span={8}>
-                  <Statistic title="活跃" value={metrics.active} />
+                  <Statistic
+                    title={intl.formatMessage({ id: 'dashboard.totalSessions', defaultMessage: 'Total sessions' })}
+                    value={metrics.sessions}
+                  />
                 </Col>
                 <Col span={8}>
                   <Statistic
-                    title="总 Token"
+                    title={intl.formatMessage({ id: 'dashboard.active', defaultMessage: 'Active' })}
+                    value={metrics.active}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title={intl.formatMessage({ id: 'dashboard.totalTokens', defaultMessage: 'Total tokens' })}
                     value={metrics.total_tokens}
                     valueStyle={{ fontSize: 16 }}
                   />
                 </Col>
                 <Col span={12}>
                   <Statistic
-                    title="总成本（USD）"
+                    title={intl.formatMessage({ id: 'dashboard.totalCost', defaultMessage: 'Total cost (USD)' })}
                     value={metrics.total_cost}
                     precision={4}
                     valueStyle={{ fontSize: 18 }}
                   />
                 </Col>
                 <Col span={12}>
-                  <Statistic title="最后更新" value={metrics.updated_at?.slice(0, 19) ?? '-'} />
+                  <Statistic
+                    title={intl.formatMessage({ id: 'dashboard.lastUpdate', defaultMessage: 'Last update' })}
+                    value={metrics.updated_at?.slice(0, 19) ?? '-'}
+                  />
                 </Col>
               </Row>
             ) : (
-              <Typography.Text type="secondary">暂无指标数据</Typography.Text>
+              <Typography.Text type="secondary">
+                {intl.formatMessage({ id: 'dashboard.noMetrics', defaultMessage: 'No metrics data' })}
+              </Typography.Text>
             )}
           </Card>
         </Col>
         <Col xs={24} md={12} xl={8}>
-          <Card title="快速入口" data-testid="quick-links">
+          <Card
+            title={intl.formatMessage({ id: 'dashboard.quickLinks', defaultMessage: 'Quick links' })}
+            data-testid="quick-links"
+          >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <Link to="/projects">
-                <Button block icon={<FolderOutlined />}>项目管理</Button>
+                <Button block icon={<FolderOutlined />}>
+                  {intl.formatMessage({ id: 'dashboard.projectManagement', defaultMessage: 'Project management' })}
+                </Button>
               </Link>
               <Link to="/evolution">
-                <Button block icon={<ExperimentOutlined />}>进化提案</Button>
+                <Button block icon={<ExperimentOutlined />}>
+                  {intl.formatMessage({ id: 'dashboard.evolutionProposals', defaultMessage: 'Evolution proposals' })}
+                </Button>
               </Link>
               <Link to="/integrations">
-                <Button block icon={<ApiOutlined />}>插件 / 技能 / MCP</Button>
+                <Button block icon={<ApiOutlined />}>
+                  {intl.formatMessage({ id: 'dashboard.pluginsSkillsMcp', defaultMessage: 'Plugins / Skills / MCP' })}
+                </Button>
               </Link>
               {connected === false && (
                 <Link to="/settings">
                   <Button block type="primary">
-                    配置服务器
+                    {intl.formatMessage({ id: 'dashboard.configureServer', defaultMessage: 'Configure server' })}
                   </Button>
                 </Link>
               )}
@@ -173,7 +238,11 @@ export default function Dashboard() {
           </Card>
         </Col>
       </Row>
-      <Card title="项目三轴概览" data-testid="projects-overview" style={{ marginTop: 16 }}>
+      <Card
+        title={intl.formatMessage({ id: 'dashboard.overview.title', defaultMessage: 'Project three-axis overview' })}
+        data-testid="projects-overview"
+        style={{ marginTop: 16 }}
+      >
         {projects.length ? (
           <Table<Project>
             rowKey="id"
@@ -181,7 +250,7 @@ export default function Dashboard() {
             pagination={false}
             columns={[
               {
-                title: '项目',
+                title: intl.formatMessage({ id: 'common.project', defaultMessage: 'Project' }),
                 dataIndex: 'name',
                 key: 'name',
                 render: (value: string, record: Project) => (
@@ -189,40 +258,46 @@ export default function Dashboard() {
                 ),
               },
               {
-                title: '成本轴',
+                title: intl.formatMessage({ id: 'dashboard.overview.cost', defaultMessage: 'Cost axis' }),
                 key: 'cost',
                 render: (_: unknown, record: Project) => {
                   const axis = dashboardMap[record.id]?.cost;
                   return (
                     <Space>
                       {axisTag(axis?.status)}
-                      {axis ? <Typography.Text type="secondary">{Math.round(axis.ratio * 100)}%</Typography.Text> : null}
+                      {axis ? (
+                        <Typography.Text type="secondary">{Math.round(axis.ratio * 100)}%</Typography.Text>
+                      ) : null}
                     </Space>
                   );
                 },
               },
               {
-                title: '进度轴',
+                title: intl.formatMessage({ id: 'dashboard.overview.progress', defaultMessage: 'Progress axis' }),
                 key: 'progress',
                 render: (_: unknown, record: Project) => {
                   const axis = dashboardMap[record.id]?.progress;
                   return (
                     <Space>
                       {axisTag(axis?.status)}
-                      {axis ? <Typography.Text type="secondary">{Math.round(axis.score * 100)}%</Typography.Text> : null}
+                      {axis ? (
+                        <Typography.Text type="secondary">{Math.round(axis.score * 100)}%</Typography.Text>
+                      ) : null}
                     </Space>
                   );
                 },
               },
               {
-                title: '健康轴',
+                title: intl.formatMessage({ id: 'dashboard.overview.health', defaultMessage: 'Health axis' }),
                 key: 'health',
                 render: (_: unknown, record: Project) => axisTag(dashboardMap[record.id]?.health.status),
               },
             ]}
           />
         ) : (
-          <Typography.Text type="secondary">暂无项目</Typography.Text>
+          <Typography.Text type="secondary">
+            {intl.formatMessage({ id: 'dashboard.noProjects', defaultMessage: 'No projects' })}
+          </Typography.Text>
         )}
       </Card>
     </div>

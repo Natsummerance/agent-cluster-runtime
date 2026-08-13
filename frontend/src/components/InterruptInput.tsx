@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, Input, Space, Typography } from 'antd';
 import { PauseCircleOutlined } from '@ant-design/icons';
+import { useIntl } from '../i18n';
 
 interface InterruptInputProps {
   disabled?: boolean;
@@ -9,6 +10,7 @@ interface InterruptInputProps {
 }
 
 export default function InterruptInput({ disabled = false, loading = false, onInterrupt }: InterruptInputProps) {
+  const intl = useIntl();
   const [text, setText] = useState('');
 
   const submit = async () => {
@@ -21,13 +23,20 @@ export default function InterruptInput({ disabled = false, loading = false, onIn
   return (
     <Space direction="vertical" style={{ width: '100%' }} data-testid="interrupt-input">
       <Typography.Text type="secondary">
-        实时打断：向运行中的会话发送新指示（例如调整需求、变更优先级）。
+        {intl.formatMessage({
+          id: 'interrupt.help',
+          defaultMessage:
+            'Interrupt now: send new instructions to a running session (e.g. adjust requirements, reprioritize).',
+        })}
       </Typography.Text>
       <Space.Compact style={{ width: '100%' }}>
         <Input.TextArea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="输入打断指令，例如：把登录模块改为邮箱验证…"
+          placeholder={intl.formatMessage({
+            id: 'interrupt.placeholder',
+            defaultMessage: 'Enter interrupt instruction, e.g. change the login module to email verification…',
+          })}
           autoSize={{ minRows: 1, maxRows: 3 }}
           disabled={disabled}
           data-testid="interrupt-text"
@@ -40,7 +49,7 @@ export default function InterruptInput({ disabled = false, loading = false, onIn
           disabled={disabled || !text.trim()}
           data-testid="interrupt-submit"
         >
-          发送打断
+          {intl.formatMessage({ id: 'interrupt.submit', defaultMessage: 'Send interrupt' })}
         </Button>
       </Space.Compact>
     </Space>

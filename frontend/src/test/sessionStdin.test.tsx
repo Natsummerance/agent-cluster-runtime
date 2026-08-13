@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithIntl } from './renderWithIntl';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import SessionDetail from '../pages/SessionDetail';
@@ -58,7 +59,7 @@ function installFetch(status = 'running') {
 }
 
 function renderPage() {
-  return render(
+  return renderWithIntl(
     <MemoryRouter initialEntries={['/projects/p1/sessions/s1']}>
       <Routes>
         <Route path="/projects/:pid/sessions/:sid" element={<SessionDetail />} />

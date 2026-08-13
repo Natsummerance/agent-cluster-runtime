@@ -4,11 +4,13 @@ import { ArrowUpOutlined, ReloadOutlined } from '@ant-design/icons';
 import * as api from '../api/endpoints';
 import { apiErrorMessage } from '../store/appStore';
 import { useProjectParam } from '../hooks/useProjectParam';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import ProjectSelector from '../components/ProjectSelector';
 import type { MemoryData, MemoryItem } from '../api/types';
 
 export default function Memory() {
+  const intl = useIntl();
   const [projectId, setProjectId] = useProjectParam();
   const [data, setData] = useState<MemoryData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +39,7 @@ export default function Memory() {
       setPromoting(id);
       try {
         await api.promoteMemory(id);
-        message.success('提案已提升为长期记忆');
+        message.success(intl.formatMessage({ id: 'memory.promoted', defaultMessage: 'Proposal promoted to long-term memory' }));
         void load();
       } catch (err) {
         message.error(apiErrorMessage(err));
@@ -45,7 +47,7 @@ export default function Memory() {
         setPromoting(null);
       }
     },
-    [load],
+    [load, intl],
   );
 
   const renderItem = (item: MemoryItem, action?: React.ReactNode) => (
@@ -73,19 +75,27 @@ export default function Memory() {
 
   return (
     <div data-testid="memory-page">
-      <PageHeader title="记忆库" description="长期记忆与待提升提案" />
+      <PageHeader
+        title={intl.formatMessage({ id: 'memory.header.title', defaultMessage: 'Memory store' })}
+        description={intl.formatMessage({
+          id: 'memory.header.desc',
+          defaultMessage: 'Long-term memory and pending proposals',
+        })}
+      />
       <div style={{ marginBottom: 16 }}>
         <ProjectSelector value={projectId || undefined} onChange={setProjectId} />
       </div>
       {!projectId ? (
-        <Empty description="请先选择项目" />
+        <Empty
+          description={intl.formatMessage({ id: 'memory.selectProject', defaultMessage: 'Select a project first' })}
+        />
       ) : (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Card
-            title="长期记忆"
+            title={intl.formatMessage({ id: 'memory.longTerm', defaultMessage: 'Long-term memory' })}
             extra={
               <Button size="small" icon={<ReloadOutlined />} onClick={() => void load()}>
-                刷新
+                {intl.formatMessage({ id: 'common.refresh', defaultMessage: 'Refresh' })}
               </Button>
             }
             loading={loading}
@@ -93,14 +103,21 @@ export default function Memory() {
           >
             <List
               dataSource={data?.items ?? []}
-              locale={{ emptyText: '暂无长期记忆' }}
+              locale={{
+                emptyText: intl.formatMessage({ id: 'memory.noMemory', defaultMessage: 'No long-term memory' }),
+              }}
               renderItem={(item) => renderItem(item)}
             />
           </Card>
-          <Card title="记忆提案" data-testid="proposals-card">
+          <Card
+            title={intl.formatMessage({ id: 'memory.proposals', defaultMessage: 'Memory proposals' })}
+            data-testid="proposals-card"
+          >
             <List
               dataSource={data?.proposals ?? []}
-              locale={{ emptyText: '暂无提案' }}
+              locale={{
+                emptyText: intl.formatMessage({ id: 'memory.noProposals', defaultMessage: 'No proposals' }),
+              }}
               renderItem={(item) =>
                 renderItem(item, (
                   <Button
@@ -111,7 +128,7 @@ export default function Memory() {
                     onClick={() => void promote(item.id)}
                     data-testid={`promote-${item.id}`}
                   >
-                    提升为记忆
+                    {intl.formatMessage({ id: 'memory.promote', defaultMessage: 'Promote to memory' })}
                   </Button>
                 ))
               }

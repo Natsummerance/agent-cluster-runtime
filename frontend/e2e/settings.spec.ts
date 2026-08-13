@@ -44,6 +44,17 @@ test.describe('设置', () => {
     expect(after).toContain('"darkMode":true');
   });
 
+  test('切换语言为英文后界面显示英文文案', async ({ page }) => {
+    await installApiMocks(page);
+    await page.goto('/settings');
+    await page.getByTestId('settings-language-select').click();
+    await page.locator('.ant-select-item-option', { hasText: 'en-US' }).click();
+    await expect(page.getByText('Server address')).toBeVisible();
+    await expect(page.getByText('Language')).toBeVisible();
+    const raw = await page.evaluate(() => localStorage.getItem('agent-cluster-workbench'));
+    expect(raw).toContain('"locale":"en-US"');
+  });
+
   test('非法地址校验阻止保存', async ({ page }) => {
     await installApiMocks(page);
     await page.goto('/settings');

@@ -1,4 +1,5 @@
 import { Alert, Descriptions, Progress, Tag } from 'antd';
+import { useIntl } from '../i18n';
 import type { TokenInfo } from '../api/types';
 
 function renderBreakdown(map?: Record<string, number>) {
@@ -15,6 +16,7 @@ function renderBreakdown(map?: Record<string, number>) {
 }
 
 export default function TokenPanel({ token }: { token?: TokenInfo | null }) {
+  const intl = useIntl();
   if (!token) return null;
   const { budget, used, remaining, over_budget, by_phase, by_role } = token;
   const percent = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
@@ -35,16 +37,29 @@ export default function TokenPanel({ token }: { token?: TokenInfo | null }) {
         <Alert
           type="error"
           showIcon
-          message="Token 预算已超限，可能需要人工介入"
+          message={intl.formatMessage({
+            id: 'token.overBudget',
+            defaultMessage: 'Token budget exceeded; manual intervention may be needed',
+          })}
           style={{ marginBottom: 8 }}
         />
       )}
       <Descriptions size="small" column={1} data-testid="token-descriptions">
-        <Descriptions.Item label="预算">{budget}</Descriptions.Item>
-        <Descriptions.Item label="已用">{used}</Descriptions.Item>
-        <Descriptions.Item label="剩余">{remaining}</Descriptions.Item>
-        <Descriptions.Item label="按阶段">{renderBreakdown(by_phase)}</Descriptions.Item>
-        <Descriptions.Item label="按角色">{renderBreakdown(by_role)}</Descriptions.Item>
+        <Descriptions.Item label={intl.formatMessage({ id: 'token.budget', defaultMessage: 'Budget' })}>
+          {budget}
+        </Descriptions.Item>
+        <Descriptions.Item label={intl.formatMessage({ id: 'token.used', defaultMessage: 'Used' })}>
+          {used}
+        </Descriptions.Item>
+        <Descriptions.Item label={intl.formatMessage({ id: 'token.remaining', defaultMessage: 'Remaining' })}>
+          {remaining}
+        </Descriptions.Item>
+        <Descriptions.Item label={intl.formatMessage({ id: 'token.byPhase', defaultMessage: 'By phase' })}>
+          {renderBreakdown(by_phase)}
+        </Descriptions.Item>
+        <Descriptions.Item label={intl.formatMessage({ id: 'token.byRole', defaultMessage: 'By role' })}>
+          {renderBreakdown(by_role)}
+        </Descriptions.Item>
       </Descriptions>
     </div>
   );

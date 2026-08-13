@@ -16,6 +16,7 @@ import { Link, useParams } from 'react-router-dom';
 import { AuditOutlined } from '@ant-design/icons';
 import { useSessionStore } from '../store/sessionStore';
 import { apiErrorMessage } from '../store/appStore';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import StatusTag from '../components/StatusTag';
 import TokenPanel from '../components/TokenPanel';
@@ -25,6 +26,7 @@ import ChangeHistory from '../components/ChangeHistory';
 import EventTimeline from '../components/EventTimeline';
 
 export default function SessionDetail() {
+  const intl = useIntl();
   const { sid = '' } = useParams();
   const snapshot = useSessionStore((s) => s.snapshots[sid]);
   const changes = useSessionStore((s) => s.changes[sid]);
@@ -70,18 +72,26 @@ export default function SessionDetail() {
     try {
       await stdin(sid, value);
       setStdinText('');
-      message.success('实时输入已注入');
+      message.success(
+        intl.formatMessage({ id: 'sd.stdinInjected', defaultMessage: 'Realtime input injected' }),
+      );
     } catch (err) {
       message.error(apiErrorMessage(err));
     } finally {
       setStdinLoading(false);
     }
-  }, [sid, stdinText, stdinLoading, stdin]);
+  }, [sid, stdinText, stdinLoading, stdin, intl]);
 
   if (!snapshot) {
     return (
       <div style={{ textAlign: 'center', padding: 48 }} data-testid="session-loading">
-        <Spin tip={loading ? '加载中…' : '会话不存在或加载失败'} />
+        <Spin
+          tip={
+            loading
+              ? intl.formatMessage({ id: 'sd.loading', defaultMessage: 'Loading…' })
+              : intl.formatMessage({ id: 'sd.missing', defaultMessage: 'Session missing or failed to load' })
+          }
+        />
         {error && !loading && (
           <Alert
             type="error"
@@ -89,7 +99,7 @@ export default function SessionDetail() {
             message={error}
             action={
               <Button size="small" onClick={() => void fetchSession(sid)}>
-                重试
+                {intl.formatMessage({ id: 'common.retry', defaultMessage: 'Retry' })}
               </Button>
             }
             style={{ marginTop: 16 }}
@@ -106,23 +116,40 @@ export default function SessionDetail() {
   const items = [
     {
       key: 'overview',
-      label: '概览',
+      label: intl.formatMessage({ id: 'sd.overview', defaultMessage: 'Overview' }),
       children: (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Card title="Token 计量" size="small">
+          <Card
+            title={intl.formatMessage({ id: 'sd.tokenMetering', defaultMessage: 'Token metering' })}
+            size="small"
+          >
             <TokenPanel token={snapshot.token} />
           </Card>
           {snapshot.health && (
-            <Card title="健康度" size="small" data-testid="health-card">
+            <Card
+              title={intl.formatMessage({ id: 'sd.health', defaultMessage: 'Health' })}
+              size="small"
+              data-testid="health-card"
+            >
               <Descriptions size="small" column={2}>
-                <Descriptions.Item label="估算准确率">
+                <Descriptions.Item
+                  label={intl.formatMessage({ id: 'sd.estimateAccuracy', defaultMessage: 'Estimate accuracy' })}
+                >
                   {snapshot.health.estimate_accuracy ?? '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="返工率">{snapshot.health.rework_rate ?? '-'}</Descriptions.Item>
-                <Descriptions.Item label="Token 成本">
+                <Descriptions.Item
+                  label={intl.formatMessage({ id: 'sd.reworkRate', defaultMessage: 'Rework rate' })}
+                >
+                  {snapshot.health.rework_rate ?? '-'}
+                </Descriptions.Item>
+                <Descriptions.Item
+                  label={intl.formatMessage({ id: 'sd.tokenCost', defaultMessage: 'Token cost' })}
+                >
                   {snapshot.health.token_cost ?? '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="评测通过趋势">
+                <Descriptions.Item
+                  label={intl.formatMessage({ id: 'sd.evalPassTrend', defaultMessage: 'Eval pass trend' })}
+                >
                   {Array.isArray(snapshot.health.eval_pass_rate_trend)
                     ? snapshot.health.eval_pass_rate_trend.join(' → ')
                     : '-'}
@@ -130,7 +157,10 @@ export default function SessionDetail() {
               </Descriptions>
             </Card>
           )}
-          <Card title="阶段" size="small">
+          <Card
+            title={intl.formatMessage({ id: 'sd.phases', defaultMessage: 'Phases' })}
+            size="small"
+          >
             {snapshot.phases && snapshot.phases.length > 0 ? (
               <Space wrap>
                 {snapshot.phases.map((phase) => (
@@ -140,7 +170,9 @@ export default function SessionDetail() {
                 ))}
               </Space>
             ) : (
-              <Typography.Text type="secondary">暂无阶段信息</Typography.Text>
+              <Typography.Text type="secondary">
+                {intl.formatMessage({ id: 'sd.noPhases', defaultMessage: 'No phase info' })}
+              </Typography.Text>
             )}
           </Card>
         </Space>
@@ -148,17 +180,20 @@ export default function SessionDetail() {
     },
     {
       key: 'timeline',
-      label: '时间线（SSE）',
+      label: intl.formatMessage({ id: 'sd.timeline', defaultMessage: 'Timeline (SSE)' }),
       children: <EventTimeline sessionId={sid} />,
     },
     {
       key: 'changes',
-      label: '变更历史',
+      label: intl.formatMessage({ id: 'sd.changes', defaultMessage: 'Change history' }),
       children: (
         <ChangeHistory
           data={changes}
           onRollback={(version) =>
-            void runAction(() => rollback(sid, version), `已回滚到版本 ${version}`)
+            void runAction(
+              () => rollback(sid, version),
+              intl.formatMessage({ id: 'sd.rolledBack', defaultMessage: 'Rolled back to version {version}' }, { version }),
+            )
           }
         />
       ),
@@ -168,7 +203,7 @@ export default function SessionDetail() {
   return (
     <div data-testid="session-detail">
       <PageHeader
-        title="会话详情"
+        title={intl.formatMessage({ id: 'sd.title', defaultMessage: 'Session detail' })}
         description={
           <Typography.Text className="mono" type="secondary" data-testid="session-id">
             {sid}
@@ -177,7 +212,7 @@ export default function SessionDetail() {
         actions={
           <Link to={`/audit?session_id=${sid}`}>
             <Button icon={<AuditOutlined />} data-testid="goto-audit">
-              查看审计
+              {intl.formatMessage({ id: 'sd.viewAudit', defaultMessage: 'View audit' })}
             </Button>
           </Link>
         }
@@ -185,25 +220,36 @@ export default function SessionDetail() {
 
       <Card className="page-card" data-testid="session-header-card">
         <Descriptions size="small" column={{ xs: 1, md: 2 }}>
-          <Descriptions.Item label="目标" span={2}>
+          <Descriptions.Item
+            label={intl.formatMessage({ id: 'common.goal', defaultMessage: 'Goal' })}
+            span={2}
+          >
             <Typography.Text data-testid="session-goal">{snapshot.goal}</Typography.Text>
           </Descriptions.Item>
-          <Descriptions.Item label="状态">
+          <Descriptions.Item label={intl.formatMessage({ id: 'common.status', defaultMessage: 'Status' })}>
             <StatusTag status={snapshot.status} />
           </Descriptions.Item>
-          <Descriptions.Item label="模型">{snapshot.model ?? '-'}</Descriptions.Item>
-          <Descriptions.Item label="当前阶段">{snapshot.current_phase ?? '-'}</Descriptions.Item>
-          <Descriptions.Item label="当前节点">
+          <Descriptions.Item label={intl.formatMessage({ id: 'common.model', defaultMessage: 'Model' })}>
+            {snapshot.model ?? '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label={intl.formatMessage({ id: 'sd.currentPhase', defaultMessage: 'Current phase' })}>
+            {snapshot.current_phase ?? '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label={intl.formatMessage({ id: 'sd.currentNode', defaultMessage: 'Current node' })}>
             <Typography.Text className="mono">{snapshot.current_node ?? '-'}</Typography.Text>
           </Descriptions.Item>
-          <Descriptions.Item label="消息数">{snapshot.transcript_count ?? 0}</Descriptions.Item>
-          <Descriptions.Item label="审批门次数">{snapshot.gate_count ?? 0}</Descriptions.Item>
+          <Descriptions.Item label={intl.formatMessage({ id: 'sd.messageCount', defaultMessage: 'Messages' })}>
+            {snapshot.transcript_count ?? 0}
+          </Descriptions.Item>
+          <Descriptions.Item label={intl.formatMessage({ id: 'sd.gateCount', defaultMessage: 'Gate approvals' })}>
+            {snapshot.gate_count ?? 0}
+          </Descriptions.Item>
         </Descriptions>
         {waitingApproval && snapshot.pending_hint && (
           <Alert
             type="warning"
             showIcon
-            message="该会话正在等待人工审批"
+            message={intl.formatMessage({ id: 'sd.waitingApproval', defaultMessage: 'This session is waiting for human approval' })}
             description={snapshot.pending_hint}
             style={{ marginTop: 12 }}
             data-testid="waiting-approval-banner"
@@ -220,21 +266,26 @@ export default function SessionDetail() {
         )}
         {snapshot.exit_code !== null && snapshot.exit_code !== undefined && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-            退出码：{snapshot.exit_code}
+            {intl.formatMessage({ id: 'sd.exitCode', defaultMessage: 'Exit code: {code}' }, { code: snapshot.exit_code })}
           </Typography.Paragraph>
         )}
       </Card>
 
-      <Card className="page-card" title="实时输入" size="small" data-testid="stdin-card">
+      <Card
+        className="page-card"
+        title={intl.formatMessage({ id: 'sd.realtimeInput', defaultMessage: 'Realtime input' })}
+        size="small"
+        data-testid="stdin-card"
+      >
         <Typography.Text type="secondary">
-          向运行中的会话注入实时输入：挂起时作为当前问题的回答，否则在下一节点边界注入。
+          {intl.formatMessage({ id: 'sd.stdinHint', defaultMessage: 'Inject realtime input into the running session: answered as the current question when suspended, otherwise injected at the next node boundary.' })}
         </Typography.Text>
         <Space.Compact style={{ width: '100%', marginTop: 8 }}>
           <Input
             value={stdinText}
             onChange={(e) => setStdinText(e.target.value)}
             onPressEnter={() => void submitStdin()}
-            placeholder="例如：继续 / 补充说明…"
+            placeholder={intl.formatMessage({ id: 'sd.stdinPlaceholder', defaultMessage: 'e.g. Continue / additional notes…' })}
             disabled={!stdinEnabled}
             data-testid="stdin-text"
           />
@@ -245,15 +296,24 @@ export default function SessionDetail() {
             disabled={!stdinEnabled || !stdinText.trim()}
             data-testid="stdin-submit"
           >
-            注入
+            {intl.formatMessage({ id: 'sd.inject', defaultMessage: 'Inject' })}
           </Button>
         </Space.Compact>
       </Card>
 
-      <Card className="page-card" title="实时打断" size="small">
+      <Card
+        className="page-card"
+        title={intl.formatMessage({ id: 'sd.realtimeInterrupt', defaultMessage: 'Realtime interrupt' })}
+        size="small"
+      >
         <InterruptInput
           disabled={!snapshot || snapshot.status === 'completed' || snapshot.status === 'failed'}
-          onInterrupt={(text) => runAction(() => interrupt(sid, text), '打断指令已发送')}
+          onInterrupt={(text) =>
+            runAction(
+              () => interrupt(sid, text),
+              intl.formatMessage({ id: 'sd.interruptSent', defaultMessage: 'Interrupt command sent' }),
+            )
+          }
         />
       </Card>
 
@@ -265,12 +325,24 @@ export default function SessionDetail() {
         open={approval.open && approval.sid === sid}
         hint={approval.hint}
         loading={approval.loading}
-        onAccept={() => void runAction(approve, '已接受审批')}
-        onReject={() => void runAction(reject, '已拒绝审批')}
+        onAccept={() =>
+          void runAction(
+            approve,
+            intl.formatMessage({ id: 'sd.approvalAccepted', defaultMessage: 'Approval accepted' }),
+          )
+        }
+        onReject={() =>
+          void runAction(
+            reject,
+            intl.formatMessage({ id: 'sd.approvalRejected', defaultMessage: 'Approval rejected' }),
+          )
+        }
         onSubmitText={(mode, text) =>
           void runAction(
             () => (mode === 'edit' ? edit(text) : respond(text)),
-            mode === 'edit' ? '已提交编辑内容' : '已提交回复',
+            mode === 'edit'
+              ? intl.formatMessage({ id: 'sd.editSubmitted', defaultMessage: 'Edit submitted' })
+              : intl.formatMessage({ id: 'sd.replySubmitted', defaultMessage: 'Reply submitted' }),
           )
         }
         onCancel={closeApproval}

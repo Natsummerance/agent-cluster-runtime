@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Alert, Badge, Button, Layout, Menu, Space, Switch, Tooltip, Typography, theme as antdTheme } from 'antd';
 import {
   ApiOutlined,
@@ -15,22 +15,13 @@ import {
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
+import { useIntl } from '../i18n';
 import LivePulse from '../components/LivePulse';
 
 const { Sider, Header, Content } = Layout;
 
-const MENU_ITEMS = [
-  { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
-  { key: '/projects', icon: <FolderOutlined />, label: '项目' },
-  { key: '/artifacts', icon: <FolderOpenOutlined />, label: '工作区' },
-  { key: '/memory', icon: <DatabaseOutlined />, label: '记忆' },
-  { key: '/evolution', icon: <ExperimentOutlined />, label: '进化' },
-  { key: '/integrations', icon: <ApiOutlined />, label: '集成' },
-  { key: '/audit', icon: <AuditOutlined />, label: '审计' },
-  { key: '/settings', icon: <SettingOutlined />, label: '设置' },
-];
-
 export default function AppLayout() {
+  const intl = useIntl();
   const navigate = useNavigate();
   const location = useLocation();
   const connected = useAppStore((s) => s.connected);
@@ -49,10 +40,31 @@ export default function AppLayout() {
     void refreshAll();
   }, [refreshAll]);
 
+  const menuItems = useMemo(
+    () => [
+      { key: '/', icon: <DashboardOutlined />, label: intl.formatMessage({ id: 'layout.menu.dashboard', defaultMessage: 'Dashboard' }) },
+      { key: '/projects', icon: <FolderOutlined />, label: intl.formatMessage({ id: 'layout.menu.projects', defaultMessage: 'Projects' }) },
+      { key: '/artifacts', icon: <FolderOpenOutlined />, label: intl.formatMessage({ id: 'layout.menu.workspace', defaultMessage: 'Workspace' }) },
+      { key: '/memory', icon: <DatabaseOutlined />, label: intl.formatMessage({ id: 'layout.menu.memory', defaultMessage: 'Memory' }) },
+      { key: '/evolution', icon: <ExperimentOutlined />, label: intl.formatMessage({ id: 'layout.menu.evolution', defaultMessage: 'Evolution' }) },
+      { key: '/integrations', icon: <ApiOutlined />, label: intl.formatMessage({ id: 'layout.menu.integrations', defaultMessage: 'Integrations' }) },
+      { key: '/audit', icon: <AuditOutlined />, label: intl.formatMessage({ id: 'layout.menu.audit', defaultMessage: 'Audit' }) },
+      { key: '/settings', icon: <SettingOutlined />, label: intl.formatMessage({ id: 'layout.menu.settings', defaultMessage: 'Settings' }) },
+    ],
+    [intl],
+  );
+
   const selectedKey =
-    MENU_ITEMS.map((m) => m.key).find((key) =>
+    menuItems.map((m) => m.key).find((key) =>
       key === '/' ? location.pathname === '/' : location.pathname.startsWith(key),
     ) ?? '/';
+
+  const connectionText =
+    connected === false
+      ? intl.formatMessage({ id: 'layout.disconnected', defaultMessage: 'Disconnected' })
+      : connected
+        ? intl.formatMessage({ id: 'layout.connected', defaultMessage: 'Connected' })
+        : intl.formatMessage({ id: 'layout.connecting', defaultMessage: 'Connecting…' });
 
   return (
     <Layout style={{ minHeight: '100vh' }} data-testid="app-layout">
@@ -65,9 +77,9 @@ export default function AppLayout() {
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
-          items={MENU_ITEMS}
+          items={menuItems}
           onClick={(e) => navigate(e.key)}
-          aria-label="主导航"
+          aria-label={intl.formatMessage({ id: 'layout.navAria', defaultMessage: 'Main navigation' })}
           data-testid="main-menu"
         />
       </Sider>
@@ -86,7 +98,7 @@ export default function AppLayout() {
             <LivePulse connected={connected} activeSessions={status?.active_sessions} />
             <Badge
               status={connected === false ? 'error' : connected ? 'success' : 'default'}
-              text={connected === false ? '未连接' : connected ? '已连接' : '连接中…'}
+              text={connectionText}
               data-testid="connection-status"
             />
             <Tooltip title={serverUrl}>
@@ -102,14 +114,20 @@ export default function AppLayout() {
               loading={loading}
               data-testid="refresh-all"
             >
-              刷新
+              {intl.formatMessage({ id: 'common.refresh', defaultMessage: 'Refresh' })}
             </Button>
-            <Tooltip title={darkMode ? '切换到亮色模式' : '切换到深色模式'}>
+            <Tooltip
+              title={
+                darkMode
+                  ? intl.formatMessage({ id: 'layout.switchToLight', defaultMessage: 'Switch to light mode' })
+                  : intl.formatMessage({ id: 'layout.switchToDark', defaultMessage: 'Switch to dark mode' })
+              }
+            >
               <Switch
                 checked={darkMode}
                 onChange={setDarkMode}
                 size="small"
-                aria-label="深色模式"
+                aria-label={intl.formatMessage({ id: 'common.darkMode', defaultMessage: 'Dark mode' })}
                 data-testid="dark-mode-switch"
               />
             </Tooltip>
@@ -120,12 +138,18 @@ export default function AppLayout() {
           <Alert
             type="error"
             showIcon
-            message="连接失败"
+            message={intl.formatMessage({ id: 'layout.connectionFailed', defaultMessage: 'Connection failed' })}
             description={
               <Space>
-                <span>{error ?? '无法连接到后端服务'}</span>
+                <span>
+                  {error ??
+                    intl.formatMessage({
+                      id: 'layout.cannotReach',
+                      defaultMessage: 'Cannot reach the backend service',
+                    })}
+                </span>
                 <Button size="small" onClick={() => navigate('/settings')}>
-                  前往设置
+                  {intl.formatMessage({ id: 'layout.goToSettings', defaultMessage: 'Go to settings' })}
                 </Button>
               </Space>
             }
@@ -133,7 +157,12 @@ export default function AppLayout() {
             data-testid="connection-banner"
           />
         )}
-        <Content style={{ padding: 24 }} role="main" aria-label="页面内容" data-testid="page-content">
+        <Content
+          style={{ padding: 24 }}
+          role="main"
+          aria-label={intl.formatMessage({ id: 'layout.pageAria', defaultMessage: 'Page content' })}
+          data-testid="page-content"
+        >
           <Outlet />
         </Content>
       </Layout>

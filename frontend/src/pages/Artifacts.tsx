@@ -4,6 +4,7 @@ import { FileOutlined, FolderOutlined, ReloadOutlined } from '@ant-design/icons'
 import * as api from '../api/endpoints';
 import { apiErrorMessage } from '../store/appStore';
 import { useProjectParam } from '../hooks/useProjectParam';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import ProjectSelector from '../components/ProjectSelector';
 import type { WorkspaceFile, WorkspaceTreeEntry } from '../api/types';
@@ -17,6 +18,7 @@ interface TreeNode {
 }
 
 export default function Artifacts() {
+  const intl = useIntl();
   const [projectId, setProjectId] = useProjectParam();
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(false);
@@ -84,20 +86,25 @@ export default function Artifacts() {
   return (
     <div data-testid="artifacts-page">
       <PageHeader
-        title="工作区浏览器"
-        description="浏览项目工作区文件树并预览文件内容"
+        title={intl.formatMessage({ id: 'artifacts.header.title', defaultMessage: 'Workspace browser' })}
+        description={intl.formatMessage({
+          id: 'artifacts.header.desc',
+          defaultMessage: 'Browse the project workspace file tree and preview file contents',
+        })}
       />
       <div style={{ marginBottom: 16 }}>
         <ProjectSelector value={projectId || undefined} onChange={setProjectId} />
       </div>
       {!projectId ? (
-        <Empty description="请先选择项目" />
+        <Empty
+          description={intl.formatMessage({ id: 'artifacts.selectProject', defaultMessage: 'Select a project first' })}
+        />
       ) : (
         <>
           <Breadcrumb
             style={{ marginBottom: 12 }}
             items={[
-              { title: '工作区根目录' },
+              { title: intl.formatMessage({ id: 'artifacts.root', defaultMessage: 'Workspace root' }) },
               ...currentPath
                 .split('/')
                 .filter(Boolean)
@@ -108,16 +115,18 @@ export default function Artifacts() {
           <Card
             title={
               <Space>
-                <span>文件树</span>
+                <span>{intl.formatMessage({ id: 'artifacts.fileTree', defaultMessage: 'File tree' })}</span>
                 <Button size="small" icon={<ReloadOutlined />} onClick={() => void reload()}>
-                  刷新
+                  {intl.formatMessage({ id: 'common.refresh', defaultMessage: 'Refresh' })}
                 </Button>
               </Space>
             }
           >
             <Spin spinning={loading}>
               {treeData.length === 0 && !loading ? (
-                <Empty description="工作区为空" />
+                <Empty
+                  description={intl.formatMessage({ id: 'artifacts.emptyTree', defaultMessage: 'Workspace is empty' })}
+                />
               ) : (
                 <Tree<TreeNode>
                   showLine
@@ -130,7 +139,7 @@ export default function Artifacts() {
                     if (node?.entry.type === 'file') void openFile(String(key));
                   }}
                   icon={(props) => (props.isLeaf ? <FileOutlined /> : <FolderOutlined />)}
-                  aria-label="工作区文件树"
+                  aria-label={intl.formatMessage({ id: 'artifacts.treeAria', defaultMessage: 'Workspace file tree' })}
                   data-testid="workspace-tree"
                 />
               )}
@@ -144,13 +153,14 @@ export default function Artifacts() {
         onClose={() => setFile(null)}
         width={640}
         loading={fileLoading}
-        aria-label="文件预览"
+        aria-label={intl.formatMessage({ id: 'artifacts.previewAria', defaultMessage: 'File preview' })}
         data-testid="file-drawer"
       >
         {file && (
           <>
             <Typography.Paragraph type="secondary">
-              {file.file.mime} · {file.file.size} 字节 · {file.file.name}
+              {file.file.mime} · {file.file.size}{' '}
+              {intl.formatMessage({ id: 'artifacts.bytes', defaultMessage: 'bytes' })} · {file.file.name}
             </Typography.Paragraph>
             <pre className="code-preview" data-testid="file-content">
               {file.file.content}

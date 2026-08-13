@@ -4,10 +4,12 @@ import { DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import * as api from '../api/endpoints';
 import { apiErrorMessage } from '../store/appStore';
 import { useSessionParam } from '../hooks/useProjectParam';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import type { AuditData } from '../api/types';
 
 export default function Audit() {
+  const intl = useIntl();
   const [sessionId, setSessionId] = useSessionParam();
   const [data, setData] = useState<AuditData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,22 +46,30 @@ export default function Audit() {
         a.download = `audit-${sessionId}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        message.success('审计包已下载');
+        message.success(intl.formatMessage({ id: 'audit.downloaded', defaultMessage: 'Audit bundle downloaded' }));
       } else {
-        message.success(`审计导出成功：${result.file ?? JSON.stringify(result)}`);
+        message.success(
+          intl.formatMessage(
+            { id: 'audit.exported', defaultMessage: 'Audit exported: {file}' },
+            { file: result.file ?? JSON.stringify(result) },
+          ),
+        );
       }
     } catch (err) {
       message.error(apiErrorMessage(err));
     } finally {
       setExporting(false);
     }
-  }, [sessionId]);
+  }, [sessionId, intl]);
 
   return (
     <div data-testid="audit-page">
       <PageHeader
-        title="审计"
-        description="查看会话审批审计记录并导出审计包"
+        title={intl.formatMessage({ id: 'audit.header.title', defaultMessage: 'Audit' })}
+        description={intl.formatMessage({
+          id: 'audit.header.desc',
+          defaultMessage: 'View session approval audit records and export the audit bundle',
+        })}
         actions={
           sessionId ? (
             <Button
@@ -68,7 +78,7 @@ export default function Audit() {
               loading={exporting}
               data-testid="audit-export-btn"
             >
-              导出审计包
+              {intl.formatMessage({ id: 'audit.export', defaultMessage: 'Export audit bundle' })}
             </Button>
           ) : undefined
         }
@@ -76,24 +86,36 @@ export default function Audit() {
       <Space style={{ marginBottom: 16 }} wrap>
         <div data-testid="audit-session-input">
           <Input.Search
-            placeholder="输入会话 ID 后回车"
+            placeholder={intl.formatMessage({
+              id: 'audit.inputPlaceholder',
+              defaultMessage: 'Enter a session ID and press Enter',
+            })}
             defaultValue={sessionId}
             enterButton={<SearchOutlined />}
             onSearch={(value) => setSessionId(value.trim())}
             style={{ width: 360 }}
-            aria-label="会话 ID 搜索"
+            aria-label={intl.formatMessage({ id: 'audit.inputAria', defaultMessage: 'Session ID search' })}
           />
         </div>
       </Space>
       {!sessionId ? (
-        <Empty description="输入会话 ID 查看审计记录" />
+        <Empty
+          description={intl.formatMessage({
+            id: 'audit.empty',
+            defaultMessage: 'Enter a session ID to view audit records',
+          })}
+        />
       ) : data ? (
         <Card loading={loading} data-testid="audit-card">
           <Descriptions size="small" column={1} style={{ marginBottom: 16 }}>
-            <Descriptions.Item label="会话 ID">
+            <Descriptions.Item label={intl.formatMessage({ id: 'audit.sessionId', defaultMessage: 'Session ID' })}>
               <Typography.Text className="mono">{data.session_id ?? sessionId}</Typography.Text>
             </Descriptions.Item>
-            {data.summary && <Descriptions.Item label="概要">{data.summary}</Descriptions.Item>}
+            {data.summary && (
+              <Descriptions.Item label={intl.formatMessage({ id: 'audit.summary', defaultMessage: 'Summary' })}>
+                {data.summary}
+              </Descriptions.Item>
+            )}
           </Descriptions>
           {Array.isArray(data.records) ? (
             <pre className="code-preview" data-testid="audit-records">
@@ -106,7 +128,12 @@ export default function Audit() {
           )}
         </Card>
       ) : (
-        <Alert type="warning" showIcon message="未找到审计数据" style={{ maxWidth: 480 }} />
+        <Alert
+          type="warning"
+          showIcon
+          message={intl.formatMessage({ id: 'audit.notFound', defaultMessage: 'No audit data found' })}
+          style={{ maxWidth: 480 }}
+        />
       )}
     </div>
   );

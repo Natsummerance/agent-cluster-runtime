@@ -3,16 +3,17 @@ import { Alert, Button, Card, Empty, Table, Tabs, Tag } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import * as api from '../api/endpoints';
 import { apiErrorMessage } from '../store/appStore';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import type { IntegrationNote } from '../api/types';
 
 type TabKey = 'plugins' | 'skills' | 'mcp';
 type ListData = unknown[] | IntegrationNote | null;
 
-const TITLES: Record<TabKey, string> = {
-  plugins: '插件',
-  skills: '技能',
-  mcp: 'MCP 服务器',
+const TAB_TITLE_ID: Record<TabKey, string> = {
+  plugins: 'integrations.tab.plugins',
+  skills: 'integrations.tab.skills',
+  mcp: 'integrations.tab.mcp',
 };
 
 const LOADERS: Record<TabKey, () => Promise<unknown>> = {
@@ -22,10 +23,14 @@ const LOADERS: Record<TabKey, () => Promise<unknown>> = {
 };
 
 export default function Integrations() {
+  const intl = useIntl();
   const [activeTab, setActiveTab] = useState<TabKey>('plugins');
   const [data, setData] = useState<Record<TabKey, ListData>>({ plugins: null, skills: null, mcp: null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const tabTitle = (key: TabKey) =>
+    intl.formatMessage({ id: TAB_TITLE_ID[key], defaultMessage: key });
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -51,12 +56,38 @@ export default function Integrations() {
 
   const renderTab = (key: TabKey) => {
     const value = data[key];
-    if (value === null) return <Empty description="加载失败或后端未提供该数据" />;
+    if (value === null)
+      return (
+        <Empty
+          description={intl.formatMessage({
+            id: 'integrations.loadFailed',
+            defaultMessage: 'Load failed or the backend does not provide this data',
+          })}
+        />
+      );
     if (Array.isArray(value)) {
-      if (value.length === 0) return <Empty description={`暂无${TITLES[key]}`} />;
+      if (value.length === 0)
+        return (
+          <Empty
+            description={intl.formatMessage(
+              { id: 'integrations.emptyList', defaultMessage: 'No {title}' },
+              { title: tabTitle(key) },
+            )}
+          />
+        );
       const columns = [
-        { title: '名称', dataIndex: 'name', key: 'name', render: (v: string) => v ?? '-' },
-        { title: '描述', dataIndex: 'description', key: 'description', render: (v?: string) => v ?? '-' },
+        {
+          title: intl.formatMessage({ id: 'common.name', defaultMessage: 'Name' }),
+          dataIndex: 'name',
+          key: 'name',
+          render: (v: string) => v ?? '-',
+        },
+        {
+          title: intl.formatMessage({ id: 'common.description', defaultMessage: 'Description' }),
+          dataIndex: 'description',
+          key: 'description',
+          render: (v?: string) => v ?? '-',
+        },
       ];
       return (
         <Table
@@ -72,7 +103,10 @@ export default function Integrations() {
       <Alert
         type="info"
         showIcon
-        message={`${TITLES[key]}（占位）`}
+        message={intl.formatMessage(
+          { id: 'integrations.placeholder', defaultMessage: '{title} (placeholder)' },
+          { title: tabTitle(key) },
+        )}
         description={value.note ?? JSON.stringify(value)}
         data-testid={`${key}-note`}
       />
@@ -82,11 +116,14 @@ export default function Integrations() {
   return (
     <div data-testid="integrations-page">
       <PageHeader
-        title="集成"
-        description="插件、技能与 MCP 服务器清单"
+        title={intl.formatMessage({ id: 'integrations.header.title', defaultMessage: 'Integrations' })}
+        description={intl.formatMessage({
+          id: 'integrations.header.desc',
+          defaultMessage: 'Plugin, skill and MCP server inventories',
+        })}
         actions={
           <Button icon={<ReloadOutlined />} onClick={() => void loadAll()} loading={loading} data-testid="refresh-integrations">
-            刷新
+            {intl.formatMessage({ id: 'common.refresh', defaultMessage: 'Refresh' })}
           </Button>
         }
       />
@@ -97,11 +134,11 @@ export default function Integrations() {
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as TabKey)}
-          items={(Object.keys(TITLES) as TabKey[]).map((key) => ({
+          items={(Object.keys(TAB_TITLE_ID) as TabKey[]).map((key) => ({
             key,
             label: (
               <span data-testid={`tab-${key}`}>
-                {TITLES[key]}{' '}
+                {tabTitle(key)}{' '}
                 {Array.isArray(data[key]) && data[key]!.length > 0 && <Tag>{data[key]!.length}</Tag>}
               </span>
             ),

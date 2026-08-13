@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react';
 import { Button, Result } from 'antd';
+import { FormattedMessage } from 'react-intl';
 
 interface Props {
   children: ReactNode;
@@ -25,11 +26,11 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <Result
           status="error"
-          title="页面渲染出错"
+          title={<FormattedMessage id="errorBoundary.title" defaultMessage="Page rendering error" />}
           subTitle={this.state.error.message}
           extra={
             <Button type="primary" onClick={() => this.setState({ error: null })}>
-              重试
+              <FormattedMessage id="common.retry" defaultMessage="Retry" />
             </Button>
           }
         />

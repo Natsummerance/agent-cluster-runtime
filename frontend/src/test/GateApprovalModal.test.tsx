@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithIntl } from './renderWithIntl';
 import userEvent from '@testing-library/user-event';
 import GateApprovalModal from '../components/GateApprovalModal';
 
 describe('GateApprovalModal', () => {
   it('显示审批提示文本', () => {
-    render(
+    renderWithIntl(
       <GateApprovalModal
         open
         hint="请确认需求评审通过"
@@ -20,7 +21,7 @@ describe('GateApprovalModal', () => {
 
   it('点击“接受”触发 onAccept', async () => {
     const onAccept = vi.fn();
-    render(
+    renderWithIntl(
       <GateApprovalModal open hint="h" onAccept={onAccept} onReject={vi.fn()} onSubmitText={vi.fn()} onCancel={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId('gate-accept'));
@@ -29,7 +30,7 @@ describe('GateApprovalModal', () => {
 
   it('点击“拒绝”触发 onReject', async () => {
     const onReject = vi.fn();
-    render(
+    renderWithIntl(
       <GateApprovalModal open hint="h" onAccept={vi.fn()} onReject={onReject} onSubmitText={vi.fn()} onCancel={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId('gate-reject'));
@@ -38,7 +39,7 @@ describe('GateApprovalModal', () => {
 
   it('编辑文本模式提交带文本', async () => {
     const onSubmitText = vi.fn();
-    render(
+    renderWithIntl(
       <GateApprovalModal open hint="h" onAccept={vi.fn()} onReject={vi.fn()} onSubmitText={onSubmitText} onCancel={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId('gate-edit-mode'));
@@ -49,7 +50,7 @@ describe('GateApprovalModal', () => {
 
   it('回复文本模式提交带文本', async () => {
     const onSubmitText = vi.fn();
-    render(
+    renderWithIntl(
       <GateApprovalModal open hint="h" onAccept={vi.fn()} onReject={vi.fn()} onSubmitText={onSubmitText} onCancel={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId('gate-response-mode'));
@@ -59,7 +60,7 @@ describe('GateApprovalModal', () => {
   });
 
   it('空白文本时提交按钮禁用', async () => {
-    render(
+    renderWithIntl(
       <GateApprovalModal open hint="h" onAccept={vi.fn()} onReject={vi.fn()} onSubmitText={vi.fn()} onCancel={vi.fn()} />,
     );
     await userEvent.click(screen.getByTestId('gate-edit-mode'));
@@ -67,7 +68,7 @@ describe('GateApprovalModal', () => {
   });
 
   it('未打开时不渲染内容', () => {
-    const { container } = render(
+    const { container } = renderWithIntl(
       <GateApprovalModal open={false} hint="h" onAccept={vi.fn()} onReject={vi.fn()} onSubmitText={vi.fn()} onCancel={vi.fn()} />,
     );
     expect(container.querySelector('[data-testid="gate-modal"]')).not.toBeInTheDocument();

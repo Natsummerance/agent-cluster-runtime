@@ -18,11 +18,13 @@ import { ExperimentOutlined, ReloadOutlined } from '@ant-design/icons';
 import * as api from '../api/endpoints';
 import { apiErrorMessage } from '../store/appStore';
 import { useProjectParam } from '../hooks/useProjectParam';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import ProjectSelector from '../components/ProjectSelector';
 import type { EvolutionProposal } from '../api/types';
 
 export default function Evolution() {
+  const intl = useIntl();
   const [projectId, setProjectId] = useProjectParam();
   const [proposals, setProposals] = useState<EvolutionProposal[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,7 +56,11 @@ export default function Evolution() {
       try {
         if (kind === 'apply') await api.applyEvolutionProposal(id);
         else await api.rollbackEvolutionProposal(id);
-        message.success(kind === 'apply' ? '提案已生效' : '提案已回滚');
+        message.success(
+          kind === 'apply'
+            ? intl.formatMessage({ id: 'evolution.applied', defaultMessage: 'Proposal applied' })
+            : intl.formatMessage({ id: 'evolution.rolledBack', defaultMessage: 'Proposal rolled back' }),
+        );
         void load();
       } catch (err) {
         message.error(apiErrorMessage(err));
@@ -62,7 +68,7 @@ export default function Evolution() {
         setActingId(null);
       }
     },
-    [load],
+    [load, intl],
   );
 
   const generate = useCallback(async () => {
@@ -74,7 +80,7 @@ export default function Evolution() {
         min_evidence: values.min_evidence,
         limit: values.limit,
       });
-      message.success('提案生成完成');
+      message.success(intl.formatMessage({ id: 'evolution.generated', defaultMessage: 'Proposal generation finished' }));
       setGenOpen(false);
       form.resetFields();
       void load();
@@ -85,29 +91,29 @@ export default function Evolution() {
     } finally {
       setGenerating(false);
     }
-  }, [form, projectId, load]);
+  }, [form, projectId, load, intl]);
 
   const retro = useCallback(async () => {
     try {
       const result = await api.runEvolutionRetro({ project_id: projectId || undefined });
       setRetroResult(result);
-      message.success('复盘完成');
+      message.success(intl.formatMessage({ id: 'evolution.retroDone', defaultMessage: 'Retrospective finished' }));
       void load();
     } catch (err) {
       message.error(apiErrorMessage(err));
     }
-  }, [projectId, load]);
+  }, [projectId, load, intl]);
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', render: (v: string) => <Typography.Text className="mono">{v}</Typography.Text> },
     {
-      title: '标题',
+      title: intl.formatMessage({ id: 'evolution.col.title', defaultMessage: 'Title' }),
       dataIndex: 'title',
       key: 'title',
       render: (v: string | undefined, record: EvolutionProposal) => v ?? record.summary ?? '-',
     },
     {
-      title: '状态',
+      title: intl.formatMessage({ id: 'common.status', defaultMessage: 'Status' }),
       dataIndex: 'status',
       key: 'status',
       render: (v?: string) => (
@@ -115,22 +121,30 @@ export default function Evolution() {
       ),
     },
     {
-      title: '证据',
+      title: intl.formatMessage({ id: 'evolution.col.evidence', defaultMessage: 'Evidence' }),
       dataIndex: 'evidence',
       key: 'evidence',
       ellipsis: true,
       render: (v?: string) => v ?? '-',
     },
     {
-      title: '操作',
+      title: intl.formatMessage({ id: 'common.actions', defaultMessage: 'Actions' }),
       key: 'actions',
       render: (_: unknown, record: EvolutionProposal) => (
         <Space>
           <Button size="small" type="primary" loading={actingId === record.id} onClick={() => void act(record.id, 'apply')}>
-            应用
+            {intl.formatMessage({ id: 'evolution.apply', defaultMessage: 'Apply' })}
           </Button>
-          <Popconfirm title="确定回滚该提案？" onConfirm={() => void act(record.id, 'rollback')}>
-            <Button size="small" loading={actingId === record.id}>回滚</Button>
+          <Popconfirm
+            title={intl.formatMessage({
+              id: 'evolution.confirmRollback',
+              defaultMessage: 'Roll back this proposal?',
+            })}
+            onConfirm={() => void act(record.id, 'rollback')}
+          >
+            <Button size="small" loading={actingId === record.id}>
+              {intl.formatMessage({ id: 'evolution.rollback', defaultMessage: 'Rollback' })}
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -140,20 +154,26 @@ export default function Evolution() {
   return (
     <div data-testid="evolution-page">
       <PageHeader
-        title="进化管理"
-        description="生成、评审、应用与回滚流程进化提案"
+        title={intl.formatMessage({ id: 'evolution.header.title', defaultMessage: 'Evolution management' })}
+        description={intl.formatMessage({
+          id: 'evolution.header.desc',
+          defaultMessage: 'Generate, review, apply and roll back workflow evolution proposals',
+        })}
         actions={
           <Space>
             <Button icon={<ExperimentOutlined />} onClick={() => setGenOpen(true)} data-testid="generate-proposals-btn">
-              生成提案
+              {intl.formatMessage({ id: 'evolution.generate', defaultMessage: 'Generate proposals' })}
             </Button>
             <Button icon={<ReloadOutlined />} onClick={() => void retro()} data-testid="retro-btn">
-              复盘
+              {intl.formatMessage({ id: 'evolution.retro', defaultMessage: 'Retrospective' })}
             </Button>
             <Button
               icon={<ReloadOutlined />}
               onClick={() => void load()}
-              aria-label="刷新提案列表"
+              aria-label={intl.formatMessage({
+                id: 'evolution.refreshAria',
+                defaultMessage: 'Refresh proposal list',
+              })}
               data-testid="refresh-proposals-btn"
             />
           </Space>
@@ -163,7 +183,10 @@ export default function Evolution() {
         <ProjectSelector
           value={projectId || undefined}
           onChange={setProjectId}
-          placeholder="选择项目（可选）"
+          placeholder={intl.formatMessage({
+            id: 'evolution.selectProject',
+            defaultMessage: 'Select project (optional)',
+          })}
         />
       </div>
       {retroResult !== null && (
@@ -171,7 +194,7 @@ export default function Evolution() {
           type="success"
           showIcon
           closable
-          message="复盘结果"
+          message={intl.formatMessage({ id: 'evolution.retroResult', defaultMessage: 'Retrospective result' })}
           description={<pre className="code-preview">{JSON.stringify(retroResult, null, 2)}</pre>}
           style={{ marginBottom: 16 }}
           data-testid="retro-result"
@@ -179,7 +202,12 @@ export default function Evolution() {
       )}
       <Card>
         {proposals.length === 0 && !loading ? (
-          <Empty description="暂无进化提案，点击「生成提案」或「复盘」开始" />
+          <Empty
+            description={intl.formatMessage({
+              id: 'evolution.empty',
+              defaultMessage: 'No evolution proposals; click "Generate proposals" or "Retrospective" to start',
+            })}
+          />
         ) : (
           <Table<EvolutionProposal>
             rowKey="id"
@@ -192,20 +220,26 @@ export default function Evolution() {
         )}
       </Card>
       <Modal
-        title="生成进化提案"
+        title={intl.formatMessage({ id: 'evolution.modal.title', defaultMessage: 'Generate evolution proposals' })}
         open={genOpen}
         onOk={generate}
         confirmLoading={generating}
         onCancel={() => setGenOpen(false)}
-        okText="生成"
-        cancelText="取消"
+        okText={intl.formatMessage({ id: 'evolution.generate', defaultMessage: 'Generate' })}
+        cancelText={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
         data-testid="generate-modal"
       >
         <Form form={form} layout="vertical" initialValues={{ min_evidence: 2, limit: 5 }}>
-          <Form.Item name="min_evidence" label="最小证据数">
+          <Form.Item
+            name="min_evidence"
+            label={intl.formatMessage({ id: 'evolution.modal.minEvidence', defaultMessage: 'Minimum evidence' })}
+          >
             <InputNumber min={1} max={20} style={{ width: '100%' }} data-testid="min-evidence-input" />
           </Form.Item>
-          <Form.Item name="limit" label="提案数量上限">
+          <Form.Item
+            name="limit"
+            label={intl.formatMessage({ id: 'evolution.modal.limit', defaultMessage: 'Proposal limit' })}
+          >
             <InputNumber min={1} max={50} style={{ width: '100%' }} data-testid="limit-input" />
           </Form.Item>
         </Form>

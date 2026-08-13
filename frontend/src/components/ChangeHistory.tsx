@@ -1,5 +1,6 @@
 import { Alert, Button, Empty, List, Popconfirm, Space, Tag, Typography } from 'antd';
 import { RollbackOutlined } from '@ant-design/icons';
+import { useIntl } from '../i18n';
 import type { ChangeData, ChangeRecord } from '../api/types';
 
 interface ChangeHistoryProps {
@@ -13,6 +14,7 @@ export function formatVersion(record: ChangeRecord): string {
 }
 
 export default function ChangeHistory({ data, loading = false, onRollback }: ChangeHistoryProps) {
+  const intl = useIntl();
   const records = data?.records ?? [];
   return (
     <div data-testid="change-history">
@@ -20,13 +22,13 @@ export default function ChangeHistory({ data, loading = false, onRollback }: Cha
         <Alert
           type="info"
           showIcon
-          message="变更概要"
+          message={intl.formatMessage({ id: 'changeHistory.summary', defaultMessage: 'Change summary' })}
           description={data.summary}
           style={{ marginBottom: 12 }}
         />
       )}
       {records.length === 0 ? (
-        <Empty description="暂无变更记录" />
+        <Empty description={intl.formatMessage({ id: 'changeHistory.empty', defaultMessage: 'No change records' })} />
       ) : (
         <List
           loading={loading}
@@ -38,14 +40,20 @@ export default function ChangeHistory({ data, loading = false, onRollback }: Cha
                 actions={[
                   <Popconfirm
                     key="rollback"
-                    title={`确定回滚到 ${version} 吗？`}
-                    description="回滚会重置工作区至该版本"
+                    title={intl.formatMessage(
+                      { id: 'changeHistory.confirmTitle', defaultMessage: 'Rollback to {version}?' },
+                      { version },
+                    )}
+                    description={intl.formatMessage({
+                      id: 'changeHistory.confirmDesc',
+                      defaultMessage: 'Rollback resets the workspace to this version',
+                    })}
                     onConfirm={() => onRollback(record.version ?? record.ts ?? version)}
-                    okText="回滚"
-                    cancelText="取消"
+                    okText={intl.formatMessage({ id: 'changeHistory.rollback', defaultMessage: 'Rollback' })}
+                    cancelText={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
                   >
                     <Button size="small" icon={<RollbackOutlined />} data-testid={`rollback-${version}`}>
-                      回滚
+                      {intl.formatMessage({ id: 'changeHistory.rollback', defaultMessage: 'Rollback' })}
                     </Button>
                   </Popconfirm>,
                 ]}
@@ -61,7 +69,9 @@ export default function ChangeHistory({ data, loading = false, onRollback }: Cha
                   }
                   description={
                     <Typography.Text type="secondary">
-                      {record.ts ?? ''} {record.summary ?? '（无摘要）'}
+                      {record.ts ?? ''}{' '}
+                      {record.summary ??
+                        intl.formatMessage({ id: 'changeHistory.noSummary', defaultMessage: '(No summary)' })}
                     </Typography.Text>
                   }
                 />

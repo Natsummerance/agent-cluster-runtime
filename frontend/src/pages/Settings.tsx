@@ -1,19 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Alert, Button, Card, Form, Input, message, Space, Switch, Typography } from 'antd';
+import { Alert, Button, Card, Form, Input, message, Select, Space, Switch, Typography } from 'antd';
 import { CheckCircleOutlined, SaveOutlined } from '@ant-design/icons';
 import { useAppStore, apiErrorMessage } from '../store/appStore';
+import { LOCALES } from '../i18n';
+import type { Locale } from '../i18n';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 
 export default function Settings() {
+  const intl = useIntl();
   const serverUrl = useAppStore((s) => s.serverUrl);
   const authToken = useAppStore((s) => s.authToken);
   const darkMode = useAppStore((s) => s.darkMode);
+  const locale = useAppStore((s) => s.locale);
   const connected = useAppStore((s) => s.connected);
   const status = useAppStore((s) => s.status);
   const error = useAppStore((s) => s.error);
   const setServerUrl = useAppStore((s) => s.setServerUrl);
   const setAuthToken = useAppStore((s) => s.setAuthToken);
   const setDarkMode = useAppStore((s) => s.setDarkMode);
+  const setLocale = useAppStore((s) => s.setLocale);
   const refreshStatus = useAppStore((s) => s.refreshStatus);
   const [form] = Form.useForm();
   const [testing, setTesting] = useState(false);
@@ -30,7 +36,12 @@ export default function Settings() {
       const values = await form.validateFields();
       setServerUrl(values.serverUrl.trim());
       setAuthToken((values.authToken ?? '').trim());
-      message.success('设置已保存（已写入本地存储）');
+      message.success(
+        intl.formatMessage({
+          id: 'settings.saved',
+          defaultMessage: 'Settings saved (written to local storage)',
+        }),
+      );
     } catch (err) {
       if (isValidationError(err)) return;
       message.error(apiErrorMessage(err));
@@ -51,7 +62,12 @@ export default function Settings() {
     await refreshStatus();
     setTesting(false);
     if (useAppStore.getState().connected) {
-      message.success(`连接成功，后端版本 ${useAppStore.getState().status?.version ?? '-'}`);
+      message.success(
+        intl.formatMessage(
+          { id: 'settings.testOk', defaultMessage: 'Connection OK, backend version {version}' },
+          { version: useAppStore.getState().status?.version ?? '-' },
+        ),
+      );
     } else {
       message.error(apiErrorMessage(useAppStore.getState().error));
     }
@@ -59,24 +75,51 @@ export default function Settings() {
 
   return (
     <div data-testid="settings-page" style={{ maxWidth: 640 }}>
-      <PageHeader title="设置" description="后端连接与外观偏好（本地持久化）" />
-      <Card className="page-card" title="后端连接">
+      <PageHeader
+        title={intl.formatMessage({ id: 'settings.header.title', defaultMessage: 'Settings' })}
+        description={intl.formatMessage({
+          id: 'settings.header.desc',
+          defaultMessage: 'Backend connection and appearance preferences (persisted locally)',
+        })}
+      />
+      <Card className="page-card" title={intl.formatMessage({ id: 'settings.connCard', defaultMessage: 'Backend connection' })}>
         <Form form={form} layout="vertical" initialValues={{ serverUrl, authToken }}>
           <Form.Item
             name="serverUrl"
-            label="服务器地址"
+            label={intl.formatMessage({ id: 'settings.serverUrl', defaultMessage: 'Server address' })}
             rules={[
-              { required: true, message: '请输入服务器地址' },
+              {
+                required: true,
+                message: intl.formatMessage({
+                  id: 'settings.serverUrlRequired',
+                  defaultMessage: 'Please enter the server address',
+                }),
+              },
               {
                 pattern: /^https?:\/\/.+/,
-                message: '地址需以 http:// 或 https:// 开头',
+                message: intl.formatMessage({
+                  id: 'settings.serverUrlPattern',
+                  defaultMessage: 'Address must start with http:// or https://',
+                }),
               },
             ]}
           >
             <Input placeholder="http://127.0.0.1:8765" data-testid="server-url-input" />
           </Form.Item>
-          <Form.Item name="authToken" label="认证令牌（X-Auth-Token，可选）">
-            <Input.Password placeholder="留空表示无需认证" data-testid="auth-token-input" />
+          <Form.Item
+            name="authToken"
+            label={intl.formatMessage({
+              id: 'settings.authToken',
+              defaultMessage: 'Auth token (X-Auth-Token, optional)',
+            })}
+          >
+            <Input.Password
+              placeholder={intl.formatMessage({
+                id: 'settings.authTokenPlaceholder',
+                defaultMessage: 'Leave empty for no authentication',
+              })}
+              data-testid="auth-token-input"
+            />
           </Form.Item>
           <Space>
             <Button
@@ -85,7 +128,7 @@ export default function Settings() {
               onClick={() => void save()}
               data-testid="save-settings-btn"
             >
-              保存设置
+              {intl.formatMessage({ id: 'settings.save', defaultMessage: 'Save settings' })}
             </Button>
             <Button
               icon={<CheckCircleOutlined />}
@@ -93,28 +136,76 @@ export default function Settings() {
               onClick={() => void testConnection()}
               data-testid="test-connection-btn"
             >
-              测试连接
+              {intl.formatMessage({ id: 'settings.test', defaultMessage: 'Test connection' })}
             </Button>
           </Space>
         </Form>
         <div style={{ marginTop: 16 }}>
           {connected === false && (
-            <Alert type="error" showIcon message="连接失败" description={error ?? '请确认后端已启动'} data-testid="settings-conn-error" />
+            <Alert
+              type="error"
+              showIcon
+              message={intl.formatMessage({ id: 'layout.connectionFailed', defaultMessage: 'Connection failed' })}
+              description={
+                error ??
+                intl.formatMessage({
+                  id: 'settings.connErrorHint',
+                  defaultMessage: 'Please confirm the backend is running',
+                })
+              }
+              data-testid="settings-conn-error"
+            />
           )}
           {connected === true && (
-            <Alert type="success" showIcon message={`已连接（版本 ${status?.version ?? '-'}）`} data-testid="settings-conn-ok" />
+            <Alert
+              type="success"
+              showIcon
+              message={intl.formatMessage(
+                { id: 'settings.connectedVersion', defaultMessage: 'Connected (version {version})' },
+                { version: status?.version ?? '-' },
+              )}
+              data-testid="settings-conn-ok"
+            />
           )}
         </div>
       </Card>
-      <Card title="外观">
-        <Space>
-          <Typography.Text>深色模式</Typography.Text>
-          <Switch checked={darkMode} onChange={setDarkMode} aria-label="深色模式" data-testid="settings-dark-switch" />
+      <Card
+        title={intl.formatMessage({ id: 'settings.appearanceCard', defaultMessage: 'Appearance' })}
+        style={{ marginTop: 16 }}
+      >
+        <Space direction="vertical" size="middle">
+          <Space>
+            <Typography.Text>
+              {intl.formatMessage({ id: 'common.darkMode', defaultMessage: 'Dark mode' })}
+            </Typography.Text>
+            <Switch
+              checked={darkMode}
+              onChange={setDarkMode}
+              aria-label={intl.formatMessage({ id: 'common.darkMode', defaultMessage: 'Dark mode' })}
+              data-testid="settings-dark-switch"
+            />
+          </Space>
+          <Space>
+            <Typography.Text>
+              {intl.formatMessage({ id: 'settings.language', defaultMessage: 'Language' })}
+            </Typography.Text>
+            <Select
+              value={locale}
+              onChange={(value) => setLocale(value as Locale)}
+              options={LOCALES.map((value) => ({ value, label: value }))}
+              style={{ width: 140 }}
+              aria-label={intl.formatMessage({ id: 'settings.language', defaultMessage: 'Language' })}
+              data-testid="settings-language-select"
+            />
+          </Space>
         </Space>
       </Card>
       <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
-        提示：设置通过 localStorage 持久化；请先在本机启动{' '}
-        <Typography.Text code>agent-cluster serve</Typography.Text>（默认端口 8765）。
+        {intl.formatMessage({
+          id: 'settings.tip',
+          defaultMessage: 'Settings are persisted via localStorage; start agent-cluster serve on this machine first (default port 8765).',
+        })}{' '}
+        <Typography.Text code>agent-cluster serve</Typography.Text>
       </Typography.Paragraph>
     </div>
   );

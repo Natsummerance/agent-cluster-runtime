@@ -1,8 +1,11 @@
 // 全局应用 store：serverUrl / authToken / darkMode 本地持久化 + 状态/项目/指标
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { createIntl } from 'react-intl';
 import { ApiError, configureApi, DEFAULT_BASE_URL } from '../api/client';
 import * as api from '../api/endpoints';
+import { DEFAULT_LOCALE, errorCodeOf, MESSAGES } from '../i18n';
+import type { Locale } from '../i18n';
 import type { MetricsData, Project, StatusData } from '../api/types';
 
 export interface CreateProjectInput {
@@ -14,6 +17,7 @@ interface AppState {
   serverUrl: string;
   authToken: string;
   darkMode: boolean;
+  locale: Locale;
   status: StatusData | null;
   projects: Project[];
   metrics: MetricsData | null;
@@ -23,6 +27,7 @@ interface AppState {
   setServerUrl(url: string): void;
   setAuthToken(token: string): void;
   setDarkMode(dark: boolean): void;
+  setLocale(locale: Locale): void;
   syncApi(): void;
   refreshStatus(): Promise<void>;
   refreshProjects(): Promise<void>;
@@ -36,6 +41,7 @@ const initialState = {
   serverUrl: DEFAULT_BASE_URL,
   authToken: '',
   darkMode: false,
+  locale: DEFAULT_LOCALE,
   status: null as StatusData | null,
   projects: [] as Project[],
   metrics: null as MetricsData | null,
@@ -59,6 +65,9 @@ export const useAppStore = create<AppState>()(
       },
       setDarkMode(dark: boolean) {
         set({ darkMode: dark });
+      },
+      setLocale(locale: Locale) {
+        set({ locale });
       },
       syncApi() {
         configureApi({ baseUrl: get().serverUrl, authToken: get().authToken || null });
@@ -133,6 +142,7 @@ export const useAppStore = create<AppState>()(
         serverUrl: state.serverUrl,
         authToken: state.authToken,
         darkMode: state.darkMode,
+        locale: state.locale,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
@@ -144,6 +154,17 @@ export const useAppStore = create<AppState>()(
 );
 
 export function apiErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) {
+    const code = errorCodeOf(err);
+    if (code) {
+      const locale = useAppStore.getState().locale;
+      const id = `errors.${code}`;
+      const messages = MESSAGES[locale];
+      if (messages[id]) {
+        return createIntl({ locale, messages }).formatMessage({ id });
+      }
+    }
+    return err.message;
+  }
   return err instanceof Error ? err.message : String(err);
 }

@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
+import { renderWithIntl } from './renderWithIntl';
 import userEvent from '@testing-library/user-event';
 import ChangeHistory from '../components/ChangeHistory';
 import type { ChangeData } from '../api/types';
 
 describe('ChangeHistory', () => {
   it('渲染变更概要', () => {
-    render(<ChangeHistory data={{ records: [], summary: '共 0 条' }} onRollback={vi.fn()} />);
+    renderWithIntl(<ChangeHistory data={{ records: [], summary: '共 0 条' }} onRollback={vi.fn()} />);
     expect(screen.getByText('共 0 条')).toBeInTheDocument();
   });
 
@@ -18,7 +19,7 @@ describe('ChangeHistory', () => {
         { version: 2, ts: '2026-01-02T00:00:00', summary: '添加登录', type: 'edit' },
       ],
     };
-    render(<ChangeHistory data={data} onRollback={vi.fn()} />);
+    renderWithIntl(<ChangeHistory data={data} onRollback={vi.fn()} />);
     const versions = screen.getAllByTestId('change-version');
     expect(versions).toHaveLength(2);
     expect(versions[0]).toHaveTextContent('v1');
@@ -28,7 +29,7 @@ describe('ChangeHistory', () => {
 
   it('点击回滚按钮经确认后触发 onRollback', async () => {
     const onRollback = vi.fn();
-    render(<ChangeHistory data={{ records: [{ version: 3, ts: 't', summary: 'x' }] }} onRollback={onRollback} />);
+    renderWithIntl(<ChangeHistory data={{ records: [{ version: 3, ts: 't', summary: 'x' }] }} onRollback={onRollback} />);
     await userEvent.click(screen.getByTestId('rollback-3'));
     const title = await screen.findByText('确定回滚到 3 吗？');
     const popover = title.closest('.ant-popover') as HTMLElement;
@@ -38,7 +39,7 @@ describe('ChangeHistory', () => {
   });
 
   it('无记录时显示空状态', () => {
-    render(<ChangeHistory data={{ records: [] }} onRollback={vi.fn()} />);
+    renderWithIntl(<ChangeHistory data={{ records: [] }} onRollback={vi.fn()} />);
     expect(screen.getByText('暂无变更记录')).toBeInTheDocument();
   });
 });

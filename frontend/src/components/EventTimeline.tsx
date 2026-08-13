@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Select, Space, Timeline, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import type { IntlShape } from 'react-intl';
 import { useSessionStore } from '../store/sessionStore';
+import { useIntl } from '../i18n';
 import type { SessionEvent } from '../api/types';
 
 const TYPE_COLOR: Record<string, string> = {
@@ -16,17 +18,23 @@ const TYPE_COLOR: Record<string, string> = {
   error: 'red',
 };
 
-const TYPE_LABEL: Record<string, string> = {
-  session_start: '会话开始',
-  phase_start: '阶段开始',
-  gate: '审批门',
-  approval: '审批',
-  tool_call: '工具调用',
-  message: '消息',
-  checkpoint: '检查点',
-  session_end: '会话结束',
-  error: '错误',
+const TYPE_LABEL_ID: Record<string, string> = {
+  session_start: 'events.type.sessionStart',
+  phase_start: 'events.type.phaseStart',
+  gate: 'events.type.gate',
+  approval: 'events.type.approval',
+  tool_call: 'events.type.toolCall',
+  message: 'events.type.message',
+  checkpoint: 'events.type.checkpoint',
+  session_end: 'events.type.sessionEnd',
+  error: 'events.type.error',
 };
+
+function typeLabel(intl: IntlShape, type?: string): string {
+  if (!type) return '';
+  const id = TYPE_LABEL_ID[type];
+  return id ? intl.formatMessage({ id, defaultMessage: type }) : type;
+}
 
 function eventSummary(event: SessionEvent): string {
   const d = event.data;
@@ -44,6 +52,7 @@ function eventSummary(event: SessionEvent): string {
 }
 
 export default function EventTimeline({ sessionId }: { sessionId: string }) {
+  const intl = useIntl();
   const events = useSessionStore((s) => s.events[sessionId] ?? []);
   const error = useSessionStore((s) => s.eventErrors[sessionId] ?? null);
   const subscribe = useSessionStore((s) => s.subscribe);
@@ -70,12 +79,12 @@ export default function EventTimeline({ sessionId }: { sessionId: string }) {
       <Space style={{ marginBottom: 12 }} wrap>
         <Select
           allowClear
-          placeholder="按类型过滤"
-          aria-label="按事件类型过滤"
+          placeholder={intl.formatMessage({ id: 'events.filterPlaceholder', defaultMessage: 'Filter by type' })}
+          aria-label={intl.formatMessage({ id: 'events.filterAria', defaultMessage: 'Filter by event type' })}
           style={{ width: 200 }}
           value={filter}
           onChange={setFilter}
-          options={types.map((t) => ({ value: t, label: TYPE_LABEL[t] ?? t }))}
+          options={types.map((t) => ({ value: t, label: typeLabel(intl, t) }))}
           data-testid="event-filter"
         />
         <Button
@@ -83,21 +92,26 @@ export default function EventTimeline({ sessionId }: { sessionId: string }) {
           onClick={() => subscribe(sessionId)}
           data-testid="event-reconnect"
         >
-          重连/刷新
+          {intl.formatMessage({ id: 'events.reconnect', defaultMessage: 'Reconnect' })}
         </Button>
-        <Typography.Text type="secondary">共 {events.length} 条事件（SSE 实时）</Typography.Text>
+        <Typography.Text type="secondary">
+          {intl.formatMessage(
+            { id: 'events.count', defaultMessage: '{count} events (SSE live)' },
+            { count: events.length },
+          )}
+        </Typography.Text>
       </Space>
       {error && (
         <Alert
           type="warning"
           showIcon
-          message="事件流连接异常"
+          message={intl.formatMessage({ id: 'events.errorTitle', defaultMessage: 'Event stream connection error' })}
           description={error}
           style={{ marginBottom: 12 }}
         />
       )}
       {visible.length === 0 ? (
-        <Empty description="暂无事件" />
+        <Empty description={intl.formatMessage({ id: 'events.empty', defaultMessage: 'No events' })} />
       ) : (
         <Timeline
           items={visible
@@ -114,7 +128,7 @@ export default function EventTimeline({ sessionId }: { sessionId: string }) {
                   <div data-testid={`event-item-${seq}`}>
                     <Space size="small" wrap>
                       <Typography.Text strong data-testid="event-type">
-                        {TYPE_LABEL[event.type] ?? event.type}
+                        {typeLabel(intl, event.type)}
                       </Typography.Text>
                       <Typography.Text type="secondary" className="mono">
                         #{seq}

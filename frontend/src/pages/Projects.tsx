@@ -15,10 +15,12 @@ import { PlusOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { apiErrorMessage } from '../store/appStore';
+import { useIntl } from '../i18n';
 import PageHeader from '../components/PageHeader';
 import type { Project } from '../api/types';
 
 export default function Projects() {
+  const intl = useIntl();
   const projects = useAppStore((s) => s.projects);
   const refreshProjects = useAppStore((s) => s.refreshProjects);
   const createProject = useAppStore((s) => s.createProject);
@@ -35,7 +37,12 @@ export default function Projects() {
       const values = await form.validateFields();
       setCreating(true);
       await createProject({ name: values.name.trim(), workspace: values.workspace.trim() });
-      message.success(`项目「${values.name}」创建成功`);
+      message.success(
+        intl.formatMessage(
+          { id: 'projects.createSuccess', defaultMessage: 'Project "{name}" created' },
+          { name: values.name },
+        ),
+      );
       setModalOpen(false);
       form.resetFields();
     } catch (err) {
@@ -44,40 +51,48 @@ export default function Projects() {
     } finally {
       setCreating(false);
     }
-  }, [form, createProject]);
+  }, [form, createProject, intl]);
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: intl.formatMessage({ id: 'common.name', defaultMessage: 'Name' }), dataIndex: 'name', key: 'name' },
     { title: 'ID', dataIndex: 'id', key: 'id', render: (v: string) => <Typography.Text className="mono">{v}</Typography.Text> },
-    { title: '工作区', dataIndex: 'workspace', key: 'workspace' },
+    { title: intl.formatMessage({ id: 'common.workspace', defaultMessage: 'Workspace' }), dataIndex: 'workspace', key: 'workspace' },
     {
-      title: '状态',
+      title: intl.formatMessage({ id: 'common.status', defaultMessage: 'Status' }),
       dataIndex: 'status',
       key: 'status',
       render: (v: string) => <Tag color={v === 'active' ? 'green' : 'default'}>{v}</Tag>,
     },
     {
-      title: '创建时间',
+      title: intl.formatMessage({ id: 'common.createdAt', defaultMessage: 'Created at' }),
       dataIndex: 'created_at',
       key: 'created_at',
       render: (v?: string) => (v ? String(v).slice(0, 19) : '-'),
     },
     {
-      title: '操作',
+      title: intl.formatMessage({ id: 'common.actions', defaultMessage: 'Actions' }),
       key: 'actions',
       render: (_: unknown, record: Project) => (
         <Space>
           <Link to={`/projects/${record.id}/sessions`}>
-            <Button size="small" type="primary">会话</Button>
+            <Button size="small" type="primary">
+              {intl.formatMessage({ id: 'common.session', defaultMessage: 'Sessions' })}
+            </Button>
           </Link>
           <Link to={`/artifacts?project_id=${record.id}`}>
-            <Button size="small">工作区</Button>
+            <Button size="small">
+              {intl.formatMessage({ id: 'common.workspace', defaultMessage: 'Workspace' })}
+            </Button>
           </Link>
           <Link to={`/memory?project_id=${record.id}`}>
-            <Button size="small">记忆</Button>
+            <Button size="small">
+              {intl.formatMessage({ id: 'common.memory', defaultMessage: 'Memory' })}
+            </Button>
           </Link>
           <Link to={`/evolution?project_id=${record.id}`}>
-            <Button size="small">进化</Button>
+            <Button size="small">
+              {intl.formatMessage({ id: 'common.evolution', defaultMessage: 'Evolution' })}
+            </Button>
           </Link>
         </Space>
       ),
@@ -87,11 +102,14 @@ export default function Projects() {
   return (
     <div data-testid="projects-page">
       <PageHeader
-        title="项目管理"
-        description="创建项目并进入会话、工作区、记忆与进化"
+        title={intl.formatMessage({ id: 'projects.header.title', defaultMessage: 'Project management' })}
+        description={intl.formatMessage({
+          id: 'projects.header.desc',
+          defaultMessage: 'Create projects and jump to sessions, workspace, memory and evolution',
+        })}
         actions={
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)} data-testid="create-project-btn">
-            新建项目
+            {intl.formatMessage({ id: 'projects.create', defaultMessage: 'New project' })}
           </Button>
         }
       />
@@ -101,31 +119,68 @@ export default function Projects() {
           columns={columns}
           dataSource={projects}
           pagination={false}
-          locale={{ emptyText: '暂无项目，点击右上角新建' }}
+          locale={{
+            emptyText: intl.formatMessage({
+              id: 'projects.empty',
+              defaultMessage: 'No projects; click "New project" in the top right',
+            }),
+          }}
           data-testid="projects-table"
         />
       </Card>
       <Modal
-        title="新建项目"
+        title={intl.formatMessage({ id: 'projects.modal.title', defaultMessage: 'New project' })}
         open={modalOpen}
         onOk={handleCreate}
         confirmLoading={creating}
         onCancel={() => setModalOpen(false)}
-        okText="创建"
-        cancelText="取消"
+        okText={intl.formatMessage({ id: 'common.create', defaultMessage: 'Create' })}
+        cancelText={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
         destroyOnClose
         data-testid="create-project-modal"
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
-            <Input placeholder="例如：待办事项 Web 应用" data-testid="project-name-input" />
+          <Form.Item
+            name="name"
+            label={intl.formatMessage({ id: 'projects.modal.name', defaultMessage: 'Project name' })}
+            rules={[
+              {
+                required: true,
+                message: intl.formatMessage({
+                  id: 'projects.modal.nameRequired',
+                  defaultMessage: 'Please enter the project name',
+                }),
+              },
+            ]}
+          >
+            <Input
+              placeholder={intl.formatMessage({
+                id: 'projects.modal.namePlaceholder',
+                defaultMessage: 'e.g. Todo web app',
+              })}
+              data-testid="project-name-input"
+            />
           </Form.Item>
           <Form.Item
             name="workspace"
-            label="工作区路径"
-            rules={[{ required: true, message: '请输入工作区路径' }]}
+            label={intl.formatMessage({ id: 'projects.modal.workspace', defaultMessage: 'Workspace path' })}
+            rules={[
+              {
+                required: true,
+                message: intl.formatMessage({
+                  id: 'projects.modal.workspaceRequired',
+                  defaultMessage: 'Please enter the workspace path',
+                }),
+              },
+            ]}
           >
-            <Input placeholder="例如：.agent-cluster-demo/ws-todo" data-testid="project-workspace-input" />
+            <Input
+              placeholder={intl.formatMessage({
+                id: 'projects.modal.workspacePlaceholder',
+                defaultMessage: 'e.g. .agent-cluster-demo/ws-todo',
+              })}
+              data-testid="project-workspace-input"
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { CSSProperties } from 'react';
 import { Select } from 'antd';
 import { useAppStore } from '../store/appStore';
+import { useIntl } from '../i18n';
 
 interface ProjectSelectorProps {
   value?: string;
@@ -13,9 +14,10 @@ interface ProjectSelectorProps {
 export default function ProjectSelector({
   value,
   onChange,
-  placeholder = '选择项目',
+  placeholder,
   style,
 }: ProjectSelectorProps) {
+  const intl = useIntl();
   const projects = useAppStore((s) => s.projects);
   const refreshProjects = useAppStore((s) => s.refreshProjects);
 
@@ -26,11 +28,20 @@ export default function ProjectSelector({
   return (
     <Select
       showSearch
-      placeholder={placeholder}
+      placeholder={
+        placeholder ??
+        intl.formatMessage({ id: 'common.selectProject', defaultMessage: 'Select project' })
+      }
       style={{ minWidth: 260, ...style }}
       value={value}
       onChange={onChange}
-      options={projects.map((p) => ({ value: p.id, label: `${p.name}（${p.id}）` }))}
+      options={projects.map((p) => ({
+        value: p.id,
+        label: intl.formatMessage(
+          { id: 'projectSelector.option', defaultMessage: '{name} ({id})' },
+          { name: p.name, id: p.id },
+        ),
+      }))}
       optionFilterProp="label"
       data-testid="project-selector"
     />

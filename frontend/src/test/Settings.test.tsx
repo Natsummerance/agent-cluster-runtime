@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
+import { renderWithIntl } from './renderWithIntl';
 import userEvent from '@testing-library/user-event';
 import Settings from '../pages/Settings';
 import { useAppStore } from '../store/appStore';
@@ -16,13 +17,13 @@ beforeEach(() => {
 
 describe('Settings 页面', () => {
   it('渲染服务器地址与令牌输入框', () => {
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     expect(screen.getByTestId('server-url-input')).toBeInTheDocument();
     expect(screen.getByTestId('auth-token-input')).toBeInTheDocument();
   });
 
   it('保存设置写入 store 并持久化到 localStorage', async () => {
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     await userEvent.clear(screen.getByTestId('server-url-input'));
     await userEvent.type(screen.getByTestId('server-url-input'), 'http://127.0.0.1:9000');
     await userEvent.clear(screen.getByTestId('auth-token-input'));
@@ -37,7 +38,7 @@ describe('Settings 页面', () => {
 
   it('测试连接成功显示成功提示', async () => {
     setFetchImpl(async () => jsonResponse({ ok: true, data: { version: '0.5.0', projects: 0, sessions: 0, active_sessions: 0, uptime: 1 } }));
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     await userEvent.click(screen.getByTestId('test-connection-btn'));
     await waitFor(() => expect(useAppStore.getState().connected).toBe(true));
     expect(await screen.findByTestId('settings-conn-ok')).toBeInTheDocument();
@@ -47,14 +48,14 @@ describe('Settings 页面', () => {
     setFetchImpl(async () => {
       throw new TypeError('Failed to fetch');
     });
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     await userEvent.click(screen.getByTestId('test-connection-btn'));
     await waitFor(() => expect(useAppStore.getState().connected).toBe(false));
     expect(await screen.findByTestId('settings-conn-error')).toBeInTheDocument();
   });
 
   it('非法地址校验阻止保存', async () => {
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     await userEvent.clear(screen.getByTestId('server-url-input'));
     await userEvent.type(screen.getByTestId('server-url-input'), 'not-a-url');
     await userEvent.click(screen.getByTestId('save-settings-btn'));
@@ -63,7 +64,7 @@ describe('Settings 页面', () => {
   });
 
   it('深色模式开关切换 darkMode', async () => {
-    render(<Settings />);
+    renderWithIntl(<Settings />);
     await userEvent.click(screen.getByTestId('settings-dark-switch'));
     expect(useAppStore.getState().darkMode).toBe(true);
   });

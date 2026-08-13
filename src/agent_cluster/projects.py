@@ -271,11 +271,15 @@ class ProjectStore:
         description: str = "",
         default_flow: str = DEFAULT_FLOW,
         metadata: dict[str, str] | None = None,
+        project_id: str | None = None,
     ) -> ProjectRecord:
-        """创建项目；workspace 含 v0.5 session.json 时执行 §4 迁移为项目首个会话。"""
+        """创建项目；workspace 含 v0.5 session.json 时执行 §4 迁移为项目首个会话。
+
+        ``project_id`` 缺省自动生成（T13.5：serve 双写全局索引时传入同值）。
+        """
         workspace_path = Path(workspace).expanduser().resolve()
         project = ProjectRecord(
-            project_id=uuid.uuid4().hex[:12],
+            project_id=project_id or uuid.uuid4().hex[:12],
             name=name,
             description=description,
             workspaces=[str(workspace_path)],

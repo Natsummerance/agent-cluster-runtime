@@ -674,6 +674,8 @@ class SessionStore:
             (self.dir / ".gitignore").write_text("*\n", encoding="utf-8")
             self.path = self.dir / "session.json"
         self.record = self._load_or_new(session_id)
+        if project_id:
+            self.record = self.record.model_copy(update={"project_id": project_id})
 
     def _load_or_new(self, session_id: str | None) -> SessionRecord:
         try:
@@ -749,6 +751,9 @@ class SessionDriver:
         resume: bool = False,
         checkpoint_root: str | Path | None = None,
         budget_pool_hook: Callable[[SessionRecord], None] | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        store_root: str | Path | None = None,
         qa_script: Sequence[str] | None = None,
         tool_script: Sequence[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
@@ -812,7 +817,13 @@ class SessionDriver:
                 "delivery": "delivery",
             }
         )
-        self.store = SessionStore(self.workspace)
+        self.project_id = project_id
+        self.store = SessionStore(
+            self.workspace,
+            session_id=session_id,
+            project_id=project_id,
+            root=store_root,
+        )
         record = self.store.record
         if self.resume:
             if record.status != "active":

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import mimetypes
 import os
 import queue
@@ -31,6 +32,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from agent_cluster.memory import MemoryStore
 from agent_cluster.evolution_integration import EvolutionBridge
+from agent_cluster.projects import ProjectStore
+from agent_cluster.session_manager import SessionManager, SessionWorktree
 from agent_cluster.memory import MemoryStore
 from agent_cluster.models import TokenUsage
 from agent_cluster.pricing import CostLedger
@@ -49,6 +52,8 @@ __all__ = [
     "WorkbenchServer",
     "serve_main",
 ]
+
+logger = logging.getLogger("agent-cluster")
 
 INDEX_DIR = Path.home() / ".agent-cluster"
 MAX_FILE_BYTES = 2 * 1024 * 1024  # 文件预览上限 2MB
@@ -172,13 +177,34 @@ class GlobalIndex:
 class ServerSession:
     """运行中的会话句柄：线程 + 事件日志 + HITL 桥接。"""
 
-    def __init__(self, session_id: str, project_id: str, workspace: Path, spec: dict) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        project_id: str,
+        workspace: Path,
+        spec: dict,
+        *,
+        worktree_path: Path | None = None,
+        main_workspace: Path | None = None,
+        store_root: Path | None = None,
+        checkpoint_root: Path | None = None,
+        budget_pool_hook: Any | None = None,
+    ) -> None:
         self.session_id = session_id
         self.project_id = project_id
         self.workspace = workspace
         self.spec = spec
         self.log = SessionEventLog()
         self.status = "starting"
+        # v0.6 T13.5 增量字段（§8.1：取消 / stdin / worktree / 合并冲突）
+        self.cancel_event = threading.Event()
+        self.stdin_queue: queue.Queue[str] = queue.Queue()
+        self.worktree_path = worktree_path
+        self.main_workspace = main_workspace
+        self.merge_conflict = False
+        self.store_root = store_root
+        self.checkpoint_root = checkpoint_root
+        self.budget_pool_hook = budget_pool_hook
         self.pending_hint: str = ""
         self.current_phase: str = ""
         self.current_node: str = ""
@@ -204,10 +230,17 @@ class ServerSession:
         span = self.tracer.start_span("approval.wait", kind="approval", hint=hint)
         try:
             while True:
+                if self.cancel_event.is_set():
+                    return "/abort"
                 try:
-                    answer = self._answer_queue.get(timeout=30)
+                    answer = self.stdin_queue.get_nowait()
                 except queue.Empty:
-                    continue
+                    answer = None
+                if answer is None:
+                    try:
+                        answer = self._answer_queue.get(timeout=0.25)
+                    except queue.Empty:
+                        continue
                 return answer
         finally:
             self.tracer.end_span(span)
@@ -265,6 +298,11 @@ class ServerSession:
                     print_fn=self._print_fn,
                     prompt_fn=self._prompt_fn,
                     event_printer=self._event_printer,
+                    project_id=self.project_id,
+                    session_id=self.session_id,
+                    store_root=self.store_root,
+                    checkpoint_root=self.checkpoint_root,
+                    budget_pool_hook=self.budget_pool_hook,
                 )
                 self.driver = driver
                 self.status = "running"
@@ -284,9 +322,30 @@ class ServerSession:
                 )
             finally:
                 self.tracer.end_span(span)
+                self._finish_worktree()
 
         self.thread = threading.Thread(target=_run, name=f"session-{self.session_id}", daemon=True)
         self.thread.start()
+
+    def _finish_worktree(self) -> None:
+        """§8.2 收尾：完成（exit_code=0）→ merge_back；冲突保留现场；其余丢弃不合并。"""
+        if self.worktree_path is None or self.main_workspace is None:
+            return
+        try:
+            helper = SessionWorktree(self.main_workspace, self.session_id)
+            if self.status == "completed" and self.exit_code == 0:
+                merged = helper.merge_back()
+                if not merged["ok"]:
+                    self.merge_conflict = True
+                    self.log.append(
+                        {"type": "worktree.merge_conflict", "session_id": self.session_id, "payload": merged}
+                    )
+            else:
+                helper.close()
+        except Exception as exc:  # noqa: BLE001 —— 收尾失败不吞会话结果，审计落日志
+            self.log.append(
+                {"type": "worktree.finish_error", "session_id": self.session_id, "payload": {"error": str(exc)}}
+            )
 
     def snapshot(self) -> dict[str, Any]:
         driver = self.driver
@@ -418,13 +477,20 @@ class WorkbenchServer:
         self.port = port
         self.auth_token = auth_token
         self.index = GlobalIndex()
-        self.sessions: dict[str, ServerSession] = {}
         self._lock = threading.Lock()
+        # v0.6 T13.5：会话注册表委托 SessionManager（ProjectStore 与全局索引同根，测试经 INDEX_DIR 隔离）
+        self._project_store = ProjectStore(root=INDEX_DIR)
+        self.manager = SessionManager(self._project_store)
         self._plugins_dir = list(plugins_dir or [])
         self.mcp_servers = list(mcp_servers or [])
         self.mcp_http_servers = list(mcp_http_servers or [])
         self._plugin_manager: Any = self._build_plugin_manager()
         self._skills_loader: Any = None
+
+    @property
+    def sessions(self) -> dict[str, ServerSession]:
+        """v0.5 兼容出口：委托 SessionManager 注册表（公开行为不变）。"""
+        return self.manager.sessions
 
     def _build_plugin_manager(self) -> Any:
         """扫描插件目录（失败返回 None，不阻断 serve 启动）。"""
@@ -477,35 +543,38 @@ class WorkbenchServer:
         project_id = uuid.uuid4().hex[:12]
         root = Path(workspace).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
-        return self.index.add_project(project_id, name, str(root))
+        entry = self.index.add_project(project_id, name, str(root))
+        # v0.6 T13.5：同 pid 双写 ProjectStore（SessionManager 数据源；失败不阻断 v0.5 行为）
+        try:
+            self._project_store.create_project(name=name, workspace=root, project_id=project_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[serve] ProjectStore 双写项目失败：%s", exc)
+        return entry
 
     def list_projects(self) -> list[dict]:
         return list(self.index.projects.values())
 
     def start_session(self, project_id: str, spec: dict) -> dict:
-        project = self.index.projects.get(project_id)
-        if not project:
-            raise KeyError(f"项目不存在：{project_id}")
-        session_id = uuid.uuid4().hex[:12]
-        workspace = Path(project["workspace"]).expanduser().resolve()
         spec.setdefault("goal", "")
         if not spec.get("goal"):
             raise ValueError("goal 不能为空")
-        server_session = ServerSession(session_id, project_id, workspace, spec)
-        with self._lock:
-            self.sessions[session_id] = server_session
-        self.index.add_session(session_id, project_id, str(workspace), spec["goal"], str(spec.get("model") or "codex"))
-        server_session.log.append(
-            {"type": "session.start", "session_id": session_id, "payload": {"goal": spec["goal"]}}
+        # v0.6 T13.5：委托 SessionManager（预算 → 并发判定 → worktree → 线程启动）
+        server_session = self.manager.start(project_id, spec)
+        self.index.add_session(
+            server_session.session_id,
+            project_id,
+            str(server_session.workspace),
+            spec["goal"],
+            str(spec.get("model") or "codex"),
         )
-        server_session.start()
-        return {"session_id": session_id, "project_id": project_id, "workspace": str(workspace)}
+        return {
+            "session_id": server_session.session_id,
+            "project_id": project_id,
+            "workspace": str(server_session.workspace),
+        }
 
     def get_session(self, session_id: str) -> ServerSession:
-        session = self.sessions.get(session_id)
-        if not session:
-            raise KeyError(f"会话不存在：{session_id}")
-        return session
+        return self.manager.get(session_id)
 
     def project_workspace(self, project_id: str) -> Path:
         project = self.index.projects.get(project_id)

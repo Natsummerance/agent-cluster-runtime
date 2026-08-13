@@ -1,6 +1,6 @@
 # agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
 
-> 版本：0.6.2 ｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
+> 版本：0.6.2（[GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)）｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
 > 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
 
 ## 项目简介
@@ -80,6 +80,7 @@ dmg+zip / linux deb）与 electron-updater 双通道自动更新、GitHub Action
 
 - [产品介绍（docs/PRODUCT.md）](docs/PRODUCT.md) —— 定位、特性、架构、岗位/会议/进化机制、技术栈与路线图
 - [用户手册（docs/MANUAL.md）](docs/MANUAL.md) —— 安装、CLI 参考、模型接入、流程 YAML 编写、技能/岗位/进化操作、FAQ
+- [项目经验库（docs/lessons/README.md）](docs/lessons/README.md) —— 踩坑/根因/预防索引（按需加载，含 3 次即停调试协议）
 
 ## 架构图
 
@@ -105,8 +106,19 @@ flowchart TD
     P7 -. 度量信号 .-> E1
 ```
 
-## 安装与运行
+## 下载与安装（桌面工作台发布版）
 
+无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)
+（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.6.2](https://github.com/Natsummerance/agent-cluster-runtime/releases/tag/v0.6.2)）：
+
+- **Windows**：`AgentClusterWorkbench-Setup-0.6.2.exe`（x64+arm64 合并安装包；或按架构的 `Setup 0.6.2 x64.exe` / `Setup 0.6.2 arm64.exe`）
+- **macOS**：`AgentClusterWorkbench-0.6.2-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
+- **Linux**：`AgentClusterWorkbench-0.6.2-amd64.deb`（Debian/Ubuntu x64）
+
+桌面应用内置 electron-updater 自动更新（启动时检查，读 Releases 的 `latest*.yml` 元数据），
+小版本升级无需手动下载；CLI 与源码运行方式见下节「安装与运行」。
+
+## 安装与运行
 前置：Python 3.11+ 与 [uv](https://docs.astral.sh/uv/)（Windows/macOS/Linux 均可）。
 
 ```bash

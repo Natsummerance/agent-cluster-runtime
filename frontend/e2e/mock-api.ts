@@ -376,12 +376,12 @@ export async function installApiMocks(page: Page, opts: MockOptions = {}) {
   });
   await page.route('**/api/v1/mcp', async (route) => {
     if (await fail(route)) return;
-    return route.fulfill({ json: envelope({ note: 'MCP 集成待配置，占位返回' }) });
+    return route.fulfill({ json: envelope({ stdio: [], http: [], note: 'MCP 集成待配置，占位返回' }) });
   });
 
   await page.route('**/api/v1/evolution/proposals*', async (route) => {
     if (await fail(route)) return;
-    return route.fulfill({ json: envelope(mockProposals) });
+    return route.fulfill({ json: envelope({ proposals: mockProposals }) });
   });
   await page.route('**/api/v1/evolution/generate', async (route) => {
     if (await fail(route)) return;

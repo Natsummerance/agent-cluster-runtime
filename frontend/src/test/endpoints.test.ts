@@ -159,4 +159,12 @@ describe('api endpoints 路由', () => {
     expect(skills).toEqual([2]);
     expect(mcp).toEqual([3]);
   });
+  it('fetchMcp 兼容 IntegrationNote（真后端 stdio/http/note 信封）', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      jsonResponse({ ok: true, data: { stdio: ['s1'], http: [], note: 'MCP 工具在会话启动时注册' } }),
+    );
+    setFetchImpl(fetchMock);
+    const mcp = await api.fetchMcp();
+    expect(mcp).toMatchObject({ note: 'MCP 工具在会话启动时注册' });
+  });
 });

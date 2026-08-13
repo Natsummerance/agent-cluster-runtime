@@ -149,9 +149,12 @@ export const fetchSkills = async (): Promise<unknown[]> => {
   const data = await apiRequest<{ skills?: unknown[] } | IntegrationNote>('/api/v1/skills');
   return Array.isArray(data) ? data : Array.isArray(data.skills) ? data.skills : [];
 };
-export const fetchMcp = async (): Promise<unknown[]> => {
+export const fetchMcp = async (): Promise<unknown[] | IntegrationNote> => {
   const data = await apiRequest<{ mcp?: unknown[] } | IntegrationNote>('/api/v1/mcp');
-  return Array.isArray(data) ? data : Array.isArray(data.mcp) ? data.mcp : [];
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.mcp)) return data.mcp;
+  if (data && typeof data === 'object' && 'note' in data) return data as IntegrationNote;
+  return [];
 };
 
 // ---- 进化 ----

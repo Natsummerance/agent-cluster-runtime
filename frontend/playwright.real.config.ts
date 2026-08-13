@@ -20,7 +20,7 @@ export default defineConfig({
   webServer: {
     command: 'uv run agent-cluster serve --port 8765 --auth-token ci',
     url: 'http://127.0.0.1:8765/api/v1/status',
-    reuseExistingServer: false,
+    reuseExistingServer: !!process.env.PW_REUSE_SERVER,
     timeout: 90_000,
   },
 });

@@ -149,11 +149,17 @@ jobs:
       - name: Package installers (${{ matrix.platform }} / ${{ matrix.arch }})
         working-directory: desktop
         run: ${{ matrix.build }}
-      - name: Upload artifacts
+      - name: Upload artifacts (installers only, not unpacked dirs)
         uses: actions/upload-artifact@v4
         with:
           name: package-${{ matrix.platform }}-${{ matrix.arch }}
-          path: desktop/dist/*
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.blockmap
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.deb
+            desktop/dist/latest*.yml
           if-no-files-found: error
 
   release:

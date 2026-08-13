@@ -1,9 +1,51 @@
-# agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
+<p align="center">
+  <img src="docs/logo.svg" width="170" alt="agent-cluster-runtime logo" />
+</p>
 
-> 版本：0.6.2（[GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)）｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
-> 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
+<h1 align="center">agent-cluster-runtime</h1>
 
-## 项目简介
+<p align="center"><b>多 Agent 组织型全栈开发集群运行时</b></p>
+
+<p align="center">
+  🧠 12 岗位三层治理 ｜ 🗣️ 7 类会议审批门（HITL） ｜ 🔁 YAML 流程 DSL → LangGraph ｜ ⚡ 无 LLM 也可运行
+</p>
+
+<p align="center">
+  <a href="https://github.com/Natsummerance/agent-cluster-runtime/releases"><img src="https://img.shields.io/github/v/release/Natsummerance/agent-cluster-runtime?label=Release&color=blue" alt="Release" /></a>
+  <a href="https://github.com/Natsummerance/agent-cluster-runtime/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Natsummerance/agent-cluster-runtime/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=white" alt="React" />
+  <img src="https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white" alt="Electron" />
+  <img src="https://img.shields.io/badge/Tests-650%20passed-brightgreen" alt="Tests" />
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Natsummerance/agent-cluster-runtime" alt="License" /></a>
+</p>
+
+<p align="center">
+  设计落地自 <a href="../agent-clusters/智能体集群设计方案.md">智能体集群设计方案（v1.0）</a>
+</p>
+
+## 📑 目录
+
+- [✨ 特性速览](#-特性速览)
+- [📖 文档](#-文档)
+- [🏗️ 架构图](#-架构图)
+- [📦 下载与安装（桌面工作台发布版）](#-下载与安装桌面工作台发布版)
+- [⚡ 安装与运行](#-安装与运行)
+- [💻 CLI 用法](#-cli-用法)
+- [🧩 模块导览](#-模块导览)
+- [🗺️ 参考项目映射表](#-参考项目映射表)
+- [📜 许可与致谢](#-许可与致谢)
+
+## ✨ 特性速览
+
+| 领域 | 能力 |
+|---|---|
+| 🧠 **组织化多 Agent** | 12 岗位按「决策—管理—执行」三层治理；7 类会议以审批门（HITL interrupt）落地；YAML 流程 DSL 编译为 LangGraph StateGraph；六步进化闭环（收集→提炼→提案→评审→生效→回滚） |
+| 🛠️ **真实工具执行** | 23 工具三级权限（read / workspace_write / dangerous）；MCP stdio + Streamable HTTP；Docker 沙箱；git worktree 隔离；有界子代理（token 预算 + max_rounds 双截断） |
+| 🖥️ **桌面工作台** | `serve` 后端（REST + SSE + WebSocket）；任务看板三轴仪表盘（成本/进度/健康）；审批弹窗、挂起中断言注入；记忆库四级晋升；审计导出；i18n 中英双语 |
+| 🚀 **发布就绪** | 四平台安装包（Windows NSIS / macOS dmg+zip / Linux deb）；electron-updater 自动更新；GitHub Actions 五段 CI 流水线 + 一键 GitHub Release；`agent-delivery` 交付模板 |
+
+## 🧠 项目简介
 
 `agent-cluster-runtime` 是一个「像企业一样运转」的多 Agent 组织型全栈开发集群运行时：
 12 个岗位（产品/项目/前端/后端/算法/架构/测试/运维/文档/评审/排查/治理）按「决策—管理—执行」
@@ -76,13 +118,13 @@ dmg+zip / linux deb）与 electron-updater 双通道自动更新、GitHub Action
 - **插件即生态**（v0.4）：双清单合并 + 11 事件 hooks（PreToolUse/SessionStart/...），
   对齐 codex-cli 插件契约。
 
-## 文档
+## 📖 文档
 
 - [产品介绍（docs/PRODUCT.md）](docs/PRODUCT.md) —— 定位、特性、架构、岗位/会议/进化机制、技术栈与路线图
 - [用户手册（docs/MANUAL.md）](docs/MANUAL.md) —— 安装、CLI 参考、模型接入、流程 YAML 编写、技能/岗位/进化操作、FAQ
 - [项目经验库（docs/lessons/README.md）](docs/lessons/README.md) —— 踩坑/根因/预防索引（按需加载，含 3 次即停调试协议）
 
-## 架构图
+## 🏗️ 架构图
 
 ```mermaid
 flowchart TD
@@ -106,7 +148,7 @@ flowchart TD
     P7 -. 度量信号 .-> E1
 ```
 
-## 下载与安装（桌面工作台发布版）
+## 📦 下载与安装（桌面工作台发布版）
 
 无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)
 （各版本资产与 Release Notes 见对应 tag，最新版为 [v0.6.2](https://github.com/Natsummerance/agent-cluster-runtime/releases/tag/v0.6.2)）：
@@ -118,7 +160,7 @@ flowchart TD
 桌面应用内置 electron-updater 自动更新（启动时检查，读 Releases 的 `latest*.yml` 元数据），
 小版本升级无需手动下载；CLI 与源码运行方式见下节「安装与运行」。
 
-## 安装与运行
+## ⚡ 安装与运行
 前置：Python 3.11+ 与 [uv](https://docs.astral.sh/uv/)（Windows/macOS/Linux 均可）。
 
 ```bash
@@ -185,7 +227,7 @@ uv run agent-cluster run --flow examples/flows/fullstack-sprint.yaml --project e
 - `deepseek-*` / `codex` 走 `DeepSeekClient`（stdlib urllib 直连 `chat/completions`，无新增依赖）；
   `openai` / `gpt-*` 走 `OpenAIClient`；`deterministic` 走确定性后端（默认，零 API 依赖）。
 
-## CLI 用法
+## 💻 CLI 用法
 
 | 命令 | 说明 |
 |---|---|
@@ -217,7 +259,7 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 `iteration_gate.reject → test`；`release_gate.reject → release`。`max_iterations=40`
 （节点总数 15，含返工余量），编译期校验必须 ≥ 节点总数。
 
-## 模块导览
+## 🧩 模块导览
 
 | 模块 | 职责 |
 |---|---|
@@ -241,7 +283,7 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 | `agent_cluster.metrics` | MetricsCollector 度量采集 + MetricRules 阈值规则引擎（产出进化信号） |
 | `agent_cluster.cli` | `agent-cluster` 命令行入口（run/build/chat/doctor/tools/mcp/plugins/skills/roles/proposals/metrics） |
 
-## 参考项目映射表
+## 🗺️ 参考项目映射表
 
 > 本方案为组合式架构：借鉴下表项目设计思想，不复制其运行时代码；`gpt-pilot`（自定义许可）
 > 与 `autogen`（CC-BY-4.0）**仅参考不运行**。
@@ -264,7 +306,7 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
 | aider（范式） | Apache-2.0 | git-native 工作流、worktree 分支隔离 | `worktree.py`（按角色 worktree + merge_back） |
 | OpenHands / swe-agent（范式） | 各自许可 | 有界子任务拆分、issue→PR 验收 | `subagent.py`（BoundedSubagent 独立 ReAct 循环） |
 
-## 许可与致谢
+## 📜 许可与致谢
 
 - 本项目代码许可：MIT（见仓库根目录 [`LICENSE`](LICENSE)）。
 - 设计依据：[`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)

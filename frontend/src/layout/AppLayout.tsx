@@ -70,9 +70,12 @@ export default function AppLayout() {
     <Layout style={{ minHeight: '100vh' }} data-testid="app-layout">
       <Sider breakpoint="lg" collapsedWidth={64} theme={darkMode ? 'dark' : 'light'}>
         <div style={{ padding: 16, textAlign: 'center' }}>
-          <Typography.Title level={5} style={{ margin: 0, whiteSpace: 'nowrap' }}>
-            Agent Cluster
-          </Typography.Title>
+          <Space align="center" size={8}>
+            <img src="/logo.svg" width={28} height={28} style={{ borderRadius: 6 }} alt="logo" />
+            <Typography.Title level={5} style={{ margin: 0, whiteSpace: 'nowrap' }}>
+              Agent Cluster
+            </Typography.Title>
+          </Space>
         </div>
         <Menu
           mode="inline"

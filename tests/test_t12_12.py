@@ -1,4 +1,4 @@
-"""T12.12 端到端验收 + 新增验收测试（v0.6.1）。
+"""T12.12 端到端验收 + 新增验收测试（v0.6.2）。
 
 覆盖：
 - a) 面板 API 驱动流程：真实 serve 子进程（随机高位端口，隔离 USERPROFILE/HOME
@@ -138,7 +138,7 @@ def test_serve_panel_api_flow(serve_process, tmp_path):
 
     status, body = _request("GET", f"{base}/api/v1/status")
     assert status == 200 and body["ok"] is True
-    assert body["data"]["version"] == "0.6.1"
+    assert body["data"]["version"] == "0.6.2"
 
     status, body = _request("POST", f"{base}/api/v1/projects", {"name": "t12-12", "workspace": str(workspace)})
     assert status == 201, body

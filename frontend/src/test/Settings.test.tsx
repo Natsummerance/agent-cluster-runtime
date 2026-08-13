@@ -58,7 +58,7 @@ describe('Settings 页面', () => {
     setFetchImpl(async (input) => {
       const url = String(input);
       if (url.includes('/api/v1/status')) {
-        return jsonResponse({ ok: true, data: { version: '0.6.1', projects: 0, sessions: 0, active_sessions: 0, uptime: 1 } });
+        return jsonResponse({ ok: true, data: { version: '0.6.2', projects: 0, sessions: 0, active_sessions: 0, uptime: 1 } });
       }
       return jsonResponse({ ok: true, data: doctorReport() });
     });

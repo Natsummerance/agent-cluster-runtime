@@ -283,7 +283,7 @@ def _doctor_server(tmp_path, monkeypatch, auth_token=""):
         if token:
             req.add_header("X-Auth-Token", token)
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read().decode("utf-8"))

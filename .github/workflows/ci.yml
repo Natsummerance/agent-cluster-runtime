@@ -10,7 +10,7 @@
 #   package       —— 仅 tag v*：四平台打包矩阵；GITHUB_TOKEN 显式置空（决策 D24：防 electron-builder
 #                    推断 publish provider），打包不发布；产物 upload-artifact
 #   release       —— 仅 tag v*，needs package：patch-update-metadata 注入 minimumVersion/unsigned 后
-#                    经 action-gh-release 上传安装包与 latest*.yml（Release Notes 由 tag 生成）
+#                    经 gh CLI 上传安装包与 latest*.yml（Release Notes 由 tag 生成）
 on:
   push:
     branches:
@@ -91,8 +91,6 @@ jobs:
       - name: Install Playwright chromium
         run: cd frontend && npx playwright install --with-deps chromium
       - name: Real-backend e2e suite (deterministic)
-        env:
-          PW_REUSE_SERVER: '1'
         run: |
           set -euo pipefail
           # 后台拉起真实后端（& + $! 记录 PID）
@@ -105,6 +103,15 @@ jobs:
           }
           trap cleanup EXIT
           cd frontend
+          # 等真实后端就绪再启动 playwright（其 URL 探测是单次检查，冷启动竞态曾致端口冲突）
+          for ((i=1; i<=90; i++)); do
+            if curl -sf http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1; then
+              echo "backend ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1 || { echo "backend not ready in 90s"; exit 1; }
           npm run e2e:real
 
   package:
@@ -188,10 +195,15 @@ jobs:
                 mv "$f" "$(dirname "$f")/$(basename "$f" | tr ' ' '-')" ;;
             esac
           done
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/**
-            metadata/**
-          generate_release_notes: true
+      - name: Publish GitHub Release (gh CLI, replaces flaky action-gh-release metadata PATCH)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          # 清掉同 tag 旧 release（重跑/失败残留），保留 tag 本身
+          gh release delete "$TAG" --yes --cleanup-tag=false || true
+          # 资产：artifacts/**（安装包，latest*.yml 已在上一步删除）+ metadata/**（补丁版 latest*.yml）
+          mapfile -t ASSETS < <(find artifacts metadata -type f | sort)
+          echo "uploading ${#ASSETS[@]} assets"
+          gh release create "$TAG" --title "$TAG" --generate-notes "${ASSETS[@]}"

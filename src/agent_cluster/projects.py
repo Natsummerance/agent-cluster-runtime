@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import shutil
+import time
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -244,12 +245,22 @@ class ProjectStore:
         return self._project_dir(project_id) / "project.json"
 
     def _load(self, project_id: str) -> ProjectRecord | None:
-        """读取项目记录；缺失/损坏返回 None（发现层容错，权威读方自行判定）。"""
-        try:
-            data = json.loads(self._project_path(project_id).read_text(encoding="utf-8"))
-            return ProjectRecord.model_validate(data)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            return None
+        """读取项目记录；缺失/损坏返回 None（发现层容错，权威读方自行判定）。
+
+        OSError 重试 3 次（Windows 下原子替换/防病毒扫描可能造成瞬时共享冲突；
+        与并发 index_session 写入互斥依赖文件原子性，短暂等待即恢复）。
+        """
+        for attempt in range(3):
+            try:
+                data = json.loads(self._project_path(project_id).read_text(encoding="utf-8"))
+                return ProjectRecord.model_validate(data)
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                return None
+            except OSError:
+                if attempt == 2:
+                    return None
+                time.sleep(0.02 * (attempt + 1))
+        return None
 
     def _save(self, record: ProjectRecord) -> None:
         _atomic_write_json(self._project_path(record.project_id), record.model_dump_json(indent=2))

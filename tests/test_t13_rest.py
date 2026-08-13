@@ -393,7 +393,7 @@ def test_fork_endpoint(server, tmp_path):
     sid = _start_finishing(port, pid, tmp_path)
 
     status, body = _post(port, f"/api/v1/sessions/{sid}/fork", {"goal": "衍生需求", "worktree": False})
-    assert status == 200
+    assert status == 200, body
     assert body["data"]["parent_session_id"] == sid
     assert body["data"]["fork_depth"] == 1
     child = body["data"]["session_id"]

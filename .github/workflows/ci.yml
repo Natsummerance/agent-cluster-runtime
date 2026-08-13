@@ -36,7 +36,7 @@ jobs:
       - name: Sync backend deps (frozen)
         run: uv sync --frozen
       - name: Backend test suite
-        run: uv run pytest tests/test_evolution.py tests/test_plugins.py -q --tb=long
+        run: uv run pytest -q --tb=long
 
   frontend-test:
     runs-on: ubuntu-latest

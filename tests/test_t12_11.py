@@ -96,3 +96,34 @@ def test_demo_command_produces_delivery_package(tmp_path):
         ["git", "log", "--oneline", "-1"], cwd=ws, capture_output=True, text=True, encoding="utf-8"
     )
     assert (git_log.stdout or "").strip()
+
+def test_serve_cors_preflight_allows_browser_origin(workbench):
+    """浏览器（vite dev 5173 / 桌面 file://）跨域预检必须通过：ACAO=* + 允许 X-Auth-Token。"""
+    port, _ = workbench
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/projects",
+        method="OPTIONS",
+        headers={
+            "Origin": "http://127.0.0.1:5173",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "x-auth-token,content-type",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        assert resp.status in (200, 204)
+        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+        allow = (resp.headers.get("Access-Control-Allow-Headers") or "").lower()
+        assert "x-auth-token" in allow
+        assert "content-type" in allow
+        methods = (resp.headers.get("Access-Control-Allow-Methods") or "").upper()
+        assert "GET" in methods and "POST" in methods
+
+
+def test_serve_json_responses_carry_cors_header(workbench):
+    port, _ = workbench
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{port}/api/v1/status",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        assert resp.headers.get("Access-Control-Allow-Origin") == "*"

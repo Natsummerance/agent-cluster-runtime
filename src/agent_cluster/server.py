@@ -1026,6 +1026,7 @@ class WorkbenchServer:
 def _send_json(handler: BaseHTTPRequestHandler, status: int, payload: dict) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
+    handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
     handler.send_header("Cache-Control", "no-store")
@@ -1154,6 +1155,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 —— 路由顶层统一错误出口
             _send_json(self, 500, {"ok": False, "error": str(exc)})
 
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        """CORS 预检（浏览器 dev 5173 / 桌面 file:// 跨域 8765 必须放行）。"""
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "X-Auth-Token, Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
     def do_POST(self) -> None:  # noqa: N802
         if not self._check_auth():
             _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
@@ -1600,6 +1609,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 pass
         finished = session.status in ("completed", "failed")
         self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Connection", "close" if finished else "keep-alive")

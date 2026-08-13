@@ -1,4 +1,5 @@
-import { Alert, Button, Card, Col, Row, Statistic, theme as antdTheme, Typography } from 'antd';
+import { useEffect } from 'react';
+import { Alert, Button, Card, Col, Row, Space, Statistic, Table, Tag, theme as antdTheme, Typography } from 'antd';
 import {
   ApiOutlined,
   ClockCircleOutlined,
@@ -8,8 +9,10 @@ import {
 } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
+import { useProjectStore } from '../store/projectStore';
 import PageHeader from '../components/PageHeader';
 import LivePulse from '../components/LivePulse';
+import type { AxisStatus, Project } from '../api/types';
 
 function formatUptime(seconds: number): string {
   if (!Number.isFinite(seconds)) return '-';
@@ -19,14 +22,40 @@ function formatUptime(seconds: number): string {
   return `${m} 分钟`;
 }
 
+const AXIS_STATUS_META: Record<AxisStatus, { color: string; label: string }> = {
+  ok: { color: 'green', label: '正常' },
+  warn: { color: 'orange', label: '预警' },
+  critical: { color: 'red', label: '危险' },
+};
+
+function axisTag(status?: AxisStatus) {
+  if (!status) return <Tag>无数据</Tag>;
+  const meta = AXIS_STATUS_META[status];
+  return <Tag color={meta.color}>{meta.label}</Tag>;
+}
+
 export default function Dashboard() {
   const status = useAppStore((s) => s.status);
   const metrics = useAppStore((s) => s.metrics);
   const connected = useAppStore((s) => s.connected);
   const error = useAppStore((s) => s.error);
+  const projects = useAppStore((s) => s.projects);
+  const refreshProjects = useAppStore((s) => s.refreshProjects);
+  const dashboardMap = useProjectStore((s) => s.dashboard);
+  const loadDashboard = useProjectStore((s) => s.loadDashboard);
   const {
     token: { colorSuccess },
   } = antdTheme.useToken();
+
+  useEffect(() => {
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  useEffect(() => {
+    for (const project of projects) {
+      if (!dashboardMap[project.id]) void loadDashboard(project.id);
+    }
+  }, [projects, dashboardMap, loadDashboard]);
 
   return (
     <div data-testid="dashboard">
@@ -144,6 +173,58 @@ export default function Dashboard() {
           </Card>
         </Col>
       </Row>
+      <Card title="项目三轴概览" data-testid="projects-overview" style={{ marginTop: 16 }}>
+        {projects.length ? (
+          <Table<Project>
+            rowKey="id"
+            dataSource={projects}
+            pagination={false}
+            columns={[
+              {
+                title: '项目',
+                dataIndex: 'name',
+                key: 'name',
+                render: (value: string, record: Project) => (
+                  <Link to={`/projects/${record.id}/sessions`}>{value}</Link>
+                ),
+              },
+              {
+                title: '成本轴',
+                key: 'cost',
+                render: (_: unknown, record: Project) => {
+                  const axis = dashboardMap[record.id]?.cost;
+                  return (
+                    <Space>
+                      {axisTag(axis?.status)}
+                      {axis ? <Typography.Text type="secondary">{Math.round(axis.ratio * 100)}%</Typography.Text> : null}
+                    </Space>
+                  );
+                },
+              },
+              {
+                title: '进度轴',
+                key: 'progress',
+                render: (_: unknown, record: Project) => {
+                  const axis = dashboardMap[record.id]?.progress;
+                  return (
+                    <Space>
+                      {axisTag(axis?.status)}
+                      {axis ? <Typography.Text type="secondary">{Math.round(axis.score * 100)}%</Typography.Text> : null}
+                    </Space>
+                  );
+                },
+              },
+              {
+                title: '健康轴',
+                key: 'health',
+                render: (_: unknown, record: Project) => axisTag(dashboardMap[record.id]?.health.status),
+              },
+            ]}
+          />
+        ) : (
+          <Typography.Text type="secondary">暂无项目</Typography.Text>
+        )}
+      </Card>
     </div>
   );
 }

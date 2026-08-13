@@ -5,6 +5,13 @@ export function envelope(data: unknown, ok = true) {
   return ok ? { ok: true, data } : { ok: false, error: typeof data === 'string' ? data : '请求失败' };
 }
 
+export const mockDashboard = {
+  cost: { used: 12000, limit: 100000, ratio: 0.12, score: 0.88, status: 'ok', estimated_usd: 0.12 },
+  progress: { score: 0.6, status: 'warn', phases: { total: 4, done: 2 } },
+  health: { score: 0.8, status: 'ok', sessions: { s1: { rework_rate: 0.1, estimate_accuracy: 0.85 } } },
+  updated_at: '2026-08-01T09:00:00',
+};
+
 export const mockStatus = {
   version: '0.5.0',
   projects: 2,
@@ -26,6 +33,7 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
     goal: '构建待办事项 Web 应用',
     model: 'codex',
     status: 'running',
+    assignee: '',
     pending_hint: null,
     current_phase: '开发',
     current_node: 'dev',
@@ -81,13 +89,14 @@ export interface MockState {
   interrupted: string[];
   stdin: string[];
   rolledBack: string[];
+  forks: string[];
 }
 
 export function createState(): MockState {
   return {
     sessions: {
       s1: makeSession(),
-      s2: makeSession({ session_id: 's2', goal: '重构登录模块', status: 'waiting_approval', pending_hint: '请确认登录改造方案（邮箱验证码）' }),
+      s2: makeSession({ session_id: 's2', goal: '重构登录模块', status: 'waiting_approval', assignee: 'PM', pending_hint: '请确认登录改造方案（邮箱验证码）' }),
       s3: makeSession({ session_id: 's3', project_id: 'p2', goal: '博客系统 MVP', status: 'completed', current_phase: '发布', exit_code: 0 }),
     },
     createdProjects: [],
@@ -96,6 +105,7 @@ export function createState(): MockState {
     interrupted: [],
     stdin: [],
     rolledBack: [],
+    forks: [],
   };
 }
 
@@ -175,6 +185,75 @@ export async function installApiMocks(page: Page, opts: MockOptions = {}) {
     const projectId = /projects\/([^/]+)\/sessions/.exec(route.request().url())?.[1];
     const list = Object.values(state.sessions).filter((s) => !projectId || s.project_id === projectId);
     return route.fulfill({ json: envelope(list) });
+  });
+
+  await page.route('**/api/v1/projects/*/dashboard', async (route) => {
+    if (await fail(route)) return;
+    return route.fulfill({ json: envelope(mockDashboard) });
+  });
+
+  const taskEntries = (projectId: string, url: URL) => {
+    const q = (url.searchParams.get('q') ?? '').toLowerCase();
+    const status = url.searchParams.get('status') ?? '';
+    const assignee = url.searchParams.get('assignee') ?? '';
+    return Object.values(state.sessions)
+      .filter((s) => s.project_id === projectId)
+      .map((s) => ({
+        session_id: s.session_id,
+        goal: s.goal,
+        status: s.status,
+        runtime_status: s.status,
+        assignee: s.assignee ?? '',
+        workspace: s.workspace,
+        worktree: false,
+        created_at: '2026-08-01T08:00:00',
+        updated_at: '2026-08-01T09:00:00',
+        metadata: {},
+      }))
+      .filter((t) => (!status || t.status === status) && (!assignee || t.assignee === assignee) && (!q || String(t.goal).toLowerCase().includes(q)));
+  };
+
+  await page.route('**/api/v1/projects/*/tasks', async (route) => {
+    if (await fail(route)) return;
+    const url = new URL(route.request().url());
+    const projectId = /projects\/([^/]+)\/tasks$/.exec(url.pathname)?.[1] ?? '';
+    return route.fulfill({ json: envelope(taskEntries(projectId, url)) });
+  });
+
+  await page.route('**/api/v1/projects/*/tasks/*', async (route) => {
+    if (await fail(route)) return;
+    const match = /projects\/([^/]+)\/tasks\/([^/]+)$/.exec(new URL(route.request().url()).pathname);
+    const sid = match?.[2] ?? '';
+    if (route.request().method() === 'PATCH') {
+      const assignee = String((route.request().postDataJSON() as Record<string, unknown>).assignee ?? '');
+      if (!assignee) {
+        return route.fulfill({ status: 400, json: { ok: false, error: 'assignee 必填（非空字符串）', code: 'bad_request' } });
+      }
+      const current = state.sessions[sid];
+      if (!current) {
+        return route.fulfill({ status: 404, json: { ok: false, error: `会话不存在：${sid}`, code: 'not_found' } });
+      }
+      state.sessions[sid] = { ...current, assignee };
+      return route.fulfill({ json: envelope({ session_id: sid, goal: current.goal, status: current.status, assignee }) });
+    }
+    return route.fulfill({ status: 405, json: { ok: false, error: 'method not allowed', code: 'bad_request' } });
+  });
+
+  await page.route('**/api/v1/sessions/*/fork', async (route) => {
+    if (await fail(route)) return;
+    const sid = /sessions\/([^/]+)\/fork/.exec(route.request().url())?.[1] ?? '';
+    const parent = state.sessions[sid];
+    state.forks.push(sid);
+    if (parent && (parent.status === 'running' || parent.status === 'waiting_approval')) {
+      return route.fulfill({ status: 409, json: { ok: false, error: '运行中会话禁止派生', code: 'fork_conflict' } });
+    }
+    const newSid = `f${state.forks.length}`;
+    state.sessions[newSid] = makeSession({
+      session_id: newSid,
+      goal: `${String(parent?.goal ?? '')}（派生）`,
+      status: 'running',
+    });
+    return route.fulfill({ status: 201, json: envelope({ session_id: newSid, parent_session_id: sid, fork_depth: 1 }) });
   });
 
   await page.route('**/api/v1/sessions/*', async (route) => {

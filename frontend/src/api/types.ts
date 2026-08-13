@@ -40,6 +40,67 @@ export interface HealthInfo {
   rework_rate?: number;
 }
 
+export type AxisStatus = 'ok' | 'warn' | 'critical';
+
+export interface CostAxis {
+  used: number;
+  limit: number;
+  ratio: number;
+  score: number;
+  status: AxisStatus;
+  estimated_usd: number;
+}
+
+export interface ProgressAxis {
+  score: number;
+  status: AxisStatus;
+  phases: { total: number; done: number };
+}
+
+export interface SessionHealthInfo {
+  eval_pass_rate_trend?: { latest?: number; history?: number[] } | null;
+  token_cost?: { used?: number; budget?: number; cost?: number; currency?: string } | null;
+  estimate_accuracy?: number | null;
+  rework_rate?: number | null;
+  [key: string]: unknown;
+}
+
+export interface HealthAxis {
+  score: number;
+  status: AxisStatus;
+  sessions: Record<string, SessionHealthInfo>;
+}
+
+export interface DashboardData {
+  cost: CostAxis;
+  progress: ProgressAxis;
+  health: HealthAxis;
+  updated_at: string;
+}
+
+export interface TaskEntry {
+  session_id: string;
+  goal?: string;
+  status?: string;
+  runtime_status?: string;
+  assignee?: string;
+  workspace?: string;
+  worktree?: boolean;
+  model?: string;
+  current_phase?: string | null;
+  current_node?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  metadata?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface ForkResult {
+  session_id: string;
+  parent_session_id: string;
+  fork_depth: number;
+}
+
 export interface StdinResponse {
   accepted: string;
 }

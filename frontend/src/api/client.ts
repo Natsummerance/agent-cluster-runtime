@@ -138,18 +138,33 @@ export interface SseSubscribeOptions {
   since?: number;
   signal?: AbortSignal;
   onError?: (err: unknown) => void;
+  /** 会话终态哨兵（session.end）回调；只有收到哨兵才允许置终态（§6.3）。 */
+  onTerminal?: (status: string) => void;
+  /** 最大重连次数（缺省无限；测试可注入）。 */
+  maxRetries?: number;
+  /** 无任何字节即中断的窗口（缺省 30s，§6.3）。 */
+  stallTimeoutMs?: number;
 }
 
-export function parseSseBlock(block: string): { event?: string; data: string } | null {
+export function parseSseBlock(block: string): { event?: string; id?: string; data: string } | null {
   const lines = block.split('\n');
   let eventType: string | undefined;
+  let eventId: string | undefined;
   const dataLines: string[] = [];
   for (const line of lines) {
     if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
     else if (line.startsWith('event:')) eventType = line.slice(6).trim();
+    else if (line.startsWith('id:')) eventId = line.slice(3).trim();
   }
   if (dataLines.length === 0) return null;
-  return { event: eventType, data: dataLines.join('\n') };
+  return { event: eventType, id: eventId, data: dataLines.join('\n') };
+}
+
+const SSE_RETRY_CAP_MS = 15000;
+
+function sseRetryDelayMs(attempt: number): number {
+  // 指数退避 1s→2s→4s→8s→15s 封顶（§6.3）
+  return Math.min(SSE_RETRY_CAP_MS, 1000 * 2 ** Math.max(0, attempt - 1));
 }
 
 export function subscribeSse<T = unknown>(
@@ -161,30 +176,60 @@ export function subscribeSse<T = unknown>(
   if (options.since !== undefined) url.searchParams.set('since', String(options.since));
   const headers: Record<string, string> = { Accept: 'text/event-stream' };
   if (ctx.authToken) headers['X-Auth-Token'] = ctx.authToken;
-  const controller = new AbortController();
   const outer = options.signal;
-  const onOuterAbort = () => controller.abort();
-  outer?.addEventListener('abort', onOuterAbort);
+  const maxRetries = options.maxRetries ?? Number.POSITIVE_INFINITY;
 
   let cancelled = false;
+  let currentController: AbortController | null = null;
+  let lastEventId: string | null = null;
+  let attempt = 0;
+  const onOuterAbort = () => {
+    cancelled = true;
+    currentController?.abort();
+  };
+  outer?.addEventListener('abort', onOuterAbort);
+
   const stop = () => {
     cancelled = true;
-    controller.abort();
+    currentController?.abort();
     outer?.removeEventListener('abort', onOuterAbort);
   };
 
-  (async () => {
+  async function connect(): Promise<void> {
+    if (cancelled) return;
+    const controller = new AbortController();
+    currentController = controller;
+    const requestHeaders: Record<string, string> = { ...headers };
+    // 重连续传：Last-Event-ID 优先，URL ?since= 为初始/回退（§6.3）
+    if (lastEventId !== null) requestHeaders['Last-Event-ID'] = lastEventId;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearStall = () => {
+      if (stallTimer !== null) {
+        clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+    };
+    const armStall = () => {
+      clearStall();
+      stallTimer = setTimeout(() => controller.abort(), options.stallTimeoutMs ?? 30000);
+    };
     try {
-      const res = await fetchImpl(url.toString(), { headers, signal: controller.signal });
+      const res = await fetchImpl(url.toString(), {
+        headers: requestHeaders,
+        signal: controller.signal,
+      });
       if (!res.ok || !res.body) {
         throw new ApiError(`SSE 连接失败：HTTP ${res.status}`, res.status);
       }
+      attempt = 0;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      armStall();
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        armStall();
         buffer += decoder.decode(value, { stream: true });
         const blocks = buffer.split('\n\n');
         buffer = blocks.pop() ?? '';
@@ -192,23 +237,52 @@ export function subscribeSse<T = unknown>(
           if (cancelled) return;
           const parsed = parseSseBlock(block);
           if (!parsed) continue;
+          if (parsed.id !== undefined && parsed.id !== '') lastEventId = parsed.id;
           let payload: unknown = parsed.data;
           try {
             payload = JSON.parse(parsed.data);
           } catch {
             // 保持原始文本
           }
-          const merged =
-            payload && typeof payload === 'object'
-              ? { ...(payload as Record<string, unknown>), event: parsed.event ?? (payload as Record<string, unknown>).type }
-              : { data: payload, event: parsed.event ?? 'message' };
+          let merged: Record<string, unknown>;
+          if (payload && typeof payload === 'object') {
+            const record = payload as Record<string, unknown>;
+            merged = { ...record, event: parsed.event ?? record.type };
+          } else {
+            merged = { data: payload, event: parsed.event ?? 'message' };
+          }
+          const eventType =
+            typeof merged.event === 'string' && merged.event
+              ? merged.event
+              : typeof merged.type === 'string'
+                ? merged.type
+                : '';
+          if (eventType === 'session.end') {
+            const status =
+              typeof merged.status === 'string' && merged.status ? merged.status : 'completed';
+            onEvent(merged as T);
+            options.onTerminal?.(status);
+            clearStall();
+            return;
+          }
           onEvent(merged as T);
         }
       }
+      // 未收哨兵的正常 EOF 视为断线 → 重连，绝不静默终态（§6.3）
+      throw new Error('SSE stream ended without terminal sentinel');
     } catch (err) {
-      if (!cancelled) options.onError?.(err);
+      clearStall();
+      if (cancelled) return;
+      options.onError?.(err);
+      if (attempt >= maxRetries) return;
+      attempt += 1;
+      const delay = sseRetryDelayMs(attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      void connect();
     }
-  })();
+  }
+
+  void connect();
 
   return stop;
 }

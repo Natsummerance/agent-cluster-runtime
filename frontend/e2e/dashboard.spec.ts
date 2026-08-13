@@ -37,4 +37,12 @@ test.describe('仪表盘', () => {
     await expect(page.getByTestId('dashboard-connection-alert')).toBeVisible();
     await expect(page.getByTestId('dashboard-connection-alert')).toContainText('请启动 agent-cluster serve');
   });
+
+  test('项目三轴概览汇总块渲染', async ({ page }) => {
+    await installApiMocks(page);
+    await page.goto('/');
+    await expect(page.getByTestId('projects-overview')).toContainText('待办应用');
+    await expect(page.getByTestId('projects-overview')).toContainText('博客系统');
+    await expect(page.getByTestId('projects-overview')).toContainText('预警');
+  });
 });

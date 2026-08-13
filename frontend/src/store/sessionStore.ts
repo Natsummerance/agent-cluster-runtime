@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { apiErrorMessage } from './appStore';
 import * as api from '../api/endpoints';
 import type { ChangeData, SessionEvent, SessionSnapshot } from '../api/types';
-import { lastSeq, reduceEvent, snapshotFromEvent } from './sseReducer';
+import { lastSeq, reduceEvent, snapshotFromEvent, terminalStatusFromEvent } from './sseReducer';
 
 interface ApprovalState {
   sid: string | null;
@@ -26,6 +26,7 @@ interface SessionState {
   unsubscribe(sid: string): void;
   disposeAll(): void;
   handleEvent(sid: string, event: SessionEvent): void;
+  markTerminal(sid: string, status: string): void;
   openApproval(sid: string, hint: string): void;
   closeApproval(): void;
   approve(): Promise<void>;
@@ -104,6 +105,7 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
             eventErrors: { ...state.eventErrors, [sid]: apiErrorMessage(err) },
           }));
         },
+        onTerminal: (status) => get().markTerminal(sid, status),
       },
     );
     subscriptions.set(sid, stop);
@@ -127,14 +129,53 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
     const state = get();
     const events = reduceEvent(state.events[sid] ?? [], event);
     const snapshot = snapshotFromEvent(event);
-    const snapshots =
+    // §6.3：只有收到 session.end 哨兵才把会话置终态（绝不因断线静默终态）
+    const terminal = terminalStatusFromEvent(event);
+    let snapshots =
       snapshot && snapshot.session_id
         ? { ...state.snapshots, [snapshot.session_id]: snapshot }
         : state.snapshots;
+    if (terminal) {
+      const existing = snapshots[sid];
+      snapshots = {
+        ...snapshots,
+        [sid]: existing
+          ? { ...existing, status: terminal }
+          : {
+              session_id: sid,
+              project_id: '',
+              workspace: '',
+              goal: '',
+              status: terminal,
+              token: { budget: 0, used: 0, remaining: 0, over_budget: false },
+            },
+      };
+    }
     set({ events: { ...state.events, [sid]: events }, snapshots });
     if (snapshot && snapshot.session_id && snapshot.status === 'waiting_approval' && snapshot.pending_hint) {
       get().openApproval(snapshot.session_id, snapshot.pending_hint);
     }
+  },
+
+  markTerminal(sid: string, status: string) {
+    set((state) => {
+      const existing = state.snapshots[sid];
+      return {
+        snapshots: {
+          ...state.snapshots,
+          [sid]: existing
+            ? { ...existing, status }
+            : {
+                session_id: sid,
+                project_id: '',
+                workspace: '',
+                goal: '',
+                status,
+                token: { budget: 0, used: 0, remaining: 0, over_budget: false },
+              },
+        },
+      };
+    });
   },
 
   openApproval(sid: string, hint: string) {

@@ -203,6 +203,47 @@ describe('sessionStore', () => {
     expect(getSubscribedSids()).not.toContain('s1');
   });
 
+  it('handleEvent 收到 session.end 哨兵才把会话置终态', () => {
+    useSessionStore.getState().handleEvent('s1', {
+      seq: 3,
+      type: 'session.end',
+      data: { type: 'session.end', status: 'completed', seq: 3 },
+    });
+    expect(useSessionStore.getState().snapshots.s1.status).toBe('completed');
+  });
+
+  it('断线事件（无哨兵）不把会话静默置终态', () => {
+    useSessionStore.getState().handleEvent('s1', { seq: 2, type: 'message', data: { text: 'x' } });
+    expect(useSessionStore.getState().snapshots.s1).toBeUndefined();
+  });
+
+  it('subscribe 收到哨兵触发 onTerminal 置终态', async () => {
+    const encoder = new TextEncoder();
+    setFetchImpl(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode('event: session.end\ndata: {"type":"session.end","status":"failed","seq":5}\n\n'),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    useSessionStore.getState().handleEvent('s1', {
+      seq: 1,
+      type: 'snapshot',
+      data: makeSnapshot() as unknown as Record<string, unknown>,
+    });
+    const stop = useSessionStore.getState().subscribe('s1');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(useSessionStore.getState().snapshots.s1.status).toBe('failed');
+    stop();
+  });
+
   it('disposeAll 停止全部 SSE 订阅', async () => {
     const fetchMock = vi.fn(
       async () => new Response(new ReadableStream<Uint8Array>({ start() {} }), { status: 200 }),

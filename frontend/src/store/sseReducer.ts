@@ -3,8 +3,10 @@ import type { SessionEvent, SessionSnapshot } from '../api/types';
 
 export function reduceEvent(events: SessionEvent[], event: SessionEvent): SessionEvent[] {
   if (!event) return events;
-  if (typeof event.seq === 'number' && events.some((e) => e.seq === event.seq)) {
-    return events;
+  if (typeof event.seq === 'number') {
+    // §6.3：按 seq 去重——重复不重放、旧序事件丢弃
+    if (events.some((e) => e.seq === event.seq)) return events;
+    if (events.length > 0 && event.seq <= lastSeq(events)) return events;
   }
   const next = [...events, event];
   next.sort((a, b) => {
@@ -26,6 +28,19 @@ export function snapshotFromEvent(event: SessionEvent): SessionSnapshot | null {
   const d = event.data;
   if (d && typeof d === 'object' && 'session_id' in d) {
     return d as unknown as SessionSnapshot;
+  }
+  return null;
+}
+
+export const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+
+export function terminalStatusFromEvent(event: SessionEvent): string | null {
+  if (!event || event.type !== 'session.end') return null;
+  const data = event.data;
+  if (!data || typeof data !== 'object') return null;
+  const status = (data as { status?: unknown }).status;
+  if (typeof status === 'string' && (TERMINAL_STATUSES as readonly string[]).includes(status)) {
+    return status;
   }
   return null;
 }

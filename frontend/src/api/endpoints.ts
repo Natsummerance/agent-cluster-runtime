@@ -12,9 +12,12 @@ import type {
   MetricsData,
   Project,
   SessionEvent,
+  DashboardData,
+  ForkResult,
   SessionSnapshot,
   StatusData,
   StdinResponse,
+  TaskEntry,
   WorkspaceFile,
   WorkspaceTree,
 } from './types';
@@ -49,10 +52,35 @@ export const createSession = (projectId: string, input: CreateSessionInput) =>
 export const fetchSession = (sid: string) =>
   apiRequest<SessionSnapshot>(sidPath(sid));
 
+// ---- 项目三轴看板与任务面板（§10） ----
+export const fetchDashboard = (projectId: string) =>
+  apiRequest<DashboardData>(pidPath(projectId, '/dashboard'));
+
+export const fetchTasks = (
+  projectId: string,
+  filters: { status?: string; assignee?: string; q?: string } = {},
+) => apiRequest<TaskEntry[]>(pidPath(projectId, '/tasks'), { query: filters });
+
+export const assignTask = (projectId: string, sessionId: string, assignee: string) =>
+  apiRequest<TaskEntry>(
+    `${pidPath(projectId, '/tasks')}/${encodeURIComponent(sessionId)}`,
+    { method: 'PATCH', body: { assignee } },
+  );
+
+export const forkSession = (
+  sid: string,
+  body: { goal?: string; project_id?: string; worktree?: boolean; budget?: number },
+) => apiRequest<ForkResult>(sidPath(sid, '/fork'), { method: 'POST', body });
+
 export function subscribeSessionEvents(
   sid: string,
   onEvent: (event: SessionEvent) => void,
-  options?: { since?: number; signal?: AbortSignal; onError?: (err: unknown) => void },
+  options?: {
+    since?: number;
+    signal?: AbortSignal;
+    onError?: (err: unknown) => void;
+    onTerminal?: (status: string) => void;
+  },
 ): () => void {
   return subscribeSse<SessionEvent>(
     sidPath(sid, '/events'),

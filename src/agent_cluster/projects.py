@@ -14,14 +14,16 @@
             ├── session.json       # v0.6 权威会话存储
             └── checkpoints/
 
-- 本任务边界（13.1）：v0.5 旧会话迁移（13.2）、预算预警判定（13.3）、
-  fork（13.4）与 serve 端点（13.7）均不在此实现。
+- 本任务边界（13.1/13.2）：预算预警判定（13.3）、fork（13.4）与
+  serve 端点（13.7）均不在此实现。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import shutil
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -30,8 +32,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from agent_cluster.memory import MemoryStore
-from agent_cluster.session import DEFAULT_REWORK_LIMIT, SessionRecord, SessionStore
+from agent_cluster.memory import TIER_ORDER, MemoryStore
+from agent_cluster.session import (
+    DEFAULT_REWORK_LIMIT,
+    FileCheckpointer,
+    SessionRecord,
+    SessionStore,
+)
 
 __all__ = [
     "DEFAULT_FLOW",
@@ -45,6 +52,8 @@ __all__ = [
 
 # 新建会话默认流程（与 server.py 现值一致；server.py 的引用统一在 13.7 切换到本处）。
 DEFAULT_FLOW = "examples/flows/build-product.yaml"
+
+logger = logging.getLogger("agent-cluster")
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +209,8 @@ def _atomic_write_json(path: Path, text: str) -> None:
 
 
 class ProjectStore:
-    """项目层存储（权威数据源；默认根 ~/.agent-cluster/projects/）。"""
+    """项目层存储（权威数据源；默认根 ~/.agent-cluster/projects/；§4 迁移见
+    :meth:`migrate_legacy_session`）。"""
 
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root).expanduser().resolve() if root is not None else Path.home() / ".agent-cluster"
@@ -246,18 +256,22 @@ class ProjectStore:
         default_flow: str = DEFAULT_FLOW,
         metadata: dict[str, str] | None = None,
     ) -> ProjectRecord:
-        """创建项目（§4 v0.5 旧会话迁移由 Task 13.2 挂接，本任务不调用）。"""
-        # TODO(13.2): workspace 含 v0.5 session.json 时执行 §4 旧会话迁移。
+        """创建项目；workspace 含 v0.5 session.json 时执行 §4 迁移为项目首个会话。"""
+        workspace_path = Path(workspace).expanduser().resolve()
         project = ProjectRecord(
             project_id=uuid.uuid4().hex[:12],
             name=name,
             description=description,
-            workspaces=[str(Path(workspace).expanduser().resolve())],
+            workspaces=[str(workspace_path)],
             default_flow=default_flow,
             metadata=metadata or {},
         )
         with _project_lock(project.project_id):
             self._save(project)
+        # §4.1 触发时机：存在 v0.5 session.json → 立即迁移为项目首个会话
+        if (workspace_path / ".agent-cluster" / "session.json").is_file():
+            if self.migrate_legacy_session(project.project_id, workspace_path) is not None:
+                return self.get(project.project_id)
         return project
 
     def get(self, project_id: str) -> ProjectRecord:
@@ -366,6 +380,140 @@ class ProjectStore:
                 continue
             total += record.token_ledger.total()
         return total
+
+    # ------------------------------------------------------------------
+    # v0.5 → 项目目录存储迁移（§4.2：无损、幂等、失败回退）
+    # ------------------------------------------------------------------
+
+    def migrate_legacy_session(self, project_id: str, workspace: str | Path) -> SessionRecord | None:
+        """9 步迁移算法（设计 §4.2）。
+
+        1 幂等短路 → 2 读源 → 3 校验拷贝 → 4 备份先行 → 5 原子写目标
+        session.json → 6 复制 checkpoints → 7 记忆合并 → 8 写 .migrated.json
+        → 9 登记 SessionIndexEntry。
+
+        - 第 2/3 步失败（源缺失/损坏）→ 静默返回 None（与 v0.5「损坏即新
+          会话」容错一致）。
+        - 第 4–9 步任一异常 → ``[migration]`` 警告日志后返回 None（不抛出），
+          源文件零改动；因未写标记，下次调用自动重试。
+        - 无损：永不删除/改写源 session.json；checkpoint/记忆均为复制合并。
+        """
+        workspace_path = Path(workspace).expanduser().resolve()
+        source_dir = workspace_path / ".agent-cluster"
+        source_path = source_dir / "session.json"
+        marker_path = source_dir / ".migrated.json"
+
+        # 1. 幂等短路：标记存在且其 sid 对应本项目的目标 session.json 存在
+        marker: dict[str, Any] = {}
+        if marker_path.is_file():
+            try:
+                marker = json.loads(marker_path.read_text(encoding="utf-8"))
+                if not isinstance(marker, dict):
+                    marker = {}
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                marker = {}
+        short_sid = str(marker.get("session_id") or "")
+        if short_sid and str(marker.get("project_id") or "") == project_id:
+            short_target = self.session_dir(project_id, short_sid) / "session.json"
+            if short_target.is_file():
+                try:
+                    return SessionRecord.model_validate(
+                        json.loads(short_target.read_text(encoding="utf-8"))
+                    )
+                except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                    pass  # 目标损坏 → 落入重迁移路径
+
+        # 2. 读源：缺失/损坏 → 不迁移
+        try:
+            data = json.loads(source_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+            return None
+
+        # 3. 校验 + 拷贝（不改写源文件）
+        try:
+            record = SessionRecord.model_validate(data)
+        except ValueError:
+            return None
+        if not record.session_id:
+            return None
+        sid = record.session_id
+        target_record = record.model_copy(update={"project_id": project_id})
+
+        try:
+            # 4. 备份先行（永远先于任何新位置写入）
+            backups_dir = source_dir / "backups"
+            backups_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+            backup_path = backups_dir / f"session.v0.5.{timestamp}.json"
+            shutil.copy2(source_path, backup_path)
+
+            # 5. 原子写目标 session.json
+            target_dir = self.session_dir(project_id, sid)
+            _atomic_write_json(target_dir / "session.json", target_record.model_dump_json(indent=2))
+
+            # 6. 复制 checkpoints（thread_id 持久游标不断，resume 可用）
+            source_checkpoints = source_dir / "checkpoints"
+            if source_checkpoints.is_dir():
+                target_checkpoints = target_dir / "checkpoints"
+                target_checkpoints.mkdir(parents=True, exist_ok=True)
+                thread_file = FileCheckpointer(source_checkpoints)._file_for(record.thread_id)
+                if thread_file.is_file():
+                    shutil.copy2(thread_file, target_checkpoints / thread_file.name)
+
+            # 7. 记忆合并（session/project → 项目库；gotcha/domain → 全局库）
+            self._merge_memory(project_id, workspace_path)
+
+            # 8. 写迁移标记
+            _atomic_write_json(
+                marker_path,
+                json.dumps(
+                    {
+                        "migrated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "project_id": project_id,
+                        "session_id": sid,
+                        "source": "session.json",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
+            # 9. 登记 SessionIndexEntry（status/goal 取源记录）
+            self.index_session(
+                project_id,
+                SessionIndexEntry(
+                    session_id=sid,
+                    goal=record.goal,
+                    status=record.status,
+                    workspace=str(workspace_path),
+                    created_at=record.created_at,
+                    updated_at=record.updated_at,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 —— §4.2 失败回退：告警不抛出
+            logger.warning(
+                "[migration] v0.5 会话迁移失败（project_id=%s workspace=%s）：%s",
+                project_id,
+                workspace_path,
+                exc,
+            )
+            return None
+        return target_record
+
+    def _merge_memory(self, project_id: str, workspace: Path) -> None:
+        """§4.2 第 7 步：按 item id 幂等合并 workspace 级记忆。
+
+        session/project 层 → 项目记忆库；gotcha/domain 层 → 全局记忆库
+        （``<root>``）。经 MemoryStore 读取 API 遍历、目标库写入 API 落库
+        （不直接跨库拼 SQL）；源文件一律保留不删除；重复 id 跳过。
+        """
+        source = MemoryStore(workspace)
+        project_memory = self.memory_store(project_id)
+        global_memory = MemoryStore(self.root)
+        for tier in TIER_ORDER:
+            target = project_memory if tier in ("session", "project") else global_memory
+            for item in source.list_items(tier=tier, limit=10_000):
+                target.import_item(item, item.content(source.root))
 
     # ------------------------------------------------------------------
     # 预算池解锁（§5 静态分配；预警判定在 13.3）

@@ -213,6 +213,46 @@ class MemoryStore:
             )
         return item_id
 
+    def import_item(self, item: MemoryItem, content: str) -> bool:
+        """幂等导入外部条目（v0.6 T13.2 迁移合并用）：保留原 id 与全部元数据。
+
+        - 同 id 已存在 → 跳过并返回 False（重复 id 幂等，不覆盖既有条目）。
+        - 内容写入本库层级目录；索引保留原 tier/status/evidence 等字段。
+        """
+        if self.get(item.id) is not None:
+            return False
+        tier = item.tier if item.tier in TIER_ORDER else Tier.PROJECT.value
+        content_path = self._content_path(tier, item.id)
+        content_path.write_text(content, encoding="utf-8")
+        content_ref = (
+            str(content_path.relative_to(self.root)).replace("\\", "/")
+            if content_path.is_relative_to(self.root)
+            else str(content_path)
+        )
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO memory_items
+                    (id, tier, title, content_ref, source, status, evidence_count,
+                     session_ids, meta, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    tier,
+                    item.title,
+                    content_ref,
+                    item.source,
+                    item.status,
+                    item.evidence_count,
+                    json.dumps(item.session_ids, ensure_ascii=False),
+                    json.dumps(item.meta or {}, ensure_ascii=False),
+                    item.created_at,
+                    item.updated_at,
+                ),
+            )
+        return cur.rowcount > 0
+
     def add_evidence(self, item_id: str, session_id: str, note: str = "") -> int:
         """追加一次证据（同一会话只计一次，返回累计 evidence_count）。"""
         ts = _now()

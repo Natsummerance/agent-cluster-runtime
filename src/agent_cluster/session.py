@@ -744,6 +744,7 @@ class SessionDriver:
         yes: bool = False,
         deterministic: bool = False,
         resume: bool = False,
+        checkpoint_root: str | Path | None = None,
         qa_script: Sequence[str] | None = None,
         tool_script: Sequence[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
@@ -766,6 +767,10 @@ class SessionDriver:
         self.yes = bool(yes)
         self.deterministic = bool(deterministic)
         self.resume = bool(resume)
+        # v0.6 T13.2：checkpoint 根目录（迁移后指向项目会话 checkpoints；缺省回退 v0.5 原位置）
+        self.checkpoint_root = (
+            None if checkpoint_root is None else Path(checkpoint_root).expanduser().resolve()
+        )
         self.qa_script = list(qa_script or [])
         self.tool_script = list(tool_script or [])
         self.role_tool_scripts = {k: list(v) for k, v in (role_tool_scripts or {}).items()}
@@ -840,6 +845,11 @@ class SessionDriver:
         self._graph: Any = None
         self._thread_id: str = record.thread_id
         self._tool_session: ToolSession | None = None
+        self.checkpointer = FileCheckpointer(
+            self.checkpoint_root
+            if self.checkpoint_root is not None
+            else self.workspace / ".agent-cluster" / "checkpoints"
+        )
 
     # ------------------------------------------------------------------
     # token 记账 / 事件跟踪 / 状态文本
@@ -1357,7 +1367,7 @@ class SessionDriver:
             "decisions": [],
             "gate_payloads": {},
         }
-        checkpointer = FileCheckpointer(self.workspace / ".agent-cluster" / "checkpoints")
+        checkpointer = self.checkpointer
         graph = compiled.compile_graph(checkpointer=checkpointer)
         self._graph = graph
 

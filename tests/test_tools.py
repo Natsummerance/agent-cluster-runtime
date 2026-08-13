@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -95,6 +96,8 @@ async def test_junction_symlink_escape_rejected(session: ToolSession, tmp_path: 
     outside.mkdir(exist_ok=True)
     (outside / "secret.txt").write_text("secret", encoding="utf-8")
     link = tmp_path / "link"
+    if sys.platform != "win32":
+        pytest.skip("junction 仅 Windows 支持")
     proc = subprocess.run(
         ["cmd", "/c", "mklink", "/J", str(link), str(outside)],
         capture_output=True,

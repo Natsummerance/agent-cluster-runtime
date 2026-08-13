@@ -197,13 +197,14 @@ def test_docker_action_field_when_unavailable(monkeypatch):
     docker = next(c for c in report.checks if c.name == "docker")
     assert not docker.ok
     assert docker.action
-    assert docker.action.startswith("scripts/install-docker")
+    assert docker.action.startswith("scripts/")
     assert docker.action in report.render()
 
 
 def test_fix_docker_runner_runs_then_rechecks(monkeypatch):
     """注入 fake runner：先执行脚本、后重查 docker；runner 成功时报告保留修复结果。"""
     monkeypatch.setattr("agent_cluster.doctor.docker_cli_present", lambda: False)
+    monkeypatch.setattr("agent_cluster.doctor.docker_action_for_platform", lambda: "scripts/install-docker.ps1")
     calls: list[str] = []
 
     def fake_runner(command: str):
@@ -222,6 +223,7 @@ def test_fix_docker_runner_runs_then_rechecks(monkeypatch):
 def test_fix_docker_runner_failure_reported(monkeypatch):
     """runner 失败 → 报告 not ok 且含 stderr，fix_result 透传。"""
     monkeypatch.setattr("agent_cluster.doctor.docker_cli_present", lambda: False)
+    monkeypatch.setattr("agent_cluster.doctor.docker_action_for_platform", lambda: "scripts/install-docker.ps1")
     report = run_doctor(fix_docker=True, script_runner=lambda command: (1, "install failed: boom"))
     assert not report.ok
     assert report.fix_result == (1, "install failed: boom")

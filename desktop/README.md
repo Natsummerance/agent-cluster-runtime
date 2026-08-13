@@ -1,4 +1,4 @@
-# AgentClusterWorkbench —— Electron 桌面壳（v0.5.0）
+# AgentClusterWorkbench —— Electron 桌面壳（v0.6.0）
 
 把 Python 后端（`agent-cluster serve`）与 React 前端工作台（`frontend/`）串成桌面应用的 Electron 壳。
 

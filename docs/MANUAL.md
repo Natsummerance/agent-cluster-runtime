@@ -1,7 +1,7 @@
 # 用户手册：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 安装、配置、运行与扩展指南。
-> 适用版本：0.5.0 ｜ 环境：Windows 优先（其余平台兼容不验收），Python 3.11+
+> 适用版本：0.6.0 ｜ 环境：Windows 优先（其余平台兼容不验收），Python 3.11+
 
 ---
 
@@ -32,7 +32,7 @@
 23. 目录结构
 24. 桌面工作台：serve + React 前端 + Electron（v0.5）
 25. 一键演示 demo（v0.5）
-26. 记忆库与进化集成（v0.5）
+26. 记忆库与进化集成（v0.5）`r`n27. 项目组合层与看板：serve v0.6 扩展
 
 ---
 
@@ -907,7 +907,7 @@ agent-cluster demo --port 8765                      # 完成后把工作区注�
 - 在缺省 `./.agent-cluster-demo/` 跑示例需求全生命周期，产出 PRD/架构/代码/测试/部署/
   手册/`DELIVERY.md`（含 token 计量表）并 git 提交；结束后打印面板接入指引。
 
-## 26. 记忆库与进化集成（v0.5）
+## 26. 记忆库与进化集成（v0.5）`r`n27. 项目组合层与看板：serve v0.6 扩展
 
 ```powershell
 # 记忆：工作区 .agent-cluster/memory.db（SQLite 四级晋升，内容存 Markdown 文件）
@@ -922,3 +922,76 @@ agent-cluster evolution retro --workspace DIR --goal "..."   # 自动复盘报�
 - 提案持久化到 `<root>/.agent-cluster/evolution/proposals.json`；process/organization 类
   提案生效后自动追加 `.agent-cluster/SOP.md` 变更记录；`--human-required` 在非 ask 模式
   下组织流程变更自动驳回（bypass-immune）。
+
+## 27. 项目组合层与看板：serve v0.6 扩展
+
+v0.6 在 v0.5 桌面工作台之上新增**项目组合层**与无人值守验收能力，全部经 `serve` REST/WS 暴露。
+
+### 27.1 项目容器与预算池
+
+```powershell
+# 创建项目（workspace 目录须真实存在；含 v0.5 session.json 时自动迁移为首个会话）
+curl -X POST http://127.0.0.1:8765/api/v1/projects -H "X-Auth-Token: ci" `
+  -H "Content-Type: application/json" -d '{\"name\":\"待办应用\",\"workspace\":\"D:/ws/todo\"}'
+# 预算池：硬上限 + 预警 + 解锁（自服务 200 / 审批模式 202 → approve|deny）
+curl -X PATCH http://127.0.0.1:8765/api/v1/projects/<pid> -H "X-Auth-Token: ci" `
+  -H "Content-Type: application/json" -d '{\"budget_pool\":{\"hard_limit_tokens\":500000}}'
+curl -X POST http://127.0.0.1:8765/api/v1/projects/<pid>/budget/unlock `
+  -H "X-Auth-Token: ci" -H "Content-Type: application/json" -d '{\"additional_tokens\":100000,\"reason\":\"扩容\"}'
+```
+
+- 预算语义：聚合用量 > 硬上限 → 新会话 409 `budget_pool_exhausted`；用量 ≥
+  上限 × `warn_ratio` 触发 `budget.warning` 事件（滞回防抖），`budget.exhausted`
+  事件在超限瞬间落审计。
+
+### 27.2 fork 血缘派生
+
+```powershell
+# 终态（completed）会话派生；返回 fork_depth 血缘，子会话 dormant 登记，账本不双计
+curl -X POST http://127.0.0.1:8765/api/v1/sessions/<sid>/fork -H "X-Auth-Token: ci" `
+  -H "Content-Type: application/json" -d '{\"goal\":\"衍生需求\",\"worktree\":false}'
+```
+
+### 27.3 实时 stdin 注入与自动评审
+
+```powershell
+# 挂起中注入（202 accepted）→ 落 transcript/变更历史/PRD 追加/stdin.applied 事件
+curl -X POST http://127.0.0.1:8765/api/v1/sessions/<sid>/stdin -H "X-Auth-Token: ci" `
+  -H "Content-Type: application/json" -d '{\"text\":\"改用邮箱验证码登录\"}'
+# 审批继续（挂起门）
+curl -X POST http://127.0.0.1:8765/api/v1/sessions/<sid>/approve -H "X-Auth-Token: ci"
+```
+
+- 门策略：项目 `gate_policy.auto_review` 开（默认）时自动白名单门（design_review/
+  code_review/iteration_acceptance）由 reviewer 自动放行；deterministic 模式
+  （`deterministic:true`）直接 `deterministic-accept`，无需真实 LLM 即可无人值守
+  跑通全流程。
+
+### 27.4 WebSocket 实时面板
+
+```text
+ws://127.0.0.1:8765/api/v1/ws?token=ci&session_id=<sid>
+{type:"subscribe", id:"s1", payload:{session_ids:["<sid>"]}}  →  snapshot
+{type:"ping", id:"p1"}                                        →  pong
+{type:"cancel", id:"c1", payload:{session_id:"<sid>"}}        →  ack
+```
+
+### 27.5 看板与任务面板
+
+- `GET /api/v1/projects/{pid}/dashboard`：cost/progress/health 三轴（状态枚举
+  ok|warn|critical）。
+- `GET /api/v1/projects/{pid}/tasks?status=completed&assignee=alice&q=关键词`：
+  注册表投影过滤；`PATCH /api/v1/projects/{pid}/tasks/{sid} {"assignee":"alice"}` 指派。
+
+### 27.6 工程化与发布
+
+- 前端真实后端 e2e：`cd frontend && npm run e2e:real`（Playwright 自管 `uv run
+  agent-cluster serve --port 8765 --auth-token ci`，deterministic 全链路）。
+- Docker 自动安装：`scripts/install-docker.ps1` / `install-docker.sh`；
+  `agent-cluster doctor --fix-docker` 一键联动。
+- 桌面打包矩阵：`cd desktop && npm run build:win`（NSIS x64+arm64）、`build:mac`、
+  `build:linux`；electron-updater 双通道（stable/latest）+ lastKnownGood 回退 +
+  minimumVersion 钉扎。
+- CI：`.github/workflows/ci.yml` 五段流水线（backend-test/frontend-test/e2e-real/
+  package/release）；`.github/workflow-templates/agent-delivery.yml` 交付模板
+  （build → 人工批准 → ci → 报告）。

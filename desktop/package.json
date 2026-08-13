@@ -1,6 +1,6 @@
 {
   "name": "agent-cluster-workbench-desktop",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Agent Cluster Workbench 桌面壳：Electron 把 agent-cluster serve 后端与 React 工作台前端串成桌面应用",
   "main": "main.js",
   "private": true,

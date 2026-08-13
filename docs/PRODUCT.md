@@ -1,7 +1,7 @@
 # 产品介绍：agent-cluster-runtime
 
 > 多 Agent 组织型全栈开发集群运行时 —— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.5.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
+> 版本：0.6.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
 
 ---
 
@@ -289,12 +289,30 @@ start → 需求评审(会议) → 需求确认门 → 设计(架构师) → 设
 - React 工作台（`frontend/`）+ Electron 壳（`desktop/`）：仪表盘/项目看板/会话详情/
   产物浏览/记忆/进化/集成/审计/设置，中文界面；`agent-cluster demo` 一键演示。
 
+**已实现（0.6.0）—— 项目组合层与无人值守验收**
+
+- **项目容器**：多工作区 + 项目级预算池（硬上限/预警滞回/解锁审批）+ 门策略
+  （自动评审白名单/黑名单/置信度阈值），v0.5 遗留 `session.json` 创建项目时
+  自动无损迁移为项目首个会话（幂等 + 备份 + 失败回退）。
+- **fork 血缘派生**：终态会话派生新会话（`fork_depth` 血缘 + 继承账本归因不双计 +
+  transcript/变更历史只读继承），dormant 登记待恢复启动。
+- **任务看板三轴仪表盘**：cost/progress/health 唯一计算式与 ok/warn/critical 状态
+  枚举；任务面板注册表投影支持 status/assignee/q 过滤与指派。
+- **WebSocket 实时面板**：stdlib 自研 RFC 6455（subscribe/snapshot/ping→pong/
+  cancel/approval/interrupt/stdin），事件与 SSE 同构可重放。
+- **实时 stdin 注入**：挂起中作答或节点边界自由输入，四步落盘（transcript/
+  变更历史/PRD 追加/事件），终态拒绝 409。
+- **门策略自动评审**：自动白名单门由 reviewer 自动放行/返工，deterministic 模式
+  `deterministic-accept` 无人值守跑通全链路（审计落 `review.auto_decision`）。
+- **工程化收尾**：前端 i18n 中英双语、真实后端 `e2e:real` Playwright 套件、
+  Docker 自动安装脚本 + `doctor --fix-docker`、桌面打包矩阵（NSIS x64+arm64 /
+  mac dmg+zip / linux deb）+ electron-updater 双通道自动更新、GitHub Actions
+  五段 CI 流水线与 `agent-delivery` 交付模板。
 **路线图（后续版本）**
 
-- v0.5 已落地：Web/桌面面板、实时打断与变更回滚、记忆库与进化集成、token 成本仪表盘。
-- 多项目并发与项目组合管理（项目级看板 + 预算池）。
-- 企业集成实连：Jira/Linear/Slack 等外部系统适配。
-- 云端/服务化与 OAuth MCP、自动更新、完整 PPM。
+- v0.6 已落地：项目组合层（多工作区 + 预算池 + 门策略）、fork 血缘、任务看板三轴、
+  WS/stdin 实时交互、自动评审、i18n、e2e:real、打包矩阵与自动更新、CI 模板。
+- v0.7 主史诗：企业集成实连（Jira/Linear/Slack）、云端/服务化与 OAuth MCP、完整 PPM。
 
 ## 15. 许可说明
 

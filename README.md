@@ -1,6 +1,6 @@
 # agent-cluster-runtime — 多 Agent 组织型全栈开发集群运行时
 
-> 版本：0.5.0 ｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
+> 版本：0.6.0 ｜ 语言：Python 3.11+ ｜ 前端：React+Vite+Electron（桌面工作台） ｜ 底座：LangGraph + pydantic v2 ｜ 无 LLM 也可运行
 > 设计落地自 [`agent-clusters/智能体集群设计方案.md`](../agent-clusters/智能体集群设计方案.md)（v1.0）
 
 ## 项目简介
@@ -42,6 +42,15 @@ v0.5 新增**桌面工作台（Desktop Workbench）**：`serve` 后端（REST+SS
 token/成本仪表盘、记忆库（SQLite 四级晋升）、进化提案管理、审计导出；CLI 完全保留
 （`run`/`build`/`chat`/`demo`/`doctor`/`eval`/`evolution` 等），`agent-cluster demo`
 一键确定性生成完整交付包，`npm run dev` + `serve` 即可打开面板即开即用。
+
+v0.6 新增**项目组合层与无人值守验收**：项目容器（多工作区 + 项目级预算池 + 门策略）、
+终态会话 `fork` 血缘派生（账本聚合不双计）、任务看板三轴仪表盘（成本/进度/健康）与
+指派/过滤、原生 WebSocket 实时面板（subscribe/snapshot/ping/cancel）、挂起中实时
+`stdin` 注入（落 transcript/PRD/变更历史）、门策略自动评审（`deterministic-accept`
+无人值守跑通全流程）、前端 i18n 中英双语、`e2e:real` 真实后端 Playwright 套件、
+Docker 自动安装脚本与 `doctor --fix-docker`、桌面打包矩阵（NSIS x64+arm64 / mac
+dmg+zip / linux deb）与 electron-updater 双通道自动更新、GitHub Actions 五段 CI
+流水线与 `agent-delivery` 交付模板（build → 人工批准 → 测试 → 发布报告）。
 
 设计要点：
 

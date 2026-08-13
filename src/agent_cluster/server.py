@@ -78,13 +78,13 @@ class ConflictError(Exception):
 
 
 def _package_version() -> str:
-    """读取安装版本（importlib.metadata，开发模式回退 0.6.0-dev）。"""
+    """读取安装版本（importlib.metadata，开发模式回退 0.6.1-dev）。"""
     try:
         from importlib import metadata
 
         return metadata.version("agent-cluster")
     except Exception:  # noqa: BLE001
-        return "0.6.0-dev"
+        return "0.6.1-dev"
 
 
 def _now_iso() -> str:

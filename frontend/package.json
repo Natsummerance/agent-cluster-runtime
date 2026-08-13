@@ -1,9 +1,9 @@
 {
   "name": "agent-cluster-workbench",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
-  "description": "Agent Cluster Runtime v0.6.0 桌面工作台前端",
+  "description": "Agent Cluster Runtime v0.6.1 桌面工作台前端",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

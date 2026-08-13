@@ -1,6 +1,6 @@
 'use strict';
 
-// AgentClusterWorkbench —— Electron 桌面壳（v0.6.0）
+// AgentClusterWorkbench —— Electron 桌面壳（v0.6.1）
 // 职责：启动/托管 agent-cluster serve 后端（REST+SSE），加载 React 前端工作台，
 // 提供托盘、系统通知（等待审批）、全局快捷键、开机自启与退出清理。
 //

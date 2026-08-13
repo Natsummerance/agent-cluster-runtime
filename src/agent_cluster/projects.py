@@ -313,17 +313,20 @@ class ProjectStore:
         return records
 
     def update(self, project_id: str, **fields: Any) -> ProjectRecord:
-        """局部更新（含 gate_policy/budget_pool 子模型的 dict 覆盖；非法值抛 ValueError）。"""
+        """局部更新（含 gate_policy/budget_pool 子模型的 dict 覆盖；非法值抛 ValueError且不落盘）。"""
         with _project_lock(project_id):
             record = self.get(project_id)
             updates: dict[str, Any] = dict(fields)
-            for sub_model in ("gate_policy", "budget_pool"):
-                if sub_model in updates:
-                    override = updates[sub_model]
-                    if not isinstance(override, dict):
-                        raise ValueError(f"{sub_model} 必须以 dict 覆盖")
-                    updates[sub_model] = getattr(record, sub_model).model_copy(update=override)
             try:
+                for sub_model in ("gate_policy", "budget_pool"):
+                    if sub_model in updates:
+                        override = updates[sub_model]
+                        if not isinstance(override, dict):
+                            raise ValueError(f"{sub_model} 必须以 dict 覆盖")
+                        current = getattr(record, sub_model)
+                        merged_sub = current.model_dump()
+                        merged_sub.update(override)
+                        updates[sub_model] = type(current).model_validate(merged_sub)
                 merged = record.model_dump()
                 merged.update(updates)
                 updated = ProjectRecord.model_validate(merged)

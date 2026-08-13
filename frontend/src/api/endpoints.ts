@@ -141,15 +141,26 @@ export const promoteMemory = (memoryId: string) =>
   });
 
 // ---- 集成（可能返回 {note} 占位，前端两者兼容） ----
-export const fetchPlugins = () => apiRequest<unknown[] | IntegrationNote>('/api/v1/plugins');
-export const fetchSkills = () => apiRequest<unknown[] | IntegrationNote>('/api/v1/skills');
-export const fetchMcp = () => apiRequest<unknown[] | IntegrationNote>('/api/v1/mcp');
+export const fetchPlugins = async (): Promise<unknown[]> => {
+  const data = await apiRequest<{ plugins?: unknown[] } | IntegrationNote>('/api/v1/plugins');
+  return Array.isArray(data) ? data : Array.isArray(data.plugins) ? data.plugins : [];
+};
+export const fetchSkills = async (): Promise<unknown[]> => {
+  const data = await apiRequest<{ skills?: unknown[] } | IntegrationNote>('/api/v1/skills');
+  return Array.isArray(data) ? data : Array.isArray(data.skills) ? data.skills : [];
+};
+export const fetchMcp = async (): Promise<unknown[]> => {
+  const data = await apiRequest<{ mcp?: unknown[] } | IntegrationNote>('/api/v1/mcp');
+  return Array.isArray(data) ? data : Array.isArray(data.mcp) ? data.mcp : [];
+};
 
 // ---- 进化 ----
-export const fetchEvolutionProposals = (projectId?: string) =>
-  apiRequest<EvolutionProposal[]>(`/api/v1/evolution/proposals`, {
+export const fetchEvolutionProposals = async (projectId?: string): Promise<EvolutionProposal[]> => {
+  const data = await apiRequest<{ proposals: EvolutionProposal[] }>(`/api/v1/evolution/proposals`, {
     query: { project_id: projectId || undefined },
   });
+  return data.proposals;
+};
 export const generateEvolutionProposals = (input: {
   project_id?: string;
   min_evidence?: number;

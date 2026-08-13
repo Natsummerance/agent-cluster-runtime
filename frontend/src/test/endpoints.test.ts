@@ -103,14 +103,18 @@ describe('api endpoints 路由', () => {
     expect(init?.method).toBe('POST');
   });
 
-  it('fetchEvolutionProposals 携带 project_id query', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ ok: true, data: [] }));
+  it('fetchEvolutionProposals 解包 data.proposals 并携带 project_id query', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ ok: true, data: { proposals: [{ id: 'e1' }] } }),
+    );
     setFetchImpl(fetchMock);
-    await api.fetchEvolutionProposals('p1');
+    const list = await api.fetchEvolutionProposals('p1');
     const [input] = callAt(fetchMock);
     const url = String(input);
     expect(url).toContain('/api/v1/evolution/proposals');
     expect(url).toContain('project_id=p1');
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe('e1');
   });
 
   it('generateEvolutionProposals 与 retro 使用 POST', async () => {
@@ -144,5 +148,15 @@ describe('api endpoints 路由', () => {
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls[0]).toBe('http://127.0.0.1:8765/api/v1/evolution/proposals/e1/apply');
     expect(urls[1]).toBe('http://127.0.0.1:8765/api/v1/evolution/proposals/e1/rollback');
+  });
+  it('fetchPlugins/fetchSkills/fetchMcp 解包 data.<key> 信封', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
+      jsonResponse({ ok: true, data: { plugins: [1], skills: [2], mcp: [3] } }),
+    );
+    setFetchImpl(fetchMock);
+    const [plugins, skills, mcp] = await Promise.all([api.fetchPlugins(), api.fetchSkills(), api.fetchMcp()]);
+    expect(plugins).toEqual([1]);
+    expect(skills).toEqual([2]);
+    expect(mcp).toEqual([3]);
   });
 });

@@ -26,3 +26,10 @@
 - 本地跑 dev：`.venv\Scripts\python.exe -m agent_cluster.cli serve` + `npm run dev`；
   无头验证 = 页面 `fetch('http://127.0.0.1:8765/api/v1/status')` + 收集 console 错误。
 - Playwright 探活**不要用 networkidle**：SSE 长连接永不 idle，用 `domcontentloaded` + 元素等待。
+## API 信封契约（高频坑）
+- 后端信封是 `{ok, data}`，**data 常为对象**（`data.proposals` / `data.plugins` / `data.skills` / `data.mcp`），
+  前端端点函数必须解包后返回数组；mock 测试要用真实结构（`{ok:true,data:{proposals:[...]}}`），
+  用 `data: []` 会掩盖契约不匹配，antd Table 收到对象即崩（`rawData.some is not a function`）。
+- 旧项目（v0.6 T13.5 双写前）只在全局索引、无 ProjectStore 记录：`/projects/{id}/dashboard` 等
+  端点会 KeyError→404；列表接口有兜底但独立端点没有。修复约定：索引在 → 返回空三轴 200，索引无 → 404。
+- 验证页面：无头浏览器逐页收集 console/pageerror + `response 404` 监听，比肉眼快。

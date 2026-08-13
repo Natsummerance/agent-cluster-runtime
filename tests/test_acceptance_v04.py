@@ -13,6 +13,7 @@ tmp_path 临时目录，不污染仓库；不依赖 Docker。
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -192,6 +193,10 @@ def test_acceptance_v04_scenario_b_existing_repo_fix(tmp_path: Path, monkeypatch
 
     # 基线确认：修复前测试真实失败
     assert _run_pytest(ws) != 0
+    # 基线运行生成字节码缓存：同秒内同长度改写源文件时，Python 按整秒校验 pyc，
+    # QA 子进程可能命中陈旧字节码（CI 曾偶发）。清掉缓存保证 QA 读到修复后源码。
+    for cache_dir in (ws / "__pycache__", ws / ".pytest_cache"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
     flow = tmp_path / "fix.yaml"
     flow.write_text(FIX_FLOW, encoding="utf-8")

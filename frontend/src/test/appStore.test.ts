@@ -6,7 +6,7 @@ function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-const STATUS = { version: '0.6.3', projects: 1, sessions: 2, active_sessions: 1, uptime: 3600 };
+const STATUS = { version: '0.6.4', projects: 1, sessions: 2, active_sessions: 1, uptime: 3600 };
 const PROJECTS = [{ id: 'p1', name: 'demo', workspace: 'ws', status: 'active', created_at: '2026-01-01T00:00:00' }];
 const METRICS = { sessions: 2, active: 1, total_tokens: 1000, total_cost: 0.01, health: null, updated_at: '2026-01-01T00:00:00' };
 
@@ -20,7 +20,7 @@ describe('appStore', () => {
     setFetchImpl(async () => jsonResponse({ ok: true, data: STATUS }));
     await useAppStore.getState().refreshStatus();
     const s = useAppStore.getState();
-    expect(s.status?.version).toBe('0.6.3');
+    expect(s.status?.version).toBe('0.6.4');
     expect(s.connected).toBe(true);
     expect(s.loading).toBe(false);
   });
@@ -57,7 +57,7 @@ describe('appStore', () => {
     });
     setFetchImpl(fetchMock);
     await useAppStore.getState().refreshAll();
-    expect(useAppStore.getState().status?.version).toBe('0.6.3');
+    expect(useAppStore.getState().status?.version).toBe('0.6.4');
     expect(useAppStore.getState().projects).toHaveLength(1);
     expect(useAppStore.getState().metrics?.sessions).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(3);

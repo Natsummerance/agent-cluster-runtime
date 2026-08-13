@@ -26,9 +26,9 @@ function callAt(fetchMock: Mock, index = 0): Call {
 
 describe('api client', () => {
   it('解包成功响应：ok=true 时返回 data', async () => {
-    setFetchImpl(async () => jsonResponse({ ok: true, data: { version: '0.6.3' } }));
+    setFetchImpl(async () => jsonResponse({ ok: true, data: { version: '0.6.4' } }));
     const data = await apiRequest<{ version: string }>('/api/v1/status');
-    expect(data).toEqual({ version: '0.6.3' });
+    expect(data).toEqual({ version: '0.6.4' });
   });
 
   it('ok=false 时抛出 ApiError 并携带后端 error 信息', async () => {

@@ -26,7 +26,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Sequence
 
 import yaml
 from langgraph.checkpoint.base import (
@@ -70,6 +70,9 @@ from agent_cluster.skills import SkillCatalog, SkillLoader
 from agent_cluster.tokens import estimate_tokens
 from agent_cluster.tools import ToolSession, build_default_tools, load_agents_md
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowEngine
+
+if TYPE_CHECKING:
+    from agent_cluster.projects import GatePolicyConfig
 
 logger = logging.getLogger("agent-cluster")
 
@@ -768,6 +771,7 @@ class SessionDriver:
         plugin_manager: Any | None = None,
         sandbox: Any | None = None,
         judge: Any | None = None,
+        gate_policy: GatePolicyConfig | None = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
         self.goal = goal.strip()
@@ -794,6 +798,9 @@ class SessionDriver:
         self.plugin_manager = plugin_manager
         self.sandbox = sandbox
         self.judge = judge
+        self.gate_policy = gate_policy
+        # v0.6 T13.6：自动评审审计记录（run 结束追加进 BuildResult.decisions）
+        self._auto_audit: list[ApprovalRecord] = []
         if judge is not None:
             judge.on_usage = self._record_judge_usage
         self.phase_map = dict(
@@ -1112,11 +1119,110 @@ class SessionDriver:
         except Exception:  # noqa: BLE001 —— 记账失败不阻断
             pass
 
+    # ------------------------------------------------------------------
+    # v0.6 T13.6：门策略自动 reviewer（设计 §9）
+    # ------------------------------------------------------------------
+
+    def _gate_policy_active(self, kind: str) -> bool:
+        """§9 判定顺序：human_kinds 恒人工 → auto_review 开关 → auto_kinds 白名单。"""
+        policy = self.gate_policy
+        return bool(
+            policy is not None
+            and policy.auto_review
+            and kind not in policy.human_kinds
+            and kind in policy.auto_kinds
+        )
+
+    def _auto_review_gate(self, request: ActionRequest, record: GateDecisionRecord) -> HumanResponse | None:
+        """自动评审：accept/edit 直接路由；置信度不足 / judge 不可用返回 None 升级人工。"""
+        policy = self.gate_policy
+        assert policy is not None, "仅 _gate_policy_active 通过时进入"
+        kind = request.kind.value
+        node_id = record.node
+        if self.deterministic:
+            # §9.3：deterministic 模式（无模型）直接 accept 并审计，保证无人值守 e2e 可跑通
+            record.last_decision = "accept"
+            record.escalated = False
+            self.store.save()
+            self._record_auto_decision(node_id, kind, "accept", 1.0, "deterministic-accept")
+            self.print_fn(f"[自动评审] {kind}：deterministic 模式直接放行（已审计）")
+            return HumanResponse(type="accept")
+        if self.judge is None:
+            self.print_fn(f"[自动评审] 未配置 judge，门 {node_id} 升级人工（安全默认）")
+            return None
+        try:
+            evaluate_kwargs: dict[str, Any] = {}
+            if policy.review_prompt:
+                evaluate_kwargs["review_prompt"] = policy.review_prompt
+            verdict = self.judge.evaluate(kind, self.workspace, context=self.current_node, **evaluate_kwargs)
+        except Exception as exc:  # noqa: BLE001 —— 评审异常升级人工，不阻断流程
+            self.print_fn(f"[自动评审] 评审不可用：{exc}，升级人工")
+            return None
+        if verdict is None:
+            return None
+        confidence = float(getattr(verdict, "confidence", 1.0) or 1.0)
+        confidence = min(1.0, max(0.0, confidence))
+        if verdict.verdict == "pass":
+            if confidence < policy.review_confidence_threshold:
+                self.print_fn(
+                    f"[自动评审] 置信度 {confidence:.2f} 低于阈值 "
+                    f"{policy.review_confidence_threshold}，升级人工"
+                )
+                return None
+            record.last_decision = "accept"
+            record.escalated = False
+            self.store.save()
+            self._record_auto_decision(node_id, kind, "accept", confidence, "auto-review")
+            self.print_fn(f"[自动评审] {kind} 放行：{verdict.reason}")
+            return HumanResponse(type="accept")
+        # revise → edit 返工（rejections 累计；达 rework_escalation 由 _escalation 升级人工）
+        edit_text = "；".join(verdict.suggestions) or verdict.reason or "按评审建议返工"
+        record.rejections += 1
+        record.last_decision = "edit"
+        self.store.save()
+        self._record_auto_decision(node_id, kind, "edit", confidence, "auto-review")
+        self.print_fn(f"[自动评审] {kind} 返工：{verdict.reason}")
+        return HumanResponse(type="edit", args={"text": edit_text})
+
+    def _record_auto_decision(self, node: str, kind: str, decision: str, confidence: float, source: str) -> None:
+        """落自动评审审计（by_role=auto）并发送 review.auto_decision 事件。"""
+        self._auto_audit.append(
+            ApprovalRecord(
+                by_role="auto",
+                type=decision,
+                args={"node": node, "kind": kind, "confidence": confidence, "source": source},
+                ts=datetime.now(timezone.utc),
+            )
+        )
+        try:
+            self.on_event(
+                Event(
+                    id=uuid.uuid4().hex,
+                    run_id=self.store.record.thread_id,
+                    thread_id=self.store.record.thread_id,
+                    type="review.auto_decision",
+                    actor="auto-reviewer",
+                    payload={
+                        "node": node,
+                        "kind": kind,
+                        "decision": decision,
+                        "confidence": confidence,
+                        "source": source,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001 —— 审计事件失败不阻断决策
+            pass
+
     def _gate_response(self, request: ActionRequest) -> HumanResponse | str:
         """审批门：accept/reject/response/edit + 返工计数 + 可选 LLM 评审。"""
         node_id = self.current_node or request.evidence.get("node") or ""
         record = self._gate_record(node_id, request.kind.value)
         record.attempts += 1
+        if self._gate_policy_active(request.kind.value):
+            decision = self._auto_review_gate(request, record)
+            if decision is not None:
+                return decision
         judge_review = ""
         if self.judge is not None:
             try:
@@ -1182,7 +1288,12 @@ class SessionDriver:
             return ("budget_phase", self.current_phase)
         node_id = self.current_node or ""
         record = self._gate_record(node_id, request.kind.value)
-        if record.rejections >= self.store.record.rework_limit and not record.escalated:
+        rework_limit = (
+            self.gate_policy.rework_escalation
+            if self.gate_policy is not None
+            else self.store.record.rework_limit
+        )
+        if record.rejections >= rework_limit and not record.escalated:
             return ("rework", record)
         return None
 
@@ -1448,7 +1559,7 @@ class SessionDriver:
             state = ClusterState.model_validate(snapshot.values)
         except Exception:  # noqa: BLE001 —— 状态不可读时保持 None
             state = None
-        decisions = list(state.decisions) if state is not None else []
+        decisions = (list(state.decisions) if state is not None else []) + list(self._auto_audit)
 
         delivery = None
         token_summary = self.store.record.token_ledger.summary()

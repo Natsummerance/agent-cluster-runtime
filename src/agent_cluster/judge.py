@@ -68,6 +68,7 @@ class JudgeVerdict:
     reason: str = ""
     suggestions: list[str] = field(default_factory=list)
     raw: str = ""
+    confidence: float = 1.0
 
 
 def read_artifact(kind: str, workspace: str | Path) -> str | None:
@@ -133,11 +134,17 @@ def parse_verdict(text: str) -> JudgeVerdict:
     if not isinstance(suggestions, list):
         suggestions = []
     suggestions = [str(item) for item in suggestions if str(item).strip()]
+    try:
+        confidence = float(data.get("confidence", 1.0))
+    except (TypeError, ValueError):
+        confidence = 1.0
+    confidence = min(1.0, max(0.0, confidence))
     return JudgeVerdict(
         verdict=verdict,
         reason=str(data.get("reason") or "").strip(),
         suggestions=suggestions,
         raw=raw,
+        confidence=confidence,
     )
 
 
@@ -169,28 +176,37 @@ class LLMJudge:
             except Exception:  # noqa: BLE001 —— 记账失败不阻断
                 pass
 
-    async def _evaluate_async(self, kind: str, artifact_text: str, context: str = "") -> JudgeVerdict:
+    async def _evaluate_async(
+        self, kind: str, artifact_text: str, context: str = "", review_prompt: str = ""
+    ) -> JudgeVerdict:
         kind_label = _KIND_LABELS.get(kind, kind)
         user = f"评审对象类别：{kind_label}\n评审要求：{GATE_CONTEXT_MAP.get(kind, '')}\n"
         if context:
             user += f"流程上下文：{context}\n"
         user += f"产物内容：\n{artifact_text or '（无产物文本，请基于上下文判断）'}"
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": review_prompt.strip() or _SYSTEM_PROMPT},
             {"role": "user", "content": user},
         ]
         response = await self.client.complete_with_tools(messages, tools=[])
         self._report_usage(response.usage)
         return parse_verdict(response.text)
 
-    def evaluate(self, kind: str, workspace: str | Path, context: str = "") -> JudgeVerdict:
-        """同步评审入口：独立线程 + 独立事件循环，可在运行中的 asyncio 会话线程内安全调用。"""
+    def evaluate(
+        self, kind: str, workspace: str | Path, context: str = "", review_prompt: str = ""
+    ) -> JudgeVerdict:
+        """同步评审入口：独立线程 + 独立事件循环，可在运行中的 asyncio 会话线程内安全调用。
+
+        `review_prompt` 非空时覆盖默认评审 system 提示词（v0.6 门策略）。
+        """
         artifact_text = read_artifact(kind, workspace)
         result: dict[str, JudgeVerdict] = {}
 
         def _target() -> None:
             try:
-                result["verdict"] = asyncio.run(self._evaluate_async(kind, artifact_text or "", context))
+                result["verdict"] = asyncio.run(
+                    self._evaluate_async(kind, artifact_text or "", context, review_prompt)
+                )
             except Exception as exc:  # noqa: BLE001 —— 评审失败不阻断门
                 result["verdict"] = JudgeVerdict(
                     verdict="pass", reason=f"评审不可用：{exc}", suggestions=[]

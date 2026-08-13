@@ -136,7 +136,7 @@ export default function Projects() {
         onCancel={() => setModalOpen(false)}
         okText={intl.formatMessage({ id: 'common.create', defaultMessage: 'Create' })}
         cancelText={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
-        destroyOnClose
+        destroyOnHidden
         data-testid="create-project-modal"
       >
         <Form form={form} layout="vertical">

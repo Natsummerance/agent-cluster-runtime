@@ -361,7 +361,7 @@ export default function ProjectSessions() {
         onCancel={() => setModalOpen(false)}
         okText={intl.formatMessage({ id: 'common.create', defaultMessage: 'Create' })}
         cancelText={intl.formatMessage({ id: 'common.cancel', defaultMessage: 'Cancel' })}
-        destroyOnClose
+        destroyOnHidden
         width={640}
         data-testid="create-session-modal"
       >

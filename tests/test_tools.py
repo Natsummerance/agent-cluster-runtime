@@ -199,7 +199,7 @@ async def test_dangerous_tool_requires_approval_and_does_not_execute(session: To
 
 async def test_dangerous_tool_executes_after_approval(session: ToolSession):
     result = await session.execute(
-        ToolCall(name="run_shell", args={"command": "cmd /c echo APPROVED_OK"}), approved=True
+        ToolCall(name="run_shell", args={"command": "python -c print(\"APPROVED_OK\")"}), approved=True
     )
     assert result.ok
     assert "APPROVED_OK" in result.output
@@ -279,7 +279,7 @@ async def test_read_is_not_poisoned_by_replay_cache(session: ToolSession):
 
 async def test_audit_records_tool_calls(session: ToolSession):
     await session.execute(ToolCall(name="write_file", args={"path": "a.txt", "content": "x"}))
-    await session.execute(ToolCall(name="run_shell", args={"command": "cmd /c echo x"}), approved=True)
+    await session.execute(ToolCall(name="run_shell", args={"command": "python -c print(\"x\")"}), approved=True)
     assert len(session.audit) == 2
     assert session.audit[0]["tool"] == "write_file"
     assert session.audit[0]["permission"] == ToolPermission.WORKSPACE_WRITE.value

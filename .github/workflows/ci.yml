@@ -39,6 +39,8 @@ jobs:
           git config --global user.email ci@users.noreply.github.com
       - name: Sync backend deps (frozen)
         run: uv sync --frozen
+      - name: Add venv bin to PATH (sandbox-less run_tests nested pytest)
+        run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Backend test suite
         run: uv run pytest -q
 

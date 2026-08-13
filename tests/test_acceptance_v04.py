@@ -108,6 +108,27 @@ def _run_pytest(ws: Path) -> int:
     return proc.returncode
 
 
+
+
+def _run_tests_outputs(summary) -> str:
+    """提取 QA run_tests 工具结果（失败诊断用）。"""
+    lines: list[str] = []
+    for msg in summary.state.messages:
+        payload = msg.payload or {}
+        if msg.type.value == "tool_result" and payload.get("tool") == "run_tests":
+            lines.append(f"ok={payload.get('ok')} output={str(payload.get('output', ''))[:800]}")
+    return "\n".join(lines) or "(无 run_tests 工具结果)"
+
+
+def _run_tests_outputs(summary) -> str:
+    """提取 QA run_tests 工具结果（失败诊断用）。"""
+    lines: list[str] = []
+    for msg in summary.state.messages:
+        payload = msg.payload or {}
+        if msg.type.value == "tool_result" and payload.get("tool") == "run_tests":
+            lines.append(f"ok={payload.get('ok')} output={str(payload.get('output', ''))[:800]}")
+    return "\n".join(lines) or "(无 run_tests 工具结果)"
+
 def test_acceptance_v04_scenario_a_empty_workspace_full_flow(tmp_path: Path):
     """场景 A：空工作区 + 全流程 → 可运行项目 + 测试真实通过 + git 提交 + 退出码 0。"""
     ws = tmp_path / "ws-a"
@@ -141,7 +162,9 @@ def test_acceptance_v04_scenario_a_empty_workspace_full_flow(tmp_path: Path):
     assert (ws / "README.md").is_file()
     # 测试真实通过：QA 任务全部 done，且独立重跑 pytest 退出码 0
     qa_tasks = [t for t in result.state.tasks if t.assignee_role == "qa"]
-    assert qa_tasks and all(t.status.value == "done" for t in qa_tasks)
+    assert qa_tasks and all(t.status.value == "done" for t in qa_tasks), (
+        f"QA 任务未全部完成；run_tests 输出：\n{_run_tests_outputs(result)}"
+    )
     assert _run_pytest(ws) == 0
     # git 提交存在
     assert _git_log(ws)
@@ -180,7 +203,9 @@ def test_acceptance_v04_scenario_b_existing_repo_fix(tmp_path: Path, monkeypatch
     assert summary.events[-1].type == "workflow_end"
     assert (ws / "app.py").read_text(encoding="utf-8") == "def add(a, b):\n    return a + b\n"
     qa_tasks = [t for t in summary.state.tasks if t.assignee_role == "qa"]
-    assert qa_tasks and all(t.status.value == "done" for t in qa_tasks)
+    assert qa_tasks and all(t.status.value == "done" for t in qa_tasks), (
+        f"QA 任务未全部完成；run_tests 输出：\n{_run_tests_outputs(summary)}"
+    )
     assert not [t for t in summary.state.tasks if t.status.value in ("review", "blocked")]
     assert _run_pytest(ws) == 0
     # git：基线提交 + 修复提交（≥2），最近提交为修复

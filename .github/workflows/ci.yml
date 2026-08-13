@@ -105,13 +105,13 @@ jobs:
           cd frontend
           # 等真实后端就绪再启动 playwright（其 URL 探测是单次检查，冷启动竞态曾致端口冲突）
           for ((i=1; i<=90; i++)); do
-            if curl -sf http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1; then
+            if curl -sf -H "X-Auth-Token: ci" http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1; then
               echo "backend ready after ${i}s"
               break
             fi
             sleep 1
           done
-          curl -sf http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1 || { echo "backend not ready in 90s"; exit 1; }
+          curl -sf -H "X-Auth-Token: ci" http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1 || { echo "backend not ready in 90s"; exit 1; }
           npm run e2e:real
 
   package:
@@ -204,6 +204,15 @@ jobs:
           # 清掉同 tag 旧 release（重跑/失败残留），保留 tag 本身
           gh release delete "$TAG" --yes --cleanup-tag=false || true
           # 资产：artifacts/**（安装包，latest*.yml 已在上一步删除）+ metadata/**（补丁版 latest*.yml）
-          mapfile -t ASSETS < <(find artifacts metadata -type f | sort)
+          # 去重：同名资产只上传一次（mac 双 job 曾产出相同文件导致上传 422）
+          declare -A seen
+          ASSETS=()
+          while IFS= read -r f; do
+            base="$(basename "$f")"
+            if [[ -z "${seen[$base]+x}" ]]; then
+              seen[$base]=1
+              ASSETS+=("$f")
+            fi
+          done < <(find artifacts metadata -type f | sort)
           echo "uploading ${#ASSETS[@]} assets"
           gh release create "$TAG" --title "$TAG" --generate-notes "${ASSETS[@]}"

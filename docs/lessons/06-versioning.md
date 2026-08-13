@@ -8,6 +8,12 @@
 - 用带引号/带上下文的精确串：`"version": "0.6.1"`、`__version__ = "0.6.1"`、`'0.6.1'`（前端 mock）。
 - 替换后 `git diff` 逐行审查 +/- 行，确认无依赖版本被误伤。
 
+## lock 文件行级替换铁律（v0.6.4 实测再踩）
+- 带引号的 `"version": "0.6.3"` 仍可能命中依赖条目：lockfile v3 里依赖的 version 字段同样带引号
+  （实测误伤 `iconv-lite`、`dom-accessibility-api`，resolved URL 还是旧版本 → 锁文件损坏）。
+- lock 文件替换必须带包名上下文（如 `"node_modules/iconv-lite": {\n      "version": ...`）或直接行级替换；
+  替换后 `git diff` 逐行审查 + `rg "旧版本"` 扫描残留（依赖引用残留属正常，项目条目残留才是漏改）。
+
 ## 同步清单（一处不漏）
 1. `pyproject.toml`（`version = "..."`）
 2. `src/agent_cluster/__init__.py`（`__version__`）

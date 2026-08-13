@@ -1,24 +1,22 @@
 # AGENTS.md — agent-cluster-runtime
 
 多 Agent 组织型全栈开发集群运行时（Python 3.11 + LangGraph + pydantic v2 + React/Vite + Electron 桌面工作台）。
-本文件是给 Codex/Claude 等编码代理的常驻指令；**每次开工先读**。
 
-## 开工前必读（按顺序）
-1. `docs/LEARNINGS.md` —— 项目长期经验库（踩坑/根因/预防，越迭代越聪明）。遇到非平凡问题解决后必须补一条。
-2. `docs/superpowers/handoff/` 下**最新**交接文档 —— 当前版本事实、提交链、续跑入口。
-3. `docs/superpowers/plans|specs|research/` —— 对应版本的 plan / design / research（写测试前先看「关键契约索引」）。
+## 加载协议（token 节省）
+1. 先读 `docs/lessons/README.md`（索引表），**按当前任务只加载对应模块**，勿整库读取。
+2. 任何修复尝试前先读 `docs/lessons/07-debugging.md`（3 次即停协议）。
+3. 版本升级读 `docs/lessons/06-versioning.md`（12 处同步清单）。
+4. handoff：只读 `docs/superpowers/handoff/` 下最新一份；plan/design 按需看对应版本。
 
 ## 硬约束
-- 前端**严禁伪造/硬编码数据**，全面接真实后端；`frontend/e2e/mock-api.ts` 仅 Playwright 拦截式测试合法。
-- 流程：TDD（RED→GREEN）+ verification-before-completion；完成声明必须附当次新鲜测试证据。
-- 每个任务独立 `git commit` + `git push`；提交前缀：v0.6.x 维护 `Task 13.N:`，v0.7 起 `Task 14.N:`。
-- 版本升级四文件同步（见 LEARNINGS §6），`tests/test_t12_11.py` 有版本一致性断言。
-- 不派发子智能体（用户要求主线程直改）。
+- 前端**严禁伪造/硬编码数据**，全面接真实后端；`frontend/e2e/mock-api.ts` 仅拦截式测试合法。
+- **3 次即停**：同一问题修复尝试 ≤3 次；第 3 次仍失败 → 跑 `scripts/troubleshoot.ps1` 收集证据 → 对照经验库定位根因 → 才允许再修。
+- TDD + verification-before-completion；完成声明附当次新鲜证据。
+- 每任务独立 `git commit` + `git push`；前缀 `Task 13.N:`（v0.6.x）/ `Task 14.N:`（v0.7）。
+- 不派发子智能体（主线程直改）。
 
-## 环境（Windows 开发机，PowerShell）
-- `apply_patch` 报 Access denied → 用 `[System.IO.File]::WriteAllText`（UTF-8 无 BOM）写文件。
-- 单条命令过长 / `Remove-Item` 会被策略拦截 → 拆段执行，删除用 .NET API。
-- 用 `uv run pytest`（venv 3.11）；**禁止** `uv run --python 3.11`（会重建 venv）。
-- git `autocrlf=true`，CRLF/LF 警告无害；各文件行尾约定见 LEARNINGS §1。
-- 常用验证：后端 `uv run pytest -q`（650 passed）；前端 `cd frontend && npm run build / npm test / npm run i18n:check`；
-  e2e-real 16 条（先起真实 serve 再 `npm run e2e:real`）。
+## 环境速记（细节见 lessons/01）
+- `apply_patch` 报 Access denied → `[System.IO.File]::WriteAllText`（UTF-8 无 BOM）；长命令/`Remove-Item` 被拦 → 拆段 + .NET API。
+- 用 `uv run pytest`（venv 3.11）；禁 `uv run --python 3.11`。
+- git `autocrlf=true`，CRLF/LF 警告无害。
+- 验证速查：后端 `uv run pytest -q`（650）；前端 `cd frontend && npm run build / npm test / npm run i18n:check`；e2e-real 16 条。

@@ -42,7 +42,18 @@ jobs:
       - name: Add venv bin to PATH (sandbox-less run_tests nested pytest)
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Backend test suite
-        run: uv run pytest -q
+        run: |
+          uv run pytest -q > pytest-output.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then tail -n 120 pytest-output.log; fi
+          exit $rc
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-backend-test
+          path: pytest-output.log
+          retention-days: 1
 
   frontend-test:
     runs-on: ubuntu-latest
@@ -59,7 +70,19 @@ jobs:
       - name: Frontend build (tsc + vite)
         run: cd frontend && npm run build
       - name: Frontend unit tests (Vitest)
-        run: cd frontend && npm test
+        run: |
+          cd frontend
+          npm test > frontend-test.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then tail -n 120 frontend-test.log; fi
+          exit $rc
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-frontend-test
+          path: frontend/frontend-test.log
+          retention-days: 1
       - name: i18n key parity check
         run: cd frontend && npm run i18n:check
 
@@ -112,7 +135,19 @@ jobs:
             sleep 1
           done
           curl -sf -H "X-Auth-Token: ci" http://127.0.0.1:8765/api/v1/status >/dev/null 2>&1 || { echo "backend not ready in 90s"; exit 1; }
-          npm run e2e:real
+          # 输出落盘供 failure 钩子上传（避免失败后手动拉大日志）
+          set +e
+          npm run e2e:real > e2e-output.log 2>&1
+          rc=$?
+          tail -n 120 e2e-output.log
+          exit $rc
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-e2e-real
+          path: frontend/e2e-output.log
+          retention-days: 1
 
   package:
     if: startsWith(github.ref, 'refs/tags/v')

@@ -96,6 +96,14 @@ from agent_cluster.skills import (
     SkillRegistry,
     format_skill_context,
 )
+from agent_cluster.projects import (
+    BudgetPoolRecord,
+    BudgetUnlockRecord,
+    GatePolicyConfig,
+    ProjectRecord,
+    ProjectStore,
+    SessionIndexEntry,
+)
 
 __version__ = "0.5.0"
 
@@ -179,4 +187,10 @@ __all__ = [
     "approval_pending",
     "make_gate_handler",
     "resolve_auto_response",
+    "BudgetPoolRecord",
+    "BudgetUnlockRecord",
+    "GatePolicyConfig",
+    "ProjectRecord",
+    "ProjectStore",
+    "SessionIndexEntry",
 ]

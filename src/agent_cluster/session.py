@@ -39,7 +39,7 @@ from langgraph.checkpoint.base import (
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_cluster.changes import ChangeHistory
+from agent_cluster.changes import ChangeHistory, ChangeRecord
 from agent_cluster.gates import approval_pending, make_gate_handler, resolve_auto_response
 from agent_cluster.mcp_client import (
     StdioMCPClient,
@@ -614,6 +614,17 @@ class SessionRecord(BaseModel):
     token_ledger: TokenLedger = Field(default_factory=TokenLedger, description="token 账本")
     budget: int = Field(default=DEFAULT_TOKEN_BUDGET, ge=0, description="全局预算（覆盖 ledger.budget）")
     rework_limit: int = Field(default=DEFAULT_REWORK_LIMIT, gt=0, description="返工上限（超过升级人工）")
+    # --- v0.6 T13.1 增量字段（全部带默认值，旧 session.json 可直接 model_validate） ---
+    project_id: str = Field(default="", description="所属项目 id（空=独立会话，v0.5 兼容）")
+    parent_session_id: str = Field(default="", description="fork 源会话 id（空=非派生会话）")
+    fork_depth: int = Field(default=0, ge=0, description="fork 血缘深度（=源会话深度+1）")
+    inherited_tokens: int = Field(
+        default=0, ge=0, description="fork 继承的源会话 token 总量（仅成本归因展示，不计入本会话账本）"
+    )
+    inherited_changes: list[ChangeRecord] = Field(
+        default_factory=list, description="fork 继承的源会话变更记录（只读）"
+    )
+    metadata: dict[str, str] = Field(default_factory=dict, description="会话元数据（过滤/检索）")
 
 
 # ---------------------------------------------------------------------------
@@ -622,8 +633,12 @@ class SessionRecord(BaseModel):
 
 
 class SessionStore:
-    """会话状态读写：``<workspace>/.agent-cluster/session.json``。
+    """会话状态读写。
 
+    - v0.5 路径（``project_id=None``）：``<workspace>/.agent-cluster/session.json``。
+    - v0.6 项目路径（``project_id`` 非空）：
+      ``(root or ~/.agent-cluster)/projects/<pid>/sessions/<sid>/``，
+      同级建 ``checkpoints/`` 目录。
     - 目录内自带 ``.gitignore``（``*``），保证会话/检查点不入库。
     - 文件损坏/缺失时返回全新会话（不抛异常）。
     """
@@ -633,13 +648,28 @@ class SessionStore:
         workspace_root: str | Path,
         *,
         session_id: str | None = None,
+        project_id: str | None = None,
+        root: str | Path | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.dir = self.workspace_root / ".agent-cluster"
-        self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / ".gitignore").write_text("*\n", encoding="utf-8")
-        self.path = self.dir / "session.json"
+        if project_id is None:
+            # v0.5 路径：<workspace>/.agent-cluster/session.json（行为逐字节不变）
+            self.dir = self.workspace_root / ".agent-cluster"
+            self.dir.mkdir(parents=True, exist_ok=True)
+            (self.dir / ".gitignore").write_text("*\n", encoding="utf-8")
+            self.path = self.dir / "session.json"
+        else:
+            # v0.6 项目路径：(root or ~/.agent-cluster)/projects/<pid>/sessions/<sid>/
+            project_root = (
+                Path(root).expanduser().resolve() if root is not None else Path.home() / ".agent-cluster"
+            )
+            sid = session_id or uuid.uuid4().hex
+            self.dir = project_root / "projects" / project_id / "sessions" / sid
+            self.dir.mkdir(parents=True, exist_ok=True)
+            (self.dir / "checkpoints").mkdir(parents=True, exist_ok=True)
+            (self.dir / ".gitignore").write_text("*\n", encoding="utf-8")
+            self.path = self.dir / "session.json"
         self.record = self._load_or_new(session_id)
 
     def _load_or_new(self, session_id: str | None) -> SessionRecord:

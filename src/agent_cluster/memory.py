@@ -99,11 +99,17 @@ def _now() -> str:
 class MemoryStore:
     """工作区级记忆库（``<root>/.agent-cluster/memory.db`` + 内容目录）。"""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, base_dir: str | Path | None = None) -> None:
         self.root = Path(root).expanduser().resolve()
-        self.dir = self.root / ".agent-cluster" / "memory"
+        if base_dir is None:
+            # v0.5 路径：<root>/.agent-cluster/memory.db + <root>/.agent-cluster/memory/
+            self.dir = self.root / ".agent-cluster" / "memory"
+            self.db_path = self.root / ".agent-cluster" / "memory.db"
+        else:
+            # v0.6 项目路径：<base_dir>/memory.db + <base_dir>/（ProjectStore.memory_store 传入）
+            self.dir = Path(base_dir).expanduser().resolve()
+            self.db_path = self.dir / "memory.db"
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.root / ".agent-cluster" / "memory.db"
         self._lock = threading.Lock()
         self._init_schema()
 
@@ -114,6 +120,9 @@ class MemoryStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
     def _init_schema(self) -> None:
@@ -191,7 +200,9 @@ class MemoryStore:
                     item_id,
                     tier,
                     title,
-                    str(content_path.relative_to(self.root)).replace("\\", "/"),
+                    str(content_path.relative_to(self.root)).replace("\\", "/")
+                    if content_path.is_relative_to(self.root)
+                    else str(content_path),
                     source,
                     len(session_ids),
                     json.dumps(session_ids, ensure_ascii=False),

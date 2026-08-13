@@ -14,8 +14,8 @@
             ├── session.json       # v0.6 权威会话存储
             └── checkpoints/
 
-- 本任务边界（13.1/13.2）：预算预警判定（13.3）、fork（13.4）与
-  serve 端点（13.7）均不在此实现。
+- 增量（13.3/13.4）：预算预警判定与解锁、fork-session 领域逻辑在此实现；
+  serve 端点（13.7）与 SessionManager（13.5）不在本文件。
 """
 
 from __future__ import annotations
@@ -32,22 +32,29 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from agent_cluster.changes import ChangeHistory
 from agent_cluster.memory import TIER_ORDER, MemoryStore
 from agent_cluster.session import (
     DEFAULT_REWORK_LIMIT,
     FileCheckpointer,
+    QARecord,
     SessionRecord,
     SessionStore,
+    TokenLedger,
 )
+from agent_cluster.worktree import WorktreeManager
 
 __all__ = [
     "DEFAULT_FLOW",
+    "BudgetPoolExhaustedError",
     "BudgetUnlockRecord",
     "BudgetPoolRecord",
     "GatePolicyConfig",
     "SessionIndexEntry",
+    "ForkConflictError",
     "ProjectRecord",
     "ProjectStore",
+    "fork_session",
     "make_budget_pool_hook",
 ]
 
@@ -55,6 +62,14 @@ __all__ = [
 DEFAULT_FLOW = "examples/flows/build-product.yaml"
 
 logger = logging.getLogger("agent-cluster")
+
+
+class ForkConflictError(RuntimeError):
+    """fork 前置校验冲突（源非终态 / 血缘超限 / 源不存在 / 无项目归属）。"""
+
+
+class BudgetPoolExhaustedError(RuntimeError):
+    """项目预算硬上限耗尽，拒绝新建会话（设计 §5.2-3）。"""
 
 
 # ---------------------------------------------------------------------------
@@ -718,3 +733,163 @@ def make_budget_pool_hook(
             )
 
     return hook
+
+
+
+# ---------------------------------------------------------------------------
+# fork-session（设计 §7；13.7 端点直接调用本函数）
+# ---------------------------------------------------------------------------
+
+
+def _read_session_record(
+    project_store: ProjectStore, project_id: str, session_id: str
+) -> SessionRecord | None:
+    """读取项目会话目录内的 session.json；缺失/损坏返回 None（容错）。"""
+    path = project_store.session_dir(project_id, session_id) / "session.json"
+    if not path.is_file():
+        return None
+    try:
+        return SessionRecord.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError, ValueError):
+        return None
+
+
+def fork_session(
+    project_store: ProjectStore,
+    *,
+    source_session_id: str,
+    goal: str | None = None,
+    project_id: str | None = None,
+    worktree: bool = True,
+    budget: int | None = None,
+    emit: Callable[[str, dict], None] | None = None,
+) -> SessionRecord:
+    """从终态会话派生新会话（设计 §7；13.7 端点直接调用，emit=None 时纯库调用）。
+
+    前置校验顺序：源会话存在 → 项目归属 → 状态允许（completed/aborted）→
+    血缘 ``fork_depth + 1 <= 5`` → 项目预算硬上限未耗尽（§5.2）。
+    派生产物：新 session_id/thread_id、checkpoint 原样复制（源只读不删）、
+    transcript 仅 1 条 fork 血缘记录、inherited_changes 只读拷贝、
+    空账本 + ``inherited_tokens`` 归因（不双计项目聚合）。
+    """
+    source: SessionRecord | None = None
+    resolved_project_id = project_id or ""
+    if resolved_project_id:
+        source = _read_session_record(project_store, resolved_project_id, source_session_id)
+        if source is None:
+            raise ForkConflictError(f"源会话不存在: {source_session_id}")
+    else:
+        for record in project_store.list():
+            candidate = _read_session_record(project_store, record.project_id, source_session_id)
+            if candidate is not None:
+                source = candidate
+                resolved_project_id = record.project_id
+                break
+        if source is None:
+            raise ForkConflictError(f"源会话不存在: {source_session_id}")
+    if not resolved_project_id:
+        resolved_project_id = source.project_id
+    if not resolved_project_id:
+        raise ForkConflictError("fork 是项目层专属能力：源会话无项目归属")
+    if source.status == "active":
+        raise ForkConflictError(
+            f"运行中会话禁止派生（status={source.status}），请先 cancel 至 aborted 再派生"
+        )
+    if source.fork_depth + 1 > 5:
+        raise ForkConflictError(f"fork 血缘深度超限（{source.fork_depth + 1} > 5）")
+    if project_store.is_budget_exhausted(resolved_project_id):
+        raise BudgetPoolExhaustedError(
+            f"项目 {resolved_project_id} 预算硬上限已耗尽，请先解锁再派生"
+        )
+
+    project = project_store.get(resolved_project_id)
+    main_workspace = Path(project.workspaces[0])
+    new_sid = uuid.uuid4().hex[:12]
+    new_thread = uuid.uuid4().hex
+    new_budget = budget if budget is not None else source.budget
+
+    session_workspace = main_workspace
+    worktree_enabled = bool(worktree)
+    if worktree_enabled:
+        manager = WorktreeManager(main_workspace)
+        manager.ensure_repo()
+        manager.session_for(f"fork/{new_sid}")
+        session_workspace = main_workspace / ".agent-cluster" / "worktrees" / "fork" / new_sid
+
+    # checkpoint 原样复制（含 writes 中途写；源文件只读不删）
+    src_checkpoint = (
+        project_store.session_dir(resolved_project_id, source.session_id)
+        / "checkpoints"
+        / f"{source.thread_id}.json"
+    )
+    dst_checkpoint = (
+        project_store.session_dir(resolved_project_id, new_sid) / "checkpoints" / f"{new_thread}.json"
+    )
+    if src_checkpoint.is_file():
+        dst_checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src_checkpoint, dst_checkpoint)
+
+    source_changes = ChangeHistory(source.workspace).list() if source.workspace else []
+    new_record = SessionRecord(
+        session_id=new_sid,
+        thread_id=new_thread,
+        goal=goal if goal is not None else source.goal,
+        flow=source.flow,
+        model=source.model,
+        workspace=str(session_workspace),
+        status="active",
+        transcript=[QARecord(question="fork", answer=source.session_id, source="fork")],
+        token_ledger=TokenLedger(budget=new_budget),
+        budget=new_budget,
+        rework_limit=source.rework_limit,
+        project_id=resolved_project_id,
+        parent_session_id=source.session_id,
+        fork_depth=source.fork_depth + 1,
+        inherited_tokens=source.token_ledger.total(),
+        inherited_changes=[item.model_copy(deep=True) for item in source_changes],
+        metadata=dict(source.metadata),
+    )
+    session_store = project_store.session_store(resolved_project_id, new_sid)
+    session_store.record = new_record
+    session_store.save()
+    # 新会话变更历史从 v1 重新计（fork 标记即 v1）
+    ChangeHistory(session_workspace).record(text=f"fork from {source.session_id}")
+    project_store.index_session(
+        resolved_project_id,
+        SessionIndexEntry(
+            session_id=new_sid,
+            goal=new_record.goal,
+            status=new_record.status,
+            workspace=new_record.workspace,
+            worktree=worktree_enabled,
+        ),
+    )
+
+    def _emit_event(name: str, payload: dict[str, Any]) -> None:
+        if emit is None:
+            return
+        try:
+            emit(name, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[fork] 事件发送失败：%s", exc)
+
+    _emit_event(
+        "session.forked",
+        {
+            "project_id": resolved_project_id,
+            "session_id": source.session_id,
+            "forked_session_id": new_sid,
+        },
+    )
+    _emit_event(
+        "session.start",
+        {
+            "project_id": resolved_project_id,
+            "session_id": new_sid,
+            "parent_session_id": source.session_id,
+            "fork_depth": new_record.fork_depth,
+            "workspace": new_record.workspace,
+            "worktree": worktree_enabled,
+        },
+    )
+    return new_record

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
 import subprocess
@@ -69,6 +70,8 @@ from agent_cluster.skills import SkillCatalog, SkillLoader
 from agent_cluster.tokens import estimate_tokens
 from agent_cluster.tools import ToolSession, build_default_tools, load_agents_md
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowEngine
+
+logger = logging.getLogger("agent-cluster")
 
 __all__ = [
     "DEFAULT_TOKEN_BUDGET",
@@ -745,6 +748,7 @@ class SessionDriver:
         deterministic: bool = False,
         resume: bool = False,
         checkpoint_root: str | Path | None = None,
+        budget_pool_hook: Callable[[SessionRecord], None] | None = None,
         qa_script: Sequence[str] | None = None,
         tool_script: Sequence[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
@@ -771,6 +775,7 @@ class SessionDriver:
         self.checkpoint_root = (
             None if checkpoint_root is None else Path(checkpoint_root).expanduser().resolve()
         )
+        self.budget_pool_hook = budget_pool_hook
         self.qa_script = list(qa_script or [])
         self.tool_script = list(tool_script or [])
         self.role_tool_scripts = {k: list(v) for k, v in (role_tool_scripts or {}).items()}
@@ -865,6 +870,12 @@ class SessionDriver:
         )
         phase.tokens_used = self.store.record.token_ledger.phase_used(self.current_phase)
         self.store.save()
+        # v0.6 T13.3：项目预算池钩子（设计 §5.4）——先落盘、后通知；钩子异常不阻断记账
+        if self.budget_pool_hook is not None:
+            try:
+                self.budget_pool_hook(self.store.record)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[budget] 预算池钩子执行失败：%s", exc)
 
     # ------------------------------------------------------------------
     # 需求变更（v0.5 T12.4：实时打断 + 版本化 + 回滚）

@@ -28,7 +28,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -48,6 +48,7 @@ __all__ = [
     "SessionIndexEntry",
     "ProjectRecord",
     "ProjectStore",
+    "make_budget_pool_hook",
 ]
 
 # 新建会话默认流程（与 server.py 现值一致；server.py 的引用统一在 13.7 切换到本处）。
@@ -381,6 +382,29 @@ class ProjectStore:
             total += record.token_ledger.total()
         return total
 
+    def is_budget_exhausted(self, project_id: str) -> bool:
+        """项目硬上限判定（设计 §5.2-3）：hard_limit > 0 且聚合用量 > 上限（0=不设限，永不耗尽）。"""
+        pool = self.get(project_id).budget_pool
+        if pool.hard_limit_tokens <= 0:
+            return False
+        return self.aggregate_used_tokens(project_id) > pool.hard_limit_tokens
+
+    def budget_status(self, project_id: str) -> dict[str, Any]:
+        """预算快照（设计 §5.1）：聚合用量实时计算，project.json 不冗余存用量；13.7 BudgetSnapshot 直接序列化本字典。"""
+        pool = self.get(project_id).budget_pool
+        used = self.aggregate_used_tokens(project_id)
+        remaining: int | None = None
+        if pool.hard_limit_tokens > 0:
+            remaining = max(0, pool.hard_limit_tokens - used)
+        return {
+            "hard_limit_tokens": pool.hard_limit_tokens,
+            "used": used,
+            "remaining": remaining,
+            "warn_raised": pool.warn_raised,
+            "last_warned_at": pool.last_warned_at.isoformat() if pool.last_warned_at else None,
+            "unlocks": [unlock.model_dump(mode="json") for unlock in pool.unlocks],
+        }
+
     # ------------------------------------------------------------------
     # v0.5 → 项目目录存储迁移（§4.2：无损、幂等、失败回退）
     # ------------------------------------------------------------------
@@ -526,15 +550,28 @@ class ProjectStore:
         additional_tokens: int,
         reason: str,
         session_id: str = "",
+        emit: Callable[[str, dict], None] | None = None,
     ) -> BudgetUnlockRecord:
-        """自服务解锁（granted 路径）：hard_limit_tokens += additional_tokens + append-only 审计。"""
+        """解锁（设计 §5.3）：自服务 granted 直接提额；unlock_requires_approval 时走 pending 审批。"""
         if additional_tokens <= 0:
             raise ValueError("additional_tokens 必须大于 0")
         with _project_lock(project_id):
             record = self.get(project_id)
             if record.budget_pool.unlock_requires_approval:
-                # TODO(13.3): 预算判定任务接入 pending 审批分支。
-                raise NotImplementedError("unlock_requires_approval 的 pending 路径由 Task 13.3 实现")
+                # 设计 §5.3 例外审批：追加 pending 审计记录、不提高硬上限；decide_unlock 完成后续流转。
+                unlock = BudgetUnlockRecord(
+                    session_id=session_id,
+                    additional_tokens=additional_tokens,
+                    reason=reason,
+                    status="pending",
+                    decided_at=None,
+                    decided_by="",
+                )
+                pool = record.budget_pool.model_copy(
+                    update={"unlocks": record.budget_pool.unlocks + [unlock]}
+                )
+                self._save(self._touch(record.model_copy(update={"budget_pool": pool})))
+                return unlock
             unlock = BudgetUnlockRecord(
                 session_id=session_id,
                 additional_tokens=additional_tokens,
@@ -549,6 +586,20 @@ class ProjectStore:
                 }
             )
             self._save(self._touch(record.model_copy(update={"budget_pool": pool})))
+            if emit is not None:
+                try:
+                    emit(
+                        "budget.unlocked",
+                        {
+                            "project_id": project_id,
+                            "unlock_id": unlock.id,
+                            "additional_tokens": additional_tokens,
+                            "hard_limit_tokens": pool.hard_limit_tokens,
+                            "decided_by": unlock.decided_by,
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[budget] 事件发送失败：%s", exc)
             return unlock
 
     def decide_unlock(self, project_id: str, unlock_id: str, *, approved: bool, decided_by: str) -> BudgetUnlockRecord:
@@ -590,3 +641,80 @@ class ProjectStore:
 
     def memory_store(self, project_id: str) -> MemoryStore:
         return MemoryStore(self.root, base_dir=self._project_dir(project_id) / "memory")
+
+
+
+def make_budget_pool_hook(
+    project_store: ProjectStore,
+    emit: Callable[[str, dict], None] | None = None,
+) -> Callable[[SessionRecord], None]:
+    """构造项目预算池钩子（设计 §5.4）：聚合用量 → 预警滞回 → 硬上限事件。
+
+    - 会话级 ``ledger.over_budget()`` 判定由 v0.5 既有逻辑处理，本钩子不重复判定；
+    - 预警滞回（§5.2-2）：``used >= hard_limit × warn_ratio`` 且未触发 → 置
+      ``warn_raised=True`` + ``budget.warning``；``used < hard_limit × warn_reenable_ratio``
+      时复位（``budget.warn_reset``）；
+    - 硬上限（§5.2-3）：``used > hard_limit`` → ``budget.exhausted``（挂起/拒绝由 13.5 消费）；
+    - ``hard_limit_tokens=0`` 一律不触发；
+    - 运行中会话挂起与新建拒绝属 SessionManager（13.5），本函数只交付纯判定与事件。
+    """
+
+    def _emit(name: str, payload: dict[str, Any]) -> None:
+        if emit is None:
+            return
+        try:
+            emit(name, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[budget] 事件发送失败：%s", exc)
+
+    def hook(record: SessionRecord) -> None:
+        project_id = record.project_id
+        if not project_id:
+            return
+        pool = project_store.get(project_id).budget_pool
+        hard_limit = pool.hard_limit_tokens
+        if hard_limit <= 0:
+            return
+        used = project_store.aggregate_used_tokens(project_id)
+        updates: dict[str, Any] = {}
+        if used >= hard_limit * pool.warn_ratio:
+            if not pool.warn_raised:
+                updates["warn_raised"] = True
+                updates["last_warned_at"] = datetime.now(timezone.utc)
+                _emit(
+                    "budget.warning",
+                    {
+                        "project_id": project_id,
+                        "session_id": record.session_id,
+                        "used": used,
+                        "hard_limit_tokens": hard_limit,
+                        "warn_ratio": pool.warn_ratio,
+                    },
+                )
+        elif used < hard_limit * pool.warn_reenable_ratio:
+            if pool.warn_raised:
+                updates["warn_raised"] = False
+                updates["last_warned_at"] = None
+                _emit(
+                    "budget.warn_reset",
+                    {
+                        "project_id": project_id,
+                        "session_id": record.session_id,
+                        "used": used,
+                        "hard_limit_tokens": hard_limit,
+                    },
+                )
+        if updates:
+            project_store.update(project_id, budget_pool=updates)
+        if used > hard_limit:
+            _emit(
+                "budget.exhausted",
+                {
+                    "project_id": project_id,
+                    "session_id": record.session_id,
+                    "used": used,
+                    "hard_limit_tokens": hard_limit,
+                },
+            )
+
+    return hook

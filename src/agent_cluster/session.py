@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 import os
+import queue
 import re
 import subprocess
 import threading
@@ -772,6 +773,7 @@ class SessionDriver:
         sandbox: Any | None = None,
         judge: Any | None = None,
         gate_policy: GatePolicyConfig | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         self.workspace = Path(workspace).expanduser().resolve()
         self.goal = goal.strip()
@@ -799,6 +801,9 @@ class SessionDriver:
         self.sandbox = sandbox
         self.judge = judge
         self.gate_policy = gate_policy
+        # v0.6 T13.9：实时 stdin 注入（§11）——线程安全队列 + 取消感知
+        self.cancel_event = cancel_event
+        self._stdin_queue: queue.Queue[str] = queue.Queue()
         # v0.6 T13.6：自动评审审计记录（run 结束追加进 BuildResult.decisions）
         self._auto_audit: list[ApprovalRecord] = []
         if judge is not None:
@@ -937,6 +942,81 @@ class SessionDriver:
                 )
             )
 
+    # ------------------------------------------------------------------
+    # 实时 stdin 注入（v0.6 T13.9，设计 §11）
+    # ------------------------------------------------------------------
+
+    def inject_stdin(self, text: str) -> bool:
+        """线程安全地注入一条实时输入：挂起中作答，否则下一节点边界自由输入。"""
+        text = str(text).strip()
+        if not text:
+            return False
+        if self.store.record.status != "active":
+            return False
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return False
+        self._stdin_queue.put(text)
+        return True
+
+    def _drain_stdin(self) -> str | None:
+        """取出一条待消费的实时输入并执行 §11 写入规则（不抛异常）。"""
+        try:
+            text = self._stdin_queue.get_nowait()
+        except queue.Empty:
+            return None
+        self._apply_stdin(text)
+        return text
+
+    def _apply_stdin(self, text: str) -> None:
+        """§11 四步写入规则：transcript / 变更历史 / PRD 追加 / stdin.applied 事件。"""
+        # ① transcript（source=stdin，question=[stdin]）
+        self.store.record.transcript.append(
+            QARecord(question="[stdin]", answer=text, source="stdin", node=self.current_node)
+        )
+        self.store.save()
+        # ② 变更历史版本 +1（快照）
+        version = 0
+        try:
+            record = self.change_history.record(
+                text=text, node=self.current_node or "", phase=self.current_phase
+            )
+            version = record.version
+        except Exception as exc:  # noqa: BLE001 —— 历史记录失败不阻断注入
+            self.print_fn(f"[实时输入] 变更历史记录失败：{exc}")
+        # ③ 工作区存在 docs/PRD.md → 追加小节（不存在则不新建文档）
+        if version:
+            try:
+                prd = self.workspace / "docs" / "PRD.md"
+                if prd.is_file():
+                    content = prd.read_text(encoding="utf-8").rstrip()
+                    prd.write_text(
+                        f"{content}\n\n## 补充输入（v{version}）\n\n{text}\n",
+                        encoding="utf-8",
+                    )
+            except OSError as exc:  # noqa: BLE001 —— PRD 写入失败不阻断注入
+                self.print_fn(f"[实时输入] PRD 追加失败：{exc}")
+        self.print_fn(f"[实时输入] 已注入：{text}")
+        # ④ stdin.applied 事件（on_event 落状态；event_printer 推送到面板 SSE/WS 流）
+        event = Event(
+            id=uuid.uuid4().hex,
+            run_id=self.store.record.thread_id,
+            thread_id=self.store.record.thread_id,
+            type="stdin.applied",
+            actor="human",
+            payload={
+                "version": version,
+                "text": text,
+                "phase": self.current_phase,
+                "node_id": self.current_node,
+            },
+        )
+        self.on_event(event)
+        if self.event_printer is not None:
+            try:
+                self.event_printer(event)
+            except Exception:  # noqa: BLE001 —— 事件推送失败不阻断注入
+                pass
+
     def record_tool_usage(self, total_tokens: int = 0, role: str = "") -> None:
         """工具执行占位记账（可选，用于工具耗时折算；默认不计入模型预算）。"""
         if total_tokens <= 0:
@@ -1035,6 +1115,10 @@ class SessionDriver:
     def _prompt(self, hint: str) -> str:
         """读取一行输入，支持 /status /budget /abort（返回原样命令）。"""
         while True:
+            stdin_line = self._drain_stdin()
+            if stdin_line:
+                # §11：挂起中注入的实时输入优先作为该 prompt 的回答（等价 response）
+                return stdin_line
             change = self._drain_change()
             if change:
                 self._apply_change(change)
@@ -1547,6 +1631,10 @@ class SessionDriver:
                 self.on_event(event)
                 if self.event_printer is not None:
                     self.event_printer(event)
+                if event.type == "node_end":
+                    # §11：无 pending prompt 时，实时输入在下一节点边界作自由输入消费
+                    while self._drain_stdin() is not None:
+                        pass
 
             if not iteration_events or iteration_events[-1].type != "workflow_suspended":
                 break

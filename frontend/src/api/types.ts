@@ -40,6 +40,10 @@ export interface HealthInfo {
   rework_rate?: number;
 }
 
+export interface StdinResponse {
+  accepted: string;
+}
+
 export interface SessionSnapshot {
   session_id: string;
   project_id: string;

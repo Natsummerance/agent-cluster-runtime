@@ -679,6 +679,53 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_stdin(args: argparse.Namespace) -> int:
+    """stdin 子命令（v0.6 T13.9）：经本地 serve REST 注入实时输入（三入口共用一条链路）。
+
+    - ``--text`` 指定单条注入；省略时读 stdin 至 EOF，每行一条注入。
+    - 任一 4xx/连接错误 → 打印错误并退出码 1。
+    """
+    import urllib.error
+    import urllib.request
+
+    lines: list[str] = []
+    if args.text:
+        lines.append(args.text)
+    else:
+        for line in sys.stdin:
+            stripped = line.rstrip("\r\n")
+            if stripped:
+                lines.append(stripped)
+    if not lines:
+        print("没有可注入的内容（--text 或管道输入每行一条）", file=sys.stderr)
+        return 1
+    base = args.base_url or f"http://127.0.0.1:{args.port}"
+    url = f"{base.rstrip('/')}/api/v1/sessions/{args.session_id}/stdin"
+    headers = {"Content-Type": "application/json"}
+    if args.auth_token:
+        headers["X-Auth-Token"] = args.auth_token
+    failed = False
+    for line in lines:
+        payload = json.dumps({"text": line}).encode("utf-8")
+        request = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=10) as resp:
+                resp.read()
+            print(f"  已注入：{line}")
+        except urllib.error.HTTPError as exc:
+            failed = True
+            detail = ""
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("error", "")
+            except Exception:  # noqa: BLE001
+                pass
+            print(f"  注入失败（HTTP {exc.code}）：{line} {detail}".strip(), file=sys.stderr)
+        except urllib.error.URLError as exc:
+            failed = True
+            print(f"  注入失败（连接错误）：{line}（{exc.reason}）", file=sys.stderr)
+    return 1 if failed else 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """doctor 子命令：环境预检（Python/git/Docker 硬依赖 + 模型/工作区/插件/MCP 信息性）。"""
     report = run_doctor(
@@ -1288,6 +1335,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--mcp", action="append", default=[], metavar="NAME=COMMAND", help="MCP stdio 服务器（可重复，会话启动时注册工具）")
     serve_parser.add_argument("--mcp-http", action="append", default=[], metavar="NAME=URL", help="MCP Streamable HTTP 服务器（可重复）")
     serve_parser.set_defaults(func=_cmd_serve)
+
+    stdin_parser = subparsers.add_parser(
+        "stdin", help="向运行中的会话注入实时输入（经本地 serve REST；无 --text 时逐行读 stdin）"
+    )
+    stdin_parser.add_argument("session_id", help="会话 id")
+    stdin_parser.add_argument("--text", default="", help="单条注入文本（省略则读 stdin 至 EOF，每行一条）")
+    stdin_parser.add_argument("--port", type=int, default=8765, help="serve 端口（默认 8765）")
+    stdin_parser.add_argument("--base-url", default="", help="serve 基础地址（缺省 http://127.0.0.1:<port>）")
+    stdin_parser.add_argument("--auth-token", default="", help="可选认证 token（请求头 X-Auth-Token）")
+    stdin_parser.set_defaults(func=_cmd_stdin)
 
     doctor_parser = subparsers.add_parser("doctor", help="环境预检（Python/git/Docker/模型/工作区/插件/MCP）")
     doctor_parser.add_argument("--model", default=None, help="检查模型配置可构造客户端（信息性）")

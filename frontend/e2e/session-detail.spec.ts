@@ -93,6 +93,15 @@ test.describe('会话详情', () => {
     await expect(page.getByText('会话已启动')).toBeVisible();
   });
 
+  test('实时输入注入成功', async ({ page }) => {
+    const { state } = await installApiMocks(page);
+    await page.goto('/projects/p1/sessions/s1');
+    await page.getByTestId('stdin-text').fill('补充：支持导出');
+    await page.getByTestId('stdin-submit').click();
+    await expect(page.getByText('实时输入已注入')).toBeVisible();
+    expect(state.stdin).toContain('补充：支持导出');
+  });
+
   test('已完成会话禁用打断输入', async ({ page }) => {
     await installApiMocks(page);
     await page.goto('/projects/p2/sessions/s3');

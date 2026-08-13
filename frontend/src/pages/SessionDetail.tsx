@@ -1,9 +1,10 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
   Card,
   Descriptions,
+  Input,
   message,
   Space,
   Spin,
@@ -37,6 +38,7 @@ export default function SessionDetail() {
   const edit = useSessionStore((s) => s.edit);
   const respond = useSessionStore((s) => s.respond);
   const interrupt = useSessionStore((s) => s.interrupt);
+  const stdin = useSessionStore((s) => s.stdin);
   const rollback = useSessionStore((s) => s.rollback);
   const closeApproval = useSessionStore((s) => s.closeApproval);
   const clearSession = useSessionStore((s) => s.clearSession);
@@ -58,6 +60,23 @@ export default function SessionDetail() {
     },
     [],
   );
+
+  const [stdinText, setStdinText] = useState('');
+  const [stdinLoading, setStdinLoading] = useState(false);
+  const submitStdin = useCallback(async () => {
+    const value = stdinText.trim();
+    if (!value || stdinLoading) return;
+    setStdinLoading(true);
+    try {
+      await stdin(sid, value);
+      setStdinText('');
+      message.success('实时输入已注入');
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    } finally {
+      setStdinLoading(false);
+    }
+  }, [sid, stdinText, stdinLoading, stdin]);
 
   if (!snapshot) {
     return (
@@ -81,6 +100,8 @@ export default function SessionDetail() {
   }
 
   const waitingApproval = snapshot.status === 'waiting_approval';
+  const stdinEnabled =
+    snapshot.status === 'running' || snapshot.status === 'waiting_approval';
 
   const items = [
     {
@@ -202,6 +223,31 @@ export default function SessionDetail() {
             退出码：{snapshot.exit_code}
           </Typography.Paragraph>
         )}
+      </Card>
+
+      <Card className="page-card" title="实时输入" size="small" data-testid="stdin-card">
+        <Typography.Text type="secondary">
+          向运行中的会话注入实时输入：挂起时作为当前问题的回答，否则在下一节点边界注入。
+        </Typography.Text>
+        <Space.Compact style={{ width: '100%', marginTop: 8 }}>
+          <Input
+            value={stdinText}
+            onChange={(e) => setStdinText(e.target.value)}
+            onPressEnter={() => void submitStdin()}
+            placeholder="例如：继续 / 补充说明…"
+            disabled={!stdinEnabled}
+            data-testid="stdin-text"
+          />
+          <Button
+            type="primary"
+            onClick={() => void submitStdin()}
+            loading={stdinLoading}
+            disabled={!stdinEnabled || !stdinText.trim()}
+            data-testid="stdin-submit"
+          >
+            注入
+          </Button>
+        </Space.Compact>
       </Card>
 
       <Card className="page-card" title="实时打断" size="small">

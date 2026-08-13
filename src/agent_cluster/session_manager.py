@@ -214,11 +214,16 @@ class SessionManager:
         return True
 
     def submit_stdin(self, session_id: str, text: str) -> bool:
-        """投递 stdin 行（driver 未就绪时先入队；消费与写入规则属 13.9）。"""
+        """投递 stdin 行（13.9：driver 就绪后走 inject_stdin；否则入队等待启动后绑定）。"""
         try:
             session = self.get(session_id)
         except KeyError:
             return False
+        if session.status in ("completed", "failed"):
+            return False
+        driver = session.driver
+        if driver is not None:
+            return driver.inject_stdin(text)
         session.stdin_queue.put(text)
         return True
 

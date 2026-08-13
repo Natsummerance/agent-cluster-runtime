@@ -33,6 +33,7 @@ interface SessionState {
   edit(text: string): Promise<void>;
   respond(text: string): Promise<void>;
   interrupt(sid: string, text: string): Promise<void>;
+  stdin(sid: string, text: string): Promise<void>;
   rollback(sid: string, version: string | number): Promise<void>;
   clearSession(sid: string): void;
   resetState(): void;
@@ -215,6 +216,16 @@ export const useSessionStore = create<SessionState>()((set, get) => ({
   async interrupt(sid: string, text: string) {
     try {
       await api.interruptSession(sid, text);
+      await get().fetchSession(sid);
+    } catch (err) {
+      set({ error: apiErrorMessage(err) });
+      throw err;
+    }
+  },
+
+  async stdin(sid: string, text: string) {
+    try {
+      await api.stdinSession(sid, text);
       await get().fetchSession(sid);
     } catch (err) {
       set({ error: apiErrorMessage(err) });

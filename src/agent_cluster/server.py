@@ -250,10 +250,11 @@ class ServerSession:
             while True:
                 if self.cancel_event.is_set():
                     return "/abort"
-                try:
-                    answer = self.stdin_queue.get_nowait()
-                except queue.Empty:
-                    answer = None
+                answer = None
+                driver = self.driver
+                if driver is not None:
+                    # §11：挂起中注入的实时输入直接作答（消费即执行写入规则）
+                    answer = driver._drain_stdin()
                 if answer is None:
                     try:
                         answer = self._answer_queue.get(timeout=0.25)
@@ -326,8 +327,18 @@ class ServerSession:
                     checkpoint_root=self.checkpoint_root,
                     budget_pool_hook=self.budget_pool_hook,
                     gate_policy=self._load_gate_policy(),
+                    cancel_event=self.cancel_event,
                 )
                 self.driver = driver
+                # v0.6 T13.9：driver 就绪后绑定同一 stdin 队列（启动窗口期入队的行迁移过去）
+                buffered_queue = self.stdin_queue
+                self.stdin_queue = driver._stdin_queue
+                while True:
+                    try:
+                        buffered = buffered_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    driver._stdin_queue.put(buffered)
                 self.status = "running"
                 result = asyncio.run(driver.run())
                 self.token_summary = result.token_summary or {}
@@ -1470,7 +1481,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_error(self, 409, f"会话已终态（{session.status}），拒绝注入", "session_busy")
             return
         if not self.server.workbench.manager.submit_stdin(session_id, text):
-            _send_error(self, 404, f"会话不存在：{session_id}", "not_found")
+            _send_error(self, 409, "会话已取消或终态，拒绝注入", "session_busy")
             return
         _send_json(self, 202, {"ok": True, "data": {"accepted": text}})
 

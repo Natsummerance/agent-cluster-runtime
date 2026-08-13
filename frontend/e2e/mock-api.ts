@@ -79,6 +79,7 @@ export interface MockState {
   promoted: string[];
   approved: string[];
   interrupted: string[];
+  stdin: string[];
   rolledBack: string[];
 }
 
@@ -93,6 +94,7 @@ export function createState(): MockState {
     promoted: [],
     approved: [],
     interrupted: [],
+    stdin: [],
     rolledBack: [],
   };
 }
@@ -227,6 +229,13 @@ export async function installApiMocks(page: Page, opts: MockOptions = {}) {
     if (await fail(route)) return;
     state.interrupted.push(JSON.parse(route.request().postData() ?? '{}').text ?? '');
     return route.fulfill({ status: 202, json: envelope({ ok: true }) });
+  });
+
+  await page.route('**/api/v1/sessions/*/stdin', async (route) => {
+    if (await fail(route)) return;
+    const text = JSON.parse(route.request().postData() ?? '{}').text ?? '';
+    state.stdin.push(String(text));
+    return route.fulfill({ status: 202, json: envelope({ accepted: text }) });
   });
 
   await page.route('**/api/v1/sessions/*/rollback', async (route) => {

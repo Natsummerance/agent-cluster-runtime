@@ -794,7 +794,12 @@ class WorkbenchServer:
         }
 
     def task_entries(self, project_id: str) -> list[dict]:
-        project = self._project_store.get(project_id)
+        if project_id not in self.index.projects:
+            raise KeyError(f"项目不存在：{project_id}")
+        try:
+            project = self._project_store.get(project_id)
+        except KeyError:
+            return []  # 旧项目（索引有、未双写）：无任务数据
         live = {sid: session for sid, session in self.manager.sessions.items() if session.project_id == project_id}
         entries: list[dict] = []
         for entry in project.sessions:
@@ -1399,11 +1404,22 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": {"project_id": updated.project_id, "workspaces": updated.workspaces}})
 
     def _handle_budget(self, project_id: str) -> None:
-        try:
-            data = self.server.workbench._project_store.budget_status(project_id)
-        except KeyError as exc:
-            _send_error(self, 404, str(exc), "not_found")
+        workbench = self.server.workbench
+        if project_id not in workbench.index.projects:
+            _send_error(self, 404, f"项目不存在: {project_id}", "not_found")
             return
+        try:
+            data = workbench._project_store.budget_status(project_id)
+        except KeyError:
+            # 旧项目（索引有、未双写）：返回默认预算结构而非 404
+            data = {
+                "hard_limit_tokens": 0,
+                "used": 0,
+                "remaining": None,
+                "warn_raised": False,
+                "last_warned_at": None,
+                "unlocks": [],
+            }
         _send_json(self, 200, {"ok": True, "data": data})
 
     def _handle_budget_unlock(self, project_id: str, body: dict) -> None:

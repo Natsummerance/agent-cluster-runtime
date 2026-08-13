@@ -144,3 +144,44 @@ def test_serve_dashboard_404_for_unknown_project(workbench):
     status, body = _get(port, "/api/v1/projects/doesnotexist/dashboard")
     assert status == 404
     assert body["code"] == "not_found"
+
+def test_serve_tasks_empty_for_index_only_project(workbench):
+    """旧项目（索引有、未双写）tasks 返回空列表而非 404。"""
+    port, ws = workbench
+    ws.index.add_project("legacy1", "旧项目", "C:/tmp/legacy1")
+    status, body = _get(port, "/api/v1/projects/legacy1/tasks")
+    assert status == 200
+    assert body["data"] == []
+
+
+def test_serve_budget_default_for_index_only_project(workbench):
+    port, ws = workbench
+    ws.index.add_project("legacy1", "旧项目", "C:/tmp/legacy1")
+    status, body = _get(port, "/api/v1/projects/legacy1/budget")
+    assert status == 200
+    assert body["data"]["hard_limit_tokens"] == 0
+    assert body["data"]["used"] == 0
+    assert body["data"]["unlocks"] == []
+
+
+def test_serve_workspace_tree_works_for_index_only_project(workbench, tmp_path):
+    """旧项目 workspace 走全局索引路径：文件树可读（防回归：不得 500）。"""
+    port, ws = workbench
+    root = tmp_path / "legacy-ws"
+    root.mkdir()
+    (root / "readme.md").write_text("hi", encoding="utf-8")
+    ws.index.add_project("legacy1", "旧项目", str(root))
+    status, body = _get(port, "/api/v1/projects/legacy1/workspace/tree")
+    assert status == 200
+    names = [entry["name"] for entry in body["data"]["entries"]]
+    assert "readme.md" in names
+
+
+def test_serve_memory_empty_for_index_only_project(workbench, tmp_path):
+    port, ws = workbench
+    root = tmp_path / "legacy-ws"
+    root.mkdir()
+    ws.index.add_project("legacy1", "旧项目", str(root))
+    status, body = _get(port, "/api/v1/projects/legacy1/memory")
+    assert status == 200
+    assert body["data"]["items"] == []

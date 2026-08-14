@@ -105,7 +105,7 @@ from agent_cluster.projects import (
     SessionIndexEntry,
 )
 
-__version__ = "0.6.4"
+__version__ = "0.7.0"
 
 __all__ = [
     "ActionRequest",

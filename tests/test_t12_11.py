@@ -1,4 +1,4 @@
-"""T12.11 一键演示 + serve 面板接线（plugins/skills/mcp）+ 版本 0.6.4。"""
+"""T12.11 一键演示 + serve 面板接线（plugins/skills/mcp）+ 版本 0.7.0。"""
 
 from __future__ import annotations
 
@@ -69,12 +69,12 @@ def test_serve_status_returns_version(workbench):
     port, _ = workbench
     status, body = _get(port, "/api/v1/status")
     assert status == 200
-    assert body["data"]["version"] == "0.6.4"
+    assert body["data"]["version"] == "0.7.0"
 
 
 def test_pyproject_version_is_060():
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.6.4"' in text
+    assert 'version = "0.7.0"' in text
 
 
 def test_demo_command_produces_delivery_package(tmp_path):

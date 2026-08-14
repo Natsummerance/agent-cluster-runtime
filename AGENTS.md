@@ -15,6 +15,18 @@
 - 每任务独立 `git commit` + `git push`；前缀 `Task 13.N:`（v0.6.x）/ `Task 14.N:`（v0.7）。
 - 不派发子智能体（主线程直改）。
 
+## v0.7 工程约定（Task 14.8 起，dsh 契约移植）
+- **registrations are effects**：一切注册（监听器/服务/子插件/定时器）都是 effect，
+  作用域退出按注册逆序回滚（`agent_cluster/seam.py` 的 `effect_scope`）。
+- **fail loud**：重复 provider、未知事件类型、缺失凭据、未激活配置条目一律立即抛错，
+  禁止静默降级。
+- **explicit > implicit**：`resolve(request) -> spec` 风格，禁止隐式全局状态。
+- **model-visible ⟺ logged**：模型请求必须能从会话事件日志重建（`events.py` 不变量），
+  违反即抛 `InvariantViolationError`。
+- Agent Notes：非平凡变更必须写 `.agents/notes/`（四态生命周期，`scripts/verify_agent_notes.py` 校验）。
+- 生成物目录（`docs/config-catalog.md`、`docs/module-graph.md`）：只由 `scripts/gen_*` 生成，
+  改配置/模块后必须重跑生成器，freshness 由 `scripts/verify_*` 门禁校验。
+
 ## 环境速记（细节见 lessons/01）
 - `apply_patch` 报 Access denied → `[System.IO.File]::WriteAllText`（UTF-8 无 BOM）；长命令/`Remove-Item` 被拦 → 拆段 + .NET API。
 - 用 `uv run pytest`（venv 3.11）；禁 `uv run --python 3.11`。

@@ -30,6 +30,9 @@ import type {
   TenantUsage,
   Availability,
   CalendarData,
+  DependencyEdge,
+  DependenciesData,
+  DependencyImpactData,
 } from './types';
 
 export * from './types';
@@ -232,6 +235,22 @@ export const createAvailability = (input: { role_id: string; start: string; end:
   apiRequest<{ availability: Availability }>('/api/v1/calendar', { method: 'POST', body: input });
 export const deleteAvailability = (availabilityId: string) =>
   apiRequest<{ removed: string }>(`/api/v1/calendar/${encodeURIComponent(availabilityId)}`, { method: 'DELETE' });
+
+// ---- 跨项目依赖图（v0.7 T14.16）----
+export const fetchDependencies = () => apiRequest<DependenciesData>('/api/v1/dependencies');
+export const createDependency = (input: {
+  from_project: string;
+  to_project: string;
+  from_task?: string;
+  to_task?: string;
+  type?: string;
+}) => apiRequest<{ edge: DependencyEdge }>('/api/v1/dependencies', { method: 'POST', body: input });
+export const deleteDependency = (edgeId: string) =>
+  apiRequest<{ removed: string }>(`/api/v1/dependencies/${encodeURIComponent(edgeId)}`, { method: 'DELETE' });
+export const fetchDependencyImpact = (projectId: string) =>
+  apiRequest<DependencyImpactData>('/api/v1/dependencies/impact', {
+    query: { project_id: projectId },
+  });
 
 // ---- 认证（v0.7 T14.10）----
 export const login = (input: { username: string; password: string }) =>

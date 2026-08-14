@@ -14,6 +14,7 @@ import {
   SunOutlined,
   ApartmentOutlined,
   CalendarOutlined,
+  ShareAltOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -60,6 +61,7 @@ export default function AppLayout() {
       { key: '/teams', icon: <TeamOutlined />, label: intl.formatMessage({ id: 'layout.menu.teams', defaultMessage: 'Teams' }) },
       { key: '/tenants', icon: <ApartmentOutlined />, label: intl.formatMessage({ id: 'layout.menu.tenants', defaultMessage: 'Tenants' }) },
       { key: '/calendar', icon: <CalendarOutlined />, label: intl.formatMessage({ id: 'layout.menu.calendar', defaultMessage: 'Calendar' }) },
+      { key: '/dependencies', icon: <ShareAltOutlined />, label: intl.formatMessage({ id: 'layout.menu.dependencies', defaultMessage: 'Dependencies' }) },
       { key: '/settings', icon: <SettingOutlined />, label: intl.formatMessage({ id: 'layout.menu.settings', defaultMessage: 'Settings' }) },
     ],
     [intl],

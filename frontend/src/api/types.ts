@@ -325,3 +325,23 @@ export interface TenantUsage {
   project_limit: number;
   session_limit: number;
 }
+
+// ---- 跨项目依赖图（v0.7 T14.16）----
+export interface DependencyEdge {
+  id: string;
+  from_project: string;
+  to_project: string;
+  from_task?: string;
+  to_task?: string;
+  type?: string;
+  created_at?: string;
+}
+
+export interface DependenciesData {
+  edges: DependencyEdge[];
+}
+
+export interface DependencyImpactData {
+  project_id: string;
+  impact: string[];
+}

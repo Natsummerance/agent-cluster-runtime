@@ -48,6 +48,7 @@ from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.tenancy import QuotaExceededError, TenantStore
 from agent_cluster.calendar import OverlapError, ResourceCalendar
+from agent_cluster.dependency_graph import CycleError, DependencyGraph
 from agent_cluster.oauth_mcp import OAuthAuthorizationServer, OAuthError
 from agent_cluster.worktree import WorktreeError
 from agent_cluster.auth import TokenService
@@ -594,6 +595,7 @@ class WorkbenchServer:
         self._authz_registration = self._seams.register(AUTHZ_SEAM, AuthzProvider(self.rbac))
         self.tenants = TenantStore(root=INDEX_DIR)
         self.calendar = ResourceCalendar(root=INDEX_DIR)
+        self.dependencies = DependencyGraph(root=INDEX_DIR)
         base_url = oauth_issuer or f"http://{host}:{port}"
         self.oauth = oauth_server or OAuthAuthorizationServer(
             issuer=base_url,
@@ -1258,6 +1260,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_tenant_usage(parts[3])
             if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 3:
                 return self._handle_calendar()
+            if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 3:
+                return self._handle_dependencies()
+            if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 4 and parts[3] == "impact":
+                return self._handle_dependency_impact()
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -1385,6 +1391,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_create_tenant(self._read_json())
             if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 3:
                 return self._handle_create_availability(self._read_json())
+            if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 3:
+                return self._handle_create_dependency(self._read_json())
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 5 and parts[4] == "members":
                 return self._handle_team_members(parts[3], self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
@@ -1433,6 +1441,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_delete_tenant(parts[3])
             if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 4:
                 return self._handle_delete_availability(parts[3])
+            if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 4:
+                return self._handle_delete_dependency(parts[3])
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
@@ -2223,6 +2233,52 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _handle_delete_availability(self, availability_id: str) -> None:
         self.server.workbench.calendar.remove_availability(availability_id)
         _send_json(self, 200, {"ok": True, "data": {"removed": availability_id}})
+
+    def _handle_dependencies(self) -> None:
+        self._require_permission("project.read")
+        edges = self.server.workbench.dependencies.list_edges()
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": {"edges": [edge.__dict__ for edge in edges]}},
+        )
+
+    def _handle_dependency_impact(self) -> None:
+        self._require_permission("project.read")
+        project_id = (self._query().get("project_id") or "").strip()
+        if not project_id:
+            _send_error(self, 400, "缺少 project_id 查询参数", "bad_request")
+            return
+        impact = self.server.workbench.dependencies.impact_of(project_id)
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": {"project_id": project_id, "impact": sorted(impact)}},
+        )
+
+    def _handle_create_dependency(self, body: dict) -> None:
+        self._require_permission("project.write")
+        try:
+            edge = self.server.workbench.dependencies.add_edge(
+                from_project=str(body.get("from_project") or ""),
+                to_project=str(body.get("to_project") or ""),
+                from_task=str(body.get("from_task") or ""),
+                to_task=str(body.get("to_task") or ""),
+                type=str(body.get("type") or ""),
+            )
+        except CycleError as exc:
+            _send_error(self, 409, str(exc), "cycle_detected")
+            return
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 201, {"ok": True, "data": {"edge": edge.__dict__}})
+
+    def _handle_delete_dependency(self, edge_id: str) -> None:
+        self._require_permission("project.write")
+        self.server.workbench.dependencies.remove_edge(edge_id)
+        _send_json(self, 200, {"ok": True, "data": {"removed": edge_id}})
+
 
     def _handle_memory(self, project_id: str) -> None:
         store = self.server.workbench.memory_store(project_id)

@@ -14,6 +14,7 @@ flowchart LR
     config_layers[config_layers]
     context[context]
     credentials[credentials]
+    dependency_graph[dependency_graph]
     doctor[doctor]
     eval[eval]
     events[events]
@@ -129,6 +130,7 @@ flowchart LR
     runtime --> workflow
     server --> auth
     server --> calendar
+    server --> dependency_graph
     server --> doctor
     server --> evolution_integration
     server --> memory

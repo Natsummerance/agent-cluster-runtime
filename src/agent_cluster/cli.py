@@ -679,6 +679,14 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         return 1
 
 
+def _cmd_dump_config(args: argparse.Namespace) -> int:
+    """离线渲染合并配置（对照 dsh --dump-config；不 eval 配置代码）。"""
+    from agent_cluster.config_layers import dump_config
+
+    print(dump_config(args.profile))
+    return 0
+
+
 def _cmd_stdin(args: argparse.Namespace) -> int:
     """stdin 子命令（v0.6 T13.9）：经本地 serve REST 注入实时输入（三入口共用一条链路）。
 
@@ -1336,6 +1344,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--mcp", action="append", default=[], metavar="NAME=COMMAND", help="MCP stdio 服务器（可重复，会话启动时注册工具）")
     serve_parser.add_argument("--mcp-http", action="append", default=[], metavar="NAME=URL", help="MCP Streamable HTTP 服务器（可重复）")
     serve_parser.set_defaults(func=_cmd_serve)
+
+    dump_config_parser = subparsers.add_parser("dump-config", help="离线渲染 profile/bundle/patch 合并配置（不 eval 配置代码）")
+    dump_config_parser.add_argument(
+        "--profile",
+        choices=["serve", "chat", "headless"],
+        default="serve",
+        help="内置 profile（缺省 serve）",
+    )
+    dump_config_parser.set_defaults(func=_cmd_dump_config)
 
     stdin_parser = subparsers.add_parser(
         "stdin", help="向运行中的会话注入实时输入（经本地 serve REST；无 --text 时逐行读 stdin）"

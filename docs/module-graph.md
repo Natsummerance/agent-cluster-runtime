@@ -27,6 +27,7 @@ flowchart LR
     memory[memory]
     metrics[metrics]
     models[models]
+    oauth_mcp[oauth_mcp]
     plugins[plugins]
     pricing[pricing]
     projects[projects]
@@ -92,10 +93,12 @@ flowchart LR
     judge --> models
     judge --> runtime
     ledger --> models
+    mcp_client --> oauth_mcp
     mcp_client --> tools
     meetings --> models
     meetings --> workflow
     metrics --> evolution
+    oauth_mcp --> credentials
     plugins --> skills
     pricing --> models
     projects --> changes
@@ -127,6 +130,7 @@ flowchart LR
     server --> evolution_integration
     server --> memory
     server --> models
+    server --> oauth_mcp
     server --> plugins
     server --> pricing
     server --> projects

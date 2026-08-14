@@ -47,6 +47,7 @@ from agent_cluster.projects import (
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.tenancy import QuotaExceededError, TenantStore
+from agent_cluster.oauth_mcp import OAuthAuthorizationServer, OAuthError
 from agent_cluster.worktree import WorktreeError
 from agent_cluster.auth import TokenService
 from agent_cluster.rbac import AUTHZ_SEAM, AuthzProvider, PermissionDenied, RbacStore
@@ -561,6 +562,8 @@ class WorkbenchServer:
         auth_token: str = "",
         auth_provider: Any = None,
         auth_secret: str = "",
+        oauth_server: Any = None,
+        oauth_issuer: str = "",
         plugins_dir: list[str] | None = None,
         mcp_servers: list[str] | None = None,
         mcp_http_servers: list[str] | None = None,
@@ -589,6 +592,20 @@ class WorkbenchServer:
         self._seams = SeamRegistry()
         self._authz_registration = self._seams.register(AUTHZ_SEAM, AuthzProvider(self.rbac))
         self.tenants = TenantStore(root=INDEX_DIR)
+        base_url = oauth_issuer or f"http://{host}:{port}"
+        self.oauth = oauth_server or OAuthAuthorizationServer(
+            issuer=base_url,
+            resource=base_url,
+            authorization_servers=[base_url],
+            token_service=self.tokens,
+        )
+        if oauth_server is None:
+            # 默认工作台客户端：OAuth MCP 端点开箱可用（可再注册更多客户端）
+            self.oauth.register_client(
+                "agent-cluster",
+                ["http://127.0.0.1/callback"],
+                name="agent-cluster 默认工作台客户端",
+            )
 
     @property
     def sessions(self) -> dict[str, ServerSession]:
@@ -1073,6 +1090,14 @@ def _send_error(handler: BaseHTTPRequestHandler, status: int, message: str, code
     _send_json(handler, status, payload)
 
 
+def _send_redirect(handler: BaseHTTPRequestHandler, location: str) -> None:
+    """OAuth authorize 重定向（RFC 6749 §4.1.2）。"""
+    handler.send_response(302)
+    handler.send_header("Location", location)
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+
+
 class WorkbenchHandler(BaseHTTPRequestHandler):
     # §6.3 三异常态修复③：客户端在响应收尾（最终 flush）断开时静默退出，
     # 不发脏 traceback（Windows 常见 ConnectionResetError(10054)/ConnectionAbortedError(10053)）。
@@ -1102,6 +1127,23 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return json.loads(self.rfile.read(length).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
+
+    def _read_form(self) -> dict[str, str]:
+        """读取 OAuth 端点请求体：application/x-www-form-urlencoded（兼容 JSON）。"""
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8", errors="replace")
+        content_type = (self.headers.get("Content-Type") or "").lower()
+        if "application/json" in content_type:
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            if not isinstance(data, dict):
+                return {}
+            return {str(key): str(value) for key, value in data.items()}
+        return {key: values[0] for key, values in parse_qs(raw).items()}
 
     def _check_auth(self) -> bool:
         workbench = self.server.workbench
@@ -1134,6 +1176,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         parts = self._path_parts()
         if parts[:3] == ["api", "v1", "ws"]:
             return self._handle_ws_upgrade()
+        # OAuth MCP（RFC 8844）端点：公开，不参与 API 认证
+        if parts[:2] == [".well-known", "oauth-protected-resource"]:
+            return self._handle_oauth_well_known()
+        if parts[:2] == [".well-known", "oauth-authorization-server"]:
+            return self._handle_oauth_server_metadata()
+        if parts[:2] == ["oauth", "authorize"]:
+            return self._handle_oauth_authorize()
         if not self._check_auth():
             _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
             return
@@ -1235,6 +1284,11 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             if parts[3] == "login":
                 return self._handle_auth_login(self._read_json())
             return self._handle_auth_refresh(self._read_json())
+        # OAuth MCP（RFC 8844）端点：公开，不参与 API 认证
+        if parts[:2] == ["oauth", "authorize"]:
+            return self._handle_oauth_authorize()
+        if parts[:2] == ["oauth", "token"]:
+            return self._handle_oauth_token()
         if not self._check_auth():
             _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
             return
@@ -1995,6 +2049,52 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_auth_me(self) -> None:
         _send_json(self, 200, {"ok": True, "data": {"user": self._auth_user()}})
+
+    def _handle_oauth_well_known(self) -> None:
+        """RFC 8844 §3.1：保护资源元数据（公开）。"""
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": self.server.workbench.oauth.protected_resource_metadata()},
+        )
+
+    def _handle_oauth_server_metadata(self) -> None:
+        """RFC 8414：授权服务器元数据（公开）。"""
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": self.server.workbench.oauth.authorization_server_metadata()},
+        )
+
+    def _handle_oauth_authorize(self) -> None:
+        """GET/POST /oauth/authorize：PKCE 校验 + 签发一次性授权码（公开）。
+
+        成功 302 到 redirect_uri（code+state）；注册过回调的失败也走重定向
+        （RFC 6749 §4.1.2.1），否则 400 JSON 错误。
+        """
+        workbench = self.server.workbench
+        params = self._read_form() if self.command == "POST" else self._query()
+        try:
+            location = workbench.oauth.authorize_redirect(params)
+        except OAuthError as exc:
+            if workbench.oauth.can_redirect_to(
+                params.get("client_id", ""),
+                params.get("redirect_uri", ""),
+            ):
+                _send_redirect(self, workbench.oauth.error_redirect(params["redirect_uri"], exc.code, exc.description))
+            else:
+                _send_json(self, exc.status, {"error": exc.code, "error_description": exc.description})
+            return
+        _send_redirect(self, location)
+
+    def _handle_oauth_token(self) -> None:
+        """POST /oauth/token：authorization_code/refresh_token 交换（公开，PKCE S256）。"""
+        try:
+            tokens = self.server.workbench.oauth.token_exchange(self._read_form())
+        except OAuthError as exc:
+            _send_json(self, exc.status, {"error": exc.code, "error_description": exc.description})
+            return
+        _send_json(self, 200, {"ok": True, "data": tokens})
 
     def _handle_roles(self) -> None:
         _send_json(self, 200, {"ok": True, "data": {"roles": self.server.workbench.rbac.roles_catalog()}})

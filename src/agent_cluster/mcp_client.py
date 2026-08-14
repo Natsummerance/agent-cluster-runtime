@@ -20,11 +20,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import secrets
 import urllib.error
 import urllib.request
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 
+from agent_cluster.oauth_mcp import generate_code_challenge, generate_code_verifier
 from agent_cluster.tools import (
     MCP_TOOL_PREFIX,
     ToolCall,
@@ -37,6 +40,7 @@ from agent_cluster.tools import (
 
 __all__ = [
     "MCPError",
+    "MCPOAuthClient",
     "StdioMCPClient",
     "StreamableHTTPMCPClient",
     "register_mcp_resource_tool",
@@ -116,6 +120,171 @@ def parse_http_server(spec: str) -> tuple[str, str, str]:
     return name, rest, token
 
 
+class _OAuthRedirectCapture(urllib.request.HTTPRedirectHandler):
+    """捕获 302 Location 而不跟随（headless 客户端：浏览器回调由客户端自解析）。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+class MCPOAuthClient:
+    """MCP 远程服务器 OAuth 客户端（RFC 8844 + RFC 7636 PKCE S256，纯 stdlib）。
+
+    流程：保护资源元数据发现（``/.well-known/oauth-protected-resource``） ->
+    授权服务器元数据（RFC 8414）-> PKCE 授权码（捕获 302 Location，state 校验）
+    -> token 交换。所有 HTTP 经 ``asyncio.to_thread`` 执行，可在事件循环内安全调用。
+    """
+
+    def __init__(
+        self,
+        *,
+        client_id: str,
+        redirect_uri: str = "http://127.0.0.1:0/callback",
+        scopes: tuple[str, ...] = ("mcp",),
+        timeout: float = DEFAULT_MCP_TIMEOUT,
+    ) -> None:
+        if not client_id:
+            raise MCPError("OAuth client_id 必填")
+        self.client_id = client_id
+        self.redirect_uri = redirect_uri
+        self.scopes = tuple(scopes)
+        self.timeout = timeout
+
+    @staticmethod
+    def _origin(url: str) -> str:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise MCPError(f"非法 MCP 资源 URL：{url!r}")
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    def _get_json(self, url: str) -> dict:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                data = json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            raise MCPError(f"OAuth 元数据请求失败：HTTP {exc.code} {url}") from exc
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise MCPError(f"OAuth 元数据请求失败：{url}：{exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise MCPError(f"OAuth 元数据响应非 JSON：{url}") from exc
+        if not isinstance(data, dict):
+            raise MCPError(f"OAuth 元数据响应不是 JSON 对象：{url}")
+        return data
+
+    def _authorize_capture(self, authorize_url: str, expected_state: str) -> str:
+        """请求 authorize 端点并捕获 302 Location 中的授权码（校验 state 防 CSRF）。"""
+        opener = urllib.request.build_opener(_OAuthRedirectCapture())
+        req = urllib.request.Request(authorize_url, headers={"Accept": "application/json"})
+        try:
+            with opener.open(req, timeout=self.timeout):
+                raise MCPError("authorize 端点未返回重定向（缺少 Location）")
+        except urllib.error.HTTPError as exc:
+            location = exc.headers.get("Location", "")
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise MCPError(f"OAuth authorize 请求失败：{exc}") from exc
+        if not location:
+            raise MCPError("authorize 端点未返回重定向 Location")
+        parsed = urlparse(location)
+        params = {key: values[0] for key, values in parse_qs(parsed.query).items()}
+        if "error" in params:
+            detail = f"{params.get('error')} {params.get('error_description', '')}".strip()
+            raise MCPError(f"OAuth authorize 拒绝：{detail}")
+        code = params.get("code", "")
+        state = params.get("state", "")
+        if not code:
+            raise MCPError("authorize 重定向缺少 code")
+        if state != expected_state:
+            raise MCPError("OAuth state 校验失败（防 CSRF）")
+        return code
+
+    def _post_token(self, token_endpoint: str, form_params: dict[str, str]) -> dict:
+        """向 token 端点提交表单并解析 token 响应（错误映射为 MCPError）。"""
+        form = urlencode(form_params).encode("utf-8")
+        req = urllib.request.Request(
+            token_endpoint,
+            data=form,
+            method="POST",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                raw = resp.read().decode("utf-8", errors="replace")
+                tokens = json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            error_text = detail[:300]
+            try:
+                payload = json.loads(detail)
+                if isinstance(payload, dict):
+                    error_text = f"{payload.get('error', exc.code)} {payload.get('error_description', '')}".strip()
+            except json.JSONDecodeError:
+                pass
+            raise MCPError(f"OAuth token 交换失败：{error_text}") from exc
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise MCPError(f"OAuth token 交换失败：{exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise MCPError("OAuth token 响应非 JSON") from exc
+        if not isinstance(tokens, dict) or not tokens.get("access_token"):
+            raise MCPError("OAuth token 响应缺少 access_token")
+        return tokens
+
+    async def obtain_token(self, resource_url: str) -> dict:
+        """RFC 8844 全流程，返回 token 响应（access_token/refresh_token 等）。"""
+        origin = self._origin(resource_url)
+        metadata = self._get_json(f"{origin}/.well-known/oauth-protected-resource")
+        auth_servers = metadata.get("authorization_servers") or []
+        if not auth_servers:
+            raise MCPError("资源服务器未声明 authorization_servers")
+        auth_server = str(auth_servers[0]).rstrip("/")
+        server_meta = self._get_json(f"{auth_server}/.well-known/oauth-authorization-server")
+        authorization_endpoint = str(server_meta.get("authorization_endpoint") or "")
+        token_endpoint = str(server_meta.get("token_endpoint") or "")
+        if not authorization_endpoint or not token_endpoint:
+            raise MCPError("授权服务器元数据缺少 authorization_endpoint/token_endpoint")
+        verifier = generate_code_verifier()
+        challenge = generate_code_challenge(verifier)
+        state = secrets.token_urlsafe(16)
+        query = urlencode(
+            {
+                "response_type": "code",
+                "client_id": self.client_id,
+                "redirect_uri": self.redirect_uri,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "state": state,
+                "scope": " ".join(self.scopes),
+            }
+        )
+        code = await asyncio.to_thread(self._authorize_capture, f"{authorization_endpoint}?{query}", state)
+        return self._post_token(
+            token_endpoint,
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": self.redirect_uri,
+                "client_id": self.client_id,
+                "code_verifier": verifier,
+            },
+        )
+
+    async def refresh_token(self, refresh_token: str, authorization_server: str) -> dict:
+        """用 refresh token 换新 token（RFC 6749 §6，经授权服务器元数据发现端点）。"""
+        auth_server = authorization_server.rstrip("/")
+        server_meta = self._get_json(f"{auth_server}/.well-known/oauth-authorization-server")
+        token_endpoint = str(server_meta.get("token_endpoint") or "")
+        if not token_endpoint:
+            raise MCPError("授权服务器元数据缺少 token_endpoint")
+        return self._post_token(
+            token_endpoint,
+            {"grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": self.client_id},
+        )
+
+
 class StreamableHTTPMCPClient:
     """MCP Streamable HTTP 客户端：stdlib urllib 一次性 POST，JSON-RPC 2.0。
 
@@ -131,11 +300,15 @@ class StreamableHTTPMCPClient:
         url: str,
         *,
         token: str = "",
+        oauth: MCPOAuthClient | None = None,
+        oauth_token_store: Any = None,
         timeout: float = DEFAULT_MCP_TIMEOUT,
     ) -> None:
         self.server_name = server_name
         self.url = url
         self.token = token
+        self.oauth = oauth
+        self.oauth_token_store = oauth_token_store
         self.timeout = timeout
         self._next_id = 0
         self.server_info: dict[str, Any] = {}
@@ -207,10 +380,42 @@ class StreamableHTTPMCPClient:
         value = result["result"]
         return value if isinstance(value, dict) else {"value": value}
 
+    async def ensure_oauth_token(self) -> str:
+        """获取远程 MCP 服务器 OAuth token（RFC 8844；结果按 credentials 契约存储）。
+
+        优先级：已有静态 token -> credentials 存储引用（复用）-> OAuth 流程。
+        全部不可用时 fail loud。
+        """
+        if self.token:
+            return self.token
+        if self.oauth_token_store is not None:
+            try:
+                self.token = self.oauth_token_store.resolve_token(self.server_name)
+                return self.token
+            except KeyError:
+                pass
+        if self.oauth is None:
+            raise MCPError(
+                f"MCP HTTP 服务器 {self.server_name} 需要 OAuth 授权，但未配置 oauth（静态 token 为空）"
+            )
+        tokens = await self.oauth.obtain_token(self.url)
+        token = str(tokens.get("access_token") or "")
+        if not token:
+            raise MCPError("OAuth 流程未返回 access_token")
+        self.token = token
+        if self.oauth_token_store is not None:
+            self.oauth_token_store.set_token(self.server_name, self.token)
+        return self.token
+
     async def connect(self) -> dict[str, Any]:
-        """完成 initialize 握手，返回 serverInfo。"""
+        """完成 initialize 握手，返回 serverInfo。
+
+        未配置静态 token 且配置了 OAuth（或凭据存储）时自动执行 RFC 8844 流程。
+        """
         if self._connected:
             return self.server_info
+        if not self.token and (self.oauth is not None or self.oauth_token_store is not None):
+            await self.ensure_oauth_token()
         info = await self.request(
             "initialize",
             {

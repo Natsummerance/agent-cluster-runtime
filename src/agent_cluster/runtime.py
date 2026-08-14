@@ -50,6 +50,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from agent_cluster.seam import SeamRegistry
 from agent_cluster.models import (
     ActionRequest,
     Agent,
@@ -1035,6 +1036,7 @@ class AgentRuntime:
         tool_script: list[dict] | None = None,
         role_tool_scripts: dict[str, list[dict]] | None = None,
         usage_hook: Callable[[str, TokenUsage], None] | None = None,
+        seams: SeamRegistry | None = None,
     ) -> None:
         self._model_factory = model_factory if model_factory is not None else ChatModelFactory()
         self.event_bus = event_bus if event_bus is not None else EventBus()
@@ -1045,6 +1047,8 @@ class AgentRuntime:
         }
         # token 用量上报：每次模型调用后回调（role_id, TokenUsage），供 TokenLedger 按角色记账
         self._usage_hook = usage_hook
+        self.seams = seams if seams is not None else SeamRegistry()
+        self.seams.register('llm', self._model_factory)  # ctx.llm seam (Consumer resolves)
         self.last_usage: TokenUsage | None = None
 
     async def reply(self, agent: Agent, messages: list[Message]) -> Message:

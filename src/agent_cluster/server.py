@@ -47,6 +47,7 @@ from agent_cluster.projects import (
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.tenancy import QuotaExceededError, TenantStore
+from agent_cluster.calendar import OverlapError, ResourceCalendar
 from agent_cluster.oauth_mcp import OAuthAuthorizationServer, OAuthError
 from agent_cluster.worktree import WorktreeError
 from agent_cluster.auth import TokenService
@@ -592,6 +593,7 @@ class WorkbenchServer:
         self._seams = SeamRegistry()
         self._authz_registration = self._seams.register(AUTHZ_SEAM, AuthzProvider(self.rbac))
         self.tenants = TenantStore(root=INDEX_DIR)
+        self.calendar = ResourceCalendar(root=INDEX_DIR)
         base_url = oauth_issuer or f"http://{host}:{port}"
         self.oauth = oauth_server or OAuthAuthorizationServer(
             issuer=base_url,
@@ -1254,6 +1256,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 and parts[4] == "usage"
             ):
                 return self._handle_tenant_usage(parts[3])
+            if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 3:
+                return self._handle_calendar()
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -1379,6 +1383,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_create_team(self._read_json())
             if parts[:3] == ["api", "v1", "tenants"] and len(parts) == 3:
                 return self._handle_create_tenant(self._read_json())
+            if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 3:
+                return self._handle_create_availability(self._read_json())
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 5 and parts[4] == "members":
                 return self._handle_team_members(parts[3], self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
@@ -1425,6 +1431,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_delete_team(parts[3])
             if parts[:3] == ["api", "v1", "tenants"] and len(parts) == 4:
                 return self._handle_delete_tenant(parts[3])
+            if parts[:3] == ["api", "v1", "calendar"] and len(parts) == 4:
+                return self._handle_delete_availability(parts[3])
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
@@ -2181,6 +2189,40 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _handle_tenant_usage(self, tenant_id: str) -> None:
         usage = self.server.workbench.tenants.usage(tenant_id)
         _send_json(self, 200, {"ok": True, "data": {"usage": usage}})
+
+    def _handle_calendar(self) -> None:
+        query = self._query()
+        role_id = (query.get("role_id") or "").strip() or None
+        from_iso = (query.get("from") or "").strip() or None
+        to_iso = (query.get("to") or "").strip() or None
+        items = self.server.workbench.calendar.list_availability(
+            role_id=role_id, from_=from_iso, to=to_iso
+        )
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": {"availability": [item.__dict__ for item in items]}},
+        )
+
+    def _handle_create_availability(self, body: dict) -> None:
+        try:
+            item = self.server.workbench.calendar.add_availability(
+                role_id=str(body.get("role_id") or ""),
+                start=str(body.get("start") or ""),
+                end=str(body.get("end") or ""),
+                note=str(body.get("note") or ""),
+            )
+        except OverlapError as exc:
+            _send_error(self, 409, str(exc), "overlap")
+            return
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 201, {"ok": True, "data": {"availability": item.__dict__}})
+
+    def _handle_delete_availability(self, availability_id: str) -> None:
+        self.server.workbench.calendar.remove_availability(availability_id)
+        _send_json(self, 200, {"ok": True, "data": {"removed": availability_id}})
 
     def _handle_memory(self, project_id: str) -> None:
         store = self.server.workbench.memory_store(project_id)

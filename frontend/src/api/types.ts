@@ -305,6 +305,20 @@ export interface Tenant {
   created_at?: string;
 }
 
+// ---- 资源日历（v0.7 T14.15）----
+export interface Availability {
+  id: string;
+  role_id: string;
+  start: string;
+  end: string;
+  note?: string;
+  created_at?: string;
+}
+
+export interface CalendarData {
+  availability: Availability[];
+}
+
 export interface TenantUsage {
   projects: number;
   sessions: number;

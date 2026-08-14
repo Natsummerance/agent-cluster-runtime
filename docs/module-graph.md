@@ -8,6 +8,7 @@ flowchart LR
     auth[auth]
     budget[budget]
     cache[cache]
+    calendar[calendar]
     changes[changes]
     cli[cli]
     config_layers[config_layers]
@@ -55,6 +56,7 @@ flowchart LR
     __main__ --> cli
     budget --> tokens
     cache --> models
+    calendar --> roles
     cli --> auth
     cli --> config_layers
     cli --> doctor
@@ -126,6 +128,7 @@ flowchart LR
     runtime --> tools
     runtime --> workflow
     server --> auth
+    server --> calendar
     server --> doctor
     server --> evolution_integration
     server --> memory

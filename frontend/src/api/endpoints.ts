@@ -28,6 +28,8 @@ import type {
   LoginResult,
   Tenant,
   TenantUsage,
+  Availability,
+  CalendarData,
 } from './types';
 
 export * from './types';
@@ -222,6 +224,14 @@ export const deleteTenant = (tenantId: string) =>
   apiRequest<{ removed: string }>(`/api/v1/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' });
 export const fetchTenantUsage = (tenantId: string) =>
   apiRequest<{ usage: TenantUsage }>(`/api/v1/tenants/${encodeURIComponent(tenantId)}/usage`);
+
+// ---- 资源日历（v0.7 T14.15）----
+export const fetchCalendar = (query: { role_id?: string; from?: string; to?: string } = {}) =>
+  apiRequest<CalendarData>('/api/v1/calendar', { query });
+export const createAvailability = (input: { role_id: string; start: string; end: string; note?: string }) =>
+  apiRequest<{ availability: Availability }>('/api/v1/calendar', { method: 'POST', body: input });
+export const deleteAvailability = (availabilityId: string) =>
+  apiRequest<{ removed: string }>(`/api/v1/calendar/${encodeURIComponent(availabilityId)}`, { method: 'DELETE' });
 
 // ---- 认证（v0.7 T14.10）----
 export const login = (input: { username: string; password: string }) =>

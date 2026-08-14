@@ -12,6 +12,7 @@ import {
   ReloadOutlined,
   SettingOutlined,
   SunOutlined,
+  ApartmentOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -56,6 +57,7 @@ export default function AppLayout() {
       { key: '/audit', icon: <AuditOutlined />, label: intl.formatMessage({ id: 'layout.menu.audit', defaultMessage: 'Audit' }) },
       { key: '/users', icon: <UserOutlined />, label: intl.formatMessage({ id: 'layout.menu.users', defaultMessage: 'Users' }) },
       { key: '/teams', icon: <TeamOutlined />, label: intl.formatMessage({ id: 'layout.menu.teams', defaultMessage: 'Teams' }) },
+      { key: '/tenants', icon: <ApartmentOutlined />, label: intl.formatMessage({ id: 'layout.menu.tenants', defaultMessage: 'Tenants' }) },
       { key: '/settings', icon: <SettingOutlined />, label: intl.formatMessage({ id: 'layout.menu.settings', defaultMessage: 'Settings' }) },
     ],
     [intl],

@@ -46,6 +46,7 @@ from agent_cluster.projects import (
 )
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
+from agent_cluster.tenancy import QuotaExceededError, TenantStore
 from agent_cluster.worktree import WorktreeError
 from agent_cluster.auth import TokenService
 from agent_cluster.rbac import AUTHZ_SEAM, AuthzProvider, PermissionDenied, RbacStore
@@ -587,6 +588,7 @@ class WorkbenchServer:
         self.rbac = RbacStore()
         self._seams = SeamRegistry()
         self._authz_registration = self._seams.register(AUTHZ_SEAM, AuthzProvider(self.rbac))
+        self.tenants = TenantStore(root=INDEX_DIR)
 
     @property
     def sessions(self) -> dict[str, ServerSession]:
@@ -640,16 +642,26 @@ class WorkbenchServer:
     # 项目/会话生命周期
     # ------------------------------------------------------------------
 
-    def create_project(self, name: str, workspace: str) -> dict:
+    def create_project(self, name: str, workspace: str, tenant_id: str | None = None) -> dict:
         project_id = uuid.uuid4().hex[:12]
         root = Path(workspace).expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
+        if tenant_id:
+            self.tenants.get_tenant(tenant_id)
+            self.tenants.ensure_quota(tenant_id, "projects")
+            store = self.tenants.namespaced_project_store(tenant_id)
+        else:
+            store = self._project_store
         entry = self.index.add_project(project_id, name, str(root))
         # v0.6 T13.5：同 pid 双写 ProjectStore（SessionManager 数据源；失败不阻断 v0.5 行为）
         try:
-            self._project_store.create_project(name=name, workspace=root, project_id=project_id)
+            metadata = {"tenant_id": tenant_id} if tenant_id else None
+            store.create_project(name=name, workspace=root, project_id=project_id, metadata=metadata)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[serve] ProjectStore 双写项目失败：%s", exc)
+        if tenant_id:
+            entry = dict(entry)
+            entry["tenant_id"] = tenant_id
         return entry
 
     def list_projects(self) -> list[dict]:
@@ -1185,6 +1197,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_user_detail(parts[3])
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 3:
                 return self._handle_teams()
+            if parts[:3] == ["api", "v1", "tenants"] and len(parts) == 3:
+                return self._handle_tenants()
+            if (
+                parts[:3] == ["api", "v1", "tenants"]
+                and len(parts) == 5
+                and parts[4] == "usage"
+            ):
+                return self._handle_tenant_usage(parts[3])
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -1303,6 +1323,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_create_user(self._read_json())
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 3:
                 return self._handle_create_team(self._read_json())
+            if parts[:3] == ["api", "v1", "tenants"] and len(parts) == 3:
+                return self._handle_create_tenant(self._read_json())
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 5 and parts[4] == "members":
                 return self._handle_team_members(parts[3], self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
@@ -1347,6 +1369,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_delete_user(parts[3])
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 4:
                 return self._handle_delete_team(parts[3])
+            if parts[:3] == ["api", "v1", "tenants"] and len(parts) == 4:
+                return self._handle_delete_tenant(parts[3])
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
@@ -1800,7 +1824,18 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if not name or not workspace:
             _send_json(self, 400, {"ok": False, "error": "name 与 workspace 必填"})
             return
-        entry = self.server.workbench.create_project(name, workspace)
+        tenant_id = str(body.get("tenant_id") or "").strip() or None
+        if tenant_id:
+            try:
+                self.server.workbench.tenants.get_tenant(tenant_id)
+                self.server.workbench.tenants.ensure_quota(tenant_id, "projects")
+            except KeyError:
+                _send_error(self, 404, f"未找到租户：{tenant_id!r}")
+                return
+            except QuotaExceededError as exc:
+                _send_error(self, 409, str(exc), "quota_exceeded")
+                return
+        entry = self.server.workbench.create_project(name, workspace, tenant_id=tenant_id)
         _send_json(self, 201, {"ok": True, "data": entry})
 
     def _handle_start_session(self, project_id: str, body: dict) -> None:
@@ -2023,6 +2058,29 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             raise ValueError(f"未知成员操作：{action!r}")
         team = self.server.workbench.rbac.get_team(team_id)
         _send_json(self, 200, {"ok": True, "data": {"team": team.__dict__}})
+
+    def _handle_tenants(self) -> None:
+        tenants = [tenant.__dict__ for tenant in self.server.workbench.tenants.list_tenants()]
+        _send_json(self, 200, {"ok": True, "data": {"tenants": tenants}})
+
+    def _handle_create_tenant(self, body: dict) -> None:
+        self._require_permission("tenants.manage")
+        tenant = self.server.workbench.tenants.add_tenant(
+            id=str(body.get("id") or ""),
+            name=str(body.get("name") or ""),
+            project_limit=int(body.get("project_limit") or 0),
+            session_limit=int(body.get("session_limit") or 0),
+        )
+        _send_json(self, 201, {"ok": True, "data": {"tenant": tenant.__dict__}})
+
+    def _handle_delete_tenant(self, tenant_id: str) -> None:
+        self._require_permission("tenants.manage")
+        self.server.workbench.tenants.remove_tenant(tenant_id)
+        _send_json(self, 200, {"ok": True, "data": {"removed": tenant_id}})
+
+    def _handle_tenant_usage(self, tenant_id: str) -> None:
+        usage = self.server.workbench.tenants.usage(tenant_id)
+        _send_json(self, 200, {"ok": True, "data": {"usage": usage}})
 
     def _handle_memory(self, project_id: str) -> None:
         store = self.server.workbench.memory_store(project_id)

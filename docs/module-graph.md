@@ -44,6 +44,7 @@ flowchart LR
     skills[skills]
     spill[spill]
     subagent[subagent]
+    tenancy[tenancy]
     tokens[tokens]
     tools[tools]
     trace[trace]
@@ -134,6 +135,7 @@ flowchart LR
     server --> session
     server --> session_manager
     server --> skills
+    server --> tenancy
     server --> trace
     server --> worktree
     server --> ws
@@ -156,6 +158,8 @@ flowchart LR
     session_manager --> worktree
     skills --> models
     subagent --> tools
+    tenancy --> config_layers
+    tenancy --> projects
     tokens --> models
     tools --> tokens
     workflow --> models

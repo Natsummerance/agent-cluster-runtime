@@ -37,6 +37,7 @@ PERMISSIONS: tuple[str, ...] = (
     "users.manage",
     "audit.read",
     "roles.read",
+    "tenants.manage",
 )
 
 # 12 岗位 -> 权限矩阵（角色语义来自 roles.py 岗位画像与审批范围）
@@ -52,7 +53,7 @@ PERMISSION_MATRIX: dict[str, set[str]] = {
     "docs": {"project.read", "project.write", "agent.run", "roles.read"},
     "reviewer": {"project.read", "project.write", "agent.run", "gate.approve", "roles.read"},
     "debugger": {"project.read", "project.write", "agent.run", "roles.read"},
-    "governance": {"project.read", "project.write", "agent.run", "gate.approve", "release.approve", "team.manage", "users.manage", "audit.read", "roles.read"},
+    "governance": {"project.read", "project.write", "agent.run", "gate.approve", "release.approve", "team.manage", "users.manage", "audit.read", "roles.read", "tenants.manage"},
 }
 
 PROJECT_SCOPED_PERMISSIONS: frozenset[str] = frozenset({"project.read", "project.write", "agent.run", "budget.manage", "gate.approve"})

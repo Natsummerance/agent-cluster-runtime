@@ -26,6 +26,8 @@ import type {
   RbacUser,
   RbacTeam,
   LoginResult,
+  Tenant,
+  TenantUsage,
 } from './types';
 
 export * from './types';
@@ -211,6 +213,15 @@ export const updateTeamMembers = (teamId: string, action: 'add' | 'remove', user
     method: 'POST',
     body: { user_id: userId, action },
   });
+
+// ---- 多租户（v0.7 T14.12）----
+export const fetchTenants = () => apiRequest<{ tenants: Tenant[] }>('/api/v1/tenants');
+export const createTenant = (input: { id: string; name: string; project_limit?: number; session_limit?: number }) =>
+  apiRequest<{ tenant: Tenant }>('/api/v1/tenants', { method: 'POST', body: input });
+export const deleteTenant = (tenantId: string) =>
+  apiRequest<{ removed: string }>(`/api/v1/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' });
+export const fetchTenantUsage = (tenantId: string) =>
+  apiRequest<{ usage: TenantUsage }>(`/api/v1/tenants/${encodeURIComponent(tenantId)}/usage`);
 
 // ---- 认证（v0.7 T14.10）----
 export const login = (input: { username: string; password: string }) =>

@@ -21,6 +21,7 @@ const Audit = lazy(() => import('./pages/Audit'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Users = lazy(() => import('./pages/Users'));
 const Teams = lazy(() => import('./pages/Teams'));
+const Tenants = lazy(() => import('./pages/Tenants'));
 const Login = lazy(() => import('./pages/Login'));
 
 function RequireAuth() {
@@ -74,6 +75,7 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/users" element={<Users />} />
                     <Route path="/teams" element={<Teams />} />
+                    <Route path="/tenants" element={<Tenants />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                   </Route>

@@ -295,3 +295,19 @@ export interface LoginResult {
   access_token: string;
   refresh_token: string;
 }
+
+// ---- 多租户（v0.7 T14.12）----
+export interface Tenant {
+  id: string;
+  name: string;
+  project_limit: number;
+  session_limit: number;
+  created_at?: string;
+}
+
+export interface TenantUsage {
+  projects: number;
+  sessions: number;
+  project_limit: number;
+  session_limit: number;
+}

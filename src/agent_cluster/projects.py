@@ -229,10 +229,20 @@ class ProjectStore:
     """项目层存储（权威数据源；默认根 ~/.agent-cluster/projects/；§4 迁移见
     :meth:`migrate_legacy_session`）。"""
 
-    def __init__(self, root: str | Path | None = None) -> None:
+    def __init__(self, root: str | Path | None = None, *, tenant_id: str | None = None) -> None:
+        """项目存储；``tenant_id`` 提供时命名空间为 ``<root>/tenants/<tid>/projects``（14.12 多租户隔离）。"""
         self.root = Path(root).expanduser().resolve() if root is not None else Path.home() / ".agent-cluster"
-        self._projects_dir = self.root / "projects"
+        self.tenant_id = tenant_id
+        if tenant_id:
+            self._projects_dir = self.root / "tenants" / tenant_id / "projects"
+        else:
+            self._projects_dir = self.root / "projects"
         self._projects_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def projects_dir(self) -> Path:
+        """项目目录根（默认 ``<root>/projects``；租户命名空间为 ``<root>/tenants/<tid>/projects``）。"""
+        return self._projects_dir
 
     # ------------------------------------------------------------------
     # 路径与文件 IO

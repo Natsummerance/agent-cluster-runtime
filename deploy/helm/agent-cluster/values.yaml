@@ -1,0 +1,41 @@
+# agent-cluster Helm chart 默认值（Task 14.13）
+replicaCount: 1
+
+image:
+  repository: ghcr.io/natsummerance/agent-cluster-runtime
+  tag: "v0.7.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 8765
+
+ingress:
+  enabled: false
+  className: ""
+  host: agent-cluster.local
+  path: /
+  # tls:
+  #   - hosts:
+  #       - agent-cluster.local
+  #     secretName: agent-cluster-tls
+  tls: []
+
+auth:
+  # 非空则创建 Secret 并以 --auth-token 启动 serve（探针自动带 X-Auth-Token 头）
+  token: ""
+
+persistence:
+  enabled: false
+  storageClass: ""
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

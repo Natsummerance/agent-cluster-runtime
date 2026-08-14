@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "agent-cluster.fullname" . }}
+  labels:
+    {{- include "agent-cluster.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "agent-cluster.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "agent-cluster.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - --host
+            - 0.0.0.0
+            - --port
+            - {{ .Values.service.port | quote }}
+            {{- if .Values.auth.token }}
+            - --auth-token
+            - "$(AGENT_CLUSTER_AUTH_TOKEN)"
+            {{- end }}
+          env:
+            {{- if .Values.auth.token }}
+            - name: AGENT_CLUSTER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "agent-cluster.fullname" . }}
+                  key: auth-token
+            {{- end }}
+            {{- if .Values.persistence.enabled }}
+            - name: HOME
+              value: /data
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8765
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /api/v1/status
+              port: http
+              {{- if .Values.auth.token }}
+              httpHeaders:
+                - name: X-Auth-Token
+                  value: {{ .Values.auth.token | quote }}
+              {{- end }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/status
+              port: http
+              {{- if .Values.auth.token }}
+              httpHeaders:
+                - name: X-Auth-Token
+                  value: {{ .Values.auth.token | quote }}
+              {{- end }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.persistence.enabled }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "agent-cluster.fullname" . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

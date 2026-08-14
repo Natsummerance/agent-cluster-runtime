@@ -11,6 +11,8 @@
 #                    推断 publish provider），打包不发布；产物 upload-artifact
 #   release       —— 仅 tag v*，needs package：patch-update-metadata 注入 minimumVersion/unsigned 后
 #                    经 gh CLI 上传安装包与 latest*.yml（Release Notes 由 tag 生成）
+#   publish-ghcr  —— 仅 tag v*，needs backend-test：docker buildx 多阶段构建后端镜像并推送 GHCR
+#                    （ghcr.io/natsummerance/agent-cluster-runtime:<tag> + latest，Task 14.13）
 on:
   push:
     branches:
@@ -39,6 +41,10 @@ jobs:
           git config --global user.email ci@users.noreply.github.com
       - name: Sync backend deps (frozen)
         run: uv sync --frozen
+      - name: Install Helm (chart template tests, Task 14.13)
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
       - name: Add venv bin to PATH (sandbox-less run_tests nested pytest)
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Backend test suite
@@ -263,3 +269,32 @@ jobs:
           done < <(find artifacts metadata -type f | sort)
           echo "uploading ${#ASSETS[@]} assets"
           gh release create "$TAG" --title "$TAG" --generate-notes "${ASSETS[@]}"
+
+  publish-ghcr:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: backend-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push backend image (tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/natsummerance/agent-cluster-runtime:${{ github.ref_name }}
+            ghcr.io/natsummerance/agent-cluster-runtime:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}

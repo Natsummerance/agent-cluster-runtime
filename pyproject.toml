@@ -1,6 +1,6 @@
 [project]
 name = "agent-cluster"
-version = "0.7.1"
+version = "0.7.2"
 description = "多 agent 组织型全栈开发集群运行时（Python + LangGraph）"
 requires-python = ">=3.11"
 dependencies = [

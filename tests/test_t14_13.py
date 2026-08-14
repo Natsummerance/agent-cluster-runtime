@@ -89,7 +89,7 @@ def test_helm_template_renders_deployment_service_ingress():
     out = _helm_template()
     assert "kind: Deployment" in out
     assert "kind: Service" in out
-    assert f"{IMAGE_REF}:v0.7.2" in out, "默认镜像 tag 应为 v0.7.1"
+    assert f"{IMAGE_REF}:v0.7.2" in out, "默认镜像 tag 应为 v0.7.2"
     assert "livenessProbe:" in out and "readinessProbe:" in out
     assert "path: /api/v1/status" in out, "探针必须探测 /api/v1/status"
     assert "containerPort: 8765" in out

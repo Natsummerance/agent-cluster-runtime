@@ -22,6 +22,8 @@ enterprise = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "ldap3" },
+    { name = "pyjwt" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -40,6 +42,8 @@ provides-extras = ["enterprise"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "ldap3", specifier = ">=2.9" },
+    { name = "pyjwt", specifier = ">=2.8" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio" },
 ]

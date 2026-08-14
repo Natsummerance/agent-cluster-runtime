@@ -21,6 +21,8 @@ enterprise = [
 dev = [
     "pytest>=8",
     "pytest-asyncio",
+    "pyjwt>=2.8",
+    "ldap3>=2.9",
 ]
 
 [project.scripts]

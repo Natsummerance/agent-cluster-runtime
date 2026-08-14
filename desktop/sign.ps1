@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    AgentClusterWorkbench 桌面壳：自定义图标 + 代码签名 + 构建 + 验证 一站式脚本（Windows PowerShell）。
+    DoAI Workbench 桌面壳：自定义图标 + 代码签名 + 构建 + 验证 一站式脚本（Windows PowerShell）。
 
 .DESCRIPTION
     默认构建 Windows NSIS（自签名测试证书）。支持环境变量切换目标平台/架构：
@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 $desktop   = $PSScriptRoot
 $distDir   = Join-Path $desktop 'dist'
 $ymlPath   = Join-Path $desktop 'electron-builder.yml'
-$SubjectName = 'CN=Natsummerance, O=AgentClusterWorkbench'
+$SubjectName = 'CN=Natsummerance, O=DoAI Workbench'
 $Target    = if ($env:TARGET) { $env:TARGET.ToLowerInvariant() } else { 'win' }
 $Arch      = if ($env:ARCH)   { $env:ARCH.ToLowerInvariant() } else { 'x64' }
 
@@ -153,7 +153,7 @@ finally {
 if ($Target -eq 'win') {
     $targets = @()
     $targets += Get-ChildItem (Join-Path $distDir '*.exe') -ErrorAction SilentlyContinue
-    $appExe = Join-Path $distDir 'win-unpacked\AgentClusterWorkbench.exe'
+    $appExe = Join-Path $distDir 'win-unpacked\DoAI Workbench.exe'
     if (Test-Path $appExe) { $targets += Get-Item $appExe }
     $failed = $false
     foreach ($t in $targets) {

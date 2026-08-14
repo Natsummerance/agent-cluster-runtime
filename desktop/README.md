@@ -1,4 +1,4 @@
-# AgentClusterWorkbench —— Electron 桌面壳（v0.6.0）
+# DoAI Workbench —— Electron 桌面壳（v0.6.0）
 
 把 Python 后端（`agent-cluster serve`）与 React 前端工作台（`frontend/`）串成桌面应用的 Electron 壳。
 
@@ -45,7 +45,7 @@ npm run pack         # electron-builder --dir，仅生成未打包目录
 
 `electron-builder.yml` 约定：
 
-- `appId`：`com.natsummerance.agent-cluster`；`productName`：`AgentClusterWorkbench`。
+- `appId`：`com.natsummerance.doai`；`productName`：`DoAI Workbench`。
 - `files`：`main.js`、`preload.js`、`package.json`、`dist-frontend/**`、`resources/**`。
 - NSIS：`oneClick: false`（向导式安装，可选安装目录）。
 

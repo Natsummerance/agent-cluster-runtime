@@ -1,6 +1,6 @@
 'use strict';
 
-// AgentClusterWorkbench —— Electron 桌面壳（v0.6.1）
+// DoAI Workbench —— Electron 桌面壳（v0.6.1）
 // 职责：启动/托管 agent-cluster serve 后端（REST+SSE），加载 React 前端工作台，
 // 提供托盘、系统通知（等待审批）、全局快捷键、开机自启与退出清理。
 //
@@ -22,7 +22,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const BACKEND_READY_TIMEOUT_MS = 30000;
 const STATUS_POLL_INTERVAL_MS = 10000;
 const NOTIFICATION_MIN_INTERVAL_MS = 45000;
-const TRAY_TOOLTIP = 'AgentClusterWorkbench';
+const TRAY_TOOLTIP = 'DoAI Workbench';
 
 // 内嵌 32x32 PNG 托盘图标（运行时生成，避免额外资源文件依赖）。
 const TRAY_ICON_B64 =
@@ -205,7 +205,7 @@ async function startBackend() {
     log(`后端进程退出 code=${code} signal=${signal}`);
     backendProcess = null;
     if (!isQuitting && !SMOKE_MODE) {
-      dialog.showErrorBox('AgentClusterWorkbench', `agent-cluster serve 后端已退出（code=${code}）。\n请重新启动工作台。`);
+      dialog.showErrorBox('DoAI Workbench', `agent-cluster serve 后端已退出（code=${code}）。\n请重新启动工作台。`);
     }
   });
 
@@ -286,7 +286,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    title: 'AgentClusterWorkbench',
+    title: 'DoAI Workbench',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -485,7 +485,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('[desktop] 后端启动失败：', err);
     if (!SMOKE_MODE) {
-      dialog.showErrorBox('AgentClusterWorkbench', `后端启动失败：${err.message}`);
+      dialog.showErrorBox('DoAI Workbench', `后端启动失败：${err.message}`);
     }
     app.exit(1);
     return;

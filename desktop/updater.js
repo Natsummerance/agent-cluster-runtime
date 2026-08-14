@@ -20,7 +20,7 @@ const https = require('https');
 const SETTINGS_FILE = 'update-settings.json';
 const LAST_KNOWN_GOOD_FILE = 'last-known-good.json';
 const BOOT_OK_FILE = 'boot-ok';
-const DEFAULT_REPO = 'natsummerance/agent-cluster-runtime';
+const DEFAULT_REPO = 'natsummerance/doAI';
 const FEED_HOST = 'api.github.com';
 
 let autoUpdater = null;
@@ -85,7 +85,7 @@ function compareVersions(a, b) {
 /** HTTPS GET 文本（跟随 3xx 重定向，超时 10s）。 */
 function httpsGetText(url, headers) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { 'User-Agent': 'AgentClusterWorkbench', ...headers } }, (res) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'DoAI Workbench', ...headers } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
         httpsGetText(res.headers.location, headers).then(resolve, reject);

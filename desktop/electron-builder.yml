@@ -1,6 +1,6 @@
 # electron-builder 配置（桌面工作台 v0.6.1：Windows NSIS x64+arm64 / macOS dmg+zip arm64+x64 / Linux deb x64）
-appId: com.natsummerance.agent-cluster
-productName: AgentClusterWorkbench
+appId: com.natsummerance.doai
+productName: DoAI Workbench
 directories:
   output: dist
   buildResources: build
@@ -51,4 +51,4 @@ afterAllArtifactBuild: notarize.cjs
 publish:
   - provider: github
     owner: natsummerance
-    repo: agent-cluster-runtime
+    repo: doAI

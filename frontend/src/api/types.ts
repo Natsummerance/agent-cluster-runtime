@@ -345,3 +345,61 @@ export interface DependencyImpactData {
   project_id: string;
   impact: string[];
 }
+
+// ---- 高级编排（v0.7 T14.17：plan/goal/jobs/schedule）----
+export interface Plan {
+  id: string;
+  name?: string;
+  mode?: string;
+  goals?: string[];
+  jobs?: string[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Goal {
+  id: string;
+  plan_id?: string;
+  objective: string;
+  status?: string;
+  rounds?: number;
+  version?: number;
+  max_rounds?: number;
+  blocked_reason?: Record<string, string> | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface Job {
+  id: string;
+  owner: string;
+  state?: string;
+  outcome?: string;
+  settled_at?: string | null;
+  plan_id?: string | null;
+  created_at?: string;
+}
+
+export interface Schedule {
+  id: string;
+  kind: string;
+  at?: string | null;
+  after_minutes?: number | null;
+  every_minutes?: number | null;
+  state?: string;
+  created_at?: string;
+}
+
+export interface PlansData {
+  plans: Plan[];
+}
+
+export interface PlanDetailData {
+  plan: Plan;
+  goals: Goal[];
+  jobs: Job[];
+}
+
+export interface SchedulesData {
+  schedules: Schedule[];
+}

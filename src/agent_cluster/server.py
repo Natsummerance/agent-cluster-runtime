@@ -49,6 +49,13 @@ from agent_cluster.session_manager import SessionManager, SessionWorktree, Workt
 from agent_cluster.tenancy import QuotaExceededError, TenantStore
 from agent_cluster.calendar import OverlapError, ResourceCalendar
 from agent_cluster.dependency_graph import CycleError, DependencyGraph
+from agent_cluster.orchestration import (
+    Orchestration,
+    OwnerError,
+    RoundLimitError,
+    ScheduleValidationError,
+    VersionConflictError,
+)
 from agent_cluster.oauth_mcp import OAuthAuthorizationServer, OAuthError
 from agent_cluster.worktree import WorktreeError
 from agent_cluster.auth import TokenService
@@ -596,6 +603,7 @@ class WorkbenchServer:
         self.tenants = TenantStore(root=INDEX_DIR)
         self.calendar = ResourceCalendar(root=INDEX_DIR)
         self.dependencies = DependencyGraph(root=INDEX_DIR)
+        self.orchestration = Orchestration()
         base_url = oauth_issuer or f"http://{host}:{port}"
         self.oauth = oauth_server or OAuthAuthorizationServer(
             issuer=base_url,
@@ -1264,6 +1272,12 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_dependencies()
             if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 4 and parts[3] == "impact":
                 return self._handle_dependency_impact()
+            if parts[:3] == ["api", "v1", "plans"] and len(parts) == 3:
+                return self._handle_plans()
+            if parts[:3] == ["api", "v1", "plans"] and len(parts) == 4:
+                return self._handle_plan_detail(parts[3])
+            if parts[:3] == ["api", "v1", "schedules"] and len(parts) == 3:
+                return self._handle_schedules()
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -1393,6 +1407,28 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_create_availability(self._read_json())
             if parts[:3] == ["api", "v1", "dependencies"] and len(parts) == 3:
                 return self._handle_create_dependency(self._read_json())
+            if parts[:3] == ["api", "v1", "plans"] and len(parts) == 3:
+                return self._handle_create_plan(self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "plans"]
+                and len(parts) == 5
+                and parts[4] == "goals"
+            ):
+                return self._handle_create_goal(parts[3], self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "goals"]
+                and len(parts) == 5
+                and parts[4] == "change"
+            ):
+                return self._handle_goal_change(parts[3], self._read_json())
+            if (
+                parts[:3] == ["api", "v1", "jobs"]
+                and len(parts) == 5
+                and parts[4] == "settle"
+            ):
+                return self._handle_job_settle(parts[3], self._read_json())
+            if parts[:3] == ["api", "v1", "schedules"] and len(parts) == 3:
+                return self._handle_create_schedule(self._read_json())
             if parts[:3] == ["api", "v1", "teams"] and len(parts) == 5 and parts[4] == "members":
                 return self._handle_team_members(parts[3], self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
@@ -2278,6 +2314,133 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         self._require_permission("project.write")
         self.server.workbench.dependencies.remove_edge(edge_id)
         _send_json(self, 200, {"ok": True, "data": {"removed": edge_id}})
+
+    # ------------------------------------------------------------------
+    # 高级编排（v0.7 T14.17：plan/goal/jobs/schedule）
+    # ------------------------------------------------------------------
+
+    def _handle_plans(self) -> None:
+        self._require_permission("project.read")
+        plans = [plan.to_dict() for plan in self.server.workbench.orchestration.plans.list_plans()]
+        _send_json(self, 200, {"ok": True, "data": {"plans": plans}})
+
+    def _handle_plan_detail(self, plan_id: str) -> None:
+        self._require_permission("project.read")
+        orchestration = self.server.workbench.orchestration
+        plan = orchestration.plans.get_plan(plan_id)
+        goals = [
+            goal.to_dict() for goal in orchestration.goals.list_goals() if goal.id in plan.goals
+        ]
+        jobs = [
+            job.to_dict() for job in orchestration.jobs.list_jobs() if job.id in plan.jobs
+        ]
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": {"plan": plan.to_dict(), "goals": goals, "jobs": jobs}},
+        )
+
+    def _handle_create_plan(self, body: dict) -> None:
+        self._require_permission("project.write")
+        try:
+            plan = self.server.workbench.orchestration.plans.create_plan(
+                name=str(body.get("name") or ""),
+                mode=str(body.get("mode") or "inactive"),
+            )
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 201, {"ok": True, "data": {"plan": plan.to_dict()}})
+
+    def _handle_create_goal(self, plan_id: str, body: dict) -> None:
+        self._require_permission("project.write")
+        orchestration = self.server.workbench.orchestration
+        try:
+            objective = str(body.get("objective") or "")
+            max_rounds = body.get("max_rounds")
+            if max_rounds is not None:
+                max_rounds = int(max_rounds)
+            goal = orchestration.goals.create_goal(
+                plan_id, objective, max_rounds=max_rounds
+            )
+            orchestration.plans.add_goal(plan_id, goal.id)
+        except KeyError as exc:
+            _send_error(self, 404, str(exc), "not_found")
+            return
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 201, {"ok": True, "data": {"goal": goal.to_dict()}})
+
+    def _handle_goal_change(self, goal_id: str, body: dict) -> None:
+        self._require_permission("project.write")
+        expected_version = body.get("expected_version")
+        if expected_version is None:
+            _send_error(self, 400, "expected_version 必填（CAS 版本）", "bad_request")
+            return
+        try:
+            goal = self.server.workbench.orchestration.goals.change_goal(
+                goal_id,
+                int(expected_version),
+                objective=body.get("objective"),
+                status=body.get("status"),
+                blocked_reason=body.get("blocked_reason"),
+                start_round=bool(body.get("start_round", False)),
+            )
+        except KeyError as exc:
+            _send_error(self, 404, str(exc), "not_found")
+            return
+        except VersionConflictError as exc:
+            _send_error(self, 409, str(exc), "version_conflict")
+            return
+        except RoundLimitError as exc:
+            _send_error(self, 400, str(exc), "round_limit")
+            return
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 200, {"ok": True, "data": {"goal": goal.to_dict()}})
+
+    def _handle_job_settle(self, job_id: str, body: dict) -> None:
+        self._require_permission("project.write")
+        caller = self._auth_user()
+        try:
+            job, first = self.server.workbench.orchestration.jobs.settle(
+                job_id,
+                str(body.get("outcome") or ""),
+                caller=caller,
+            )
+        except KeyError as exc:
+            _send_error(self, 404, str(exc), "not_found")
+            return
+        except OwnerError as exc:
+            _send_error(self, 403, str(exc), "owner_required")
+            return
+        _send_json(self, 200, {"ok": True, "data": {"job": job.to_dict(), "first": first}})
+
+    def _handle_schedules(self) -> None:
+        self._require_permission("project.read")
+        schedules = [
+            schedule.to_dict() for schedule in self.server.workbench.orchestration.schedules.list_schedules()
+        ]
+        _send_json(self, 200, {"ok": True, "data": {"schedules": schedules}})
+
+    def _handle_create_schedule(self, body: dict) -> None:
+        self._require_permission("project.write")
+        try:
+            schedule = self.server.workbench.orchestration.schedules.create_schedule(
+                str(body.get("kind") or ""),
+                at=str(body.get("at")) if body.get("at") is not None else None,
+                after_minutes=body.get("after_minutes"),
+                every_minutes=body.get("every_minutes"),
+            )
+        except ScheduleValidationError as exc:
+            _send_error(self, 400, str(exc), getattr(exc, "code", "bad_request"))
+            return
+        except ValueError as exc:
+            _send_error(self, 400, str(exc), "bad_request")
+            return
+        _send_json(self, 201, {"ok": True, "data": {"schedule": schedule.to_dict()}})
 
 
     def _handle_memory(self, project_id: str) -> None:

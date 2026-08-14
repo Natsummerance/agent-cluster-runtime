@@ -30,6 +30,7 @@ flowchart LR
     metrics[metrics]
     models[models]
     oauth_mcp[oauth_mcp]
+    orchestration[orchestration]
     plugins[plugins]
     pricing[pricing]
     projects[projects]
@@ -102,6 +103,7 @@ flowchart LR
     meetings --> workflow
     metrics --> evolution
     oauth_mcp --> credentials
+    orchestration --> events
     plugins --> skills
     pricing --> models
     projects --> changes
@@ -136,6 +138,7 @@ flowchart LR
     server --> memory
     server --> models
     server --> oauth_mcp
+    server --> orchestration
     server --> plugins
     server --> pricing
     server --> projects

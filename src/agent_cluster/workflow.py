@@ -99,6 +99,10 @@ class WorkflowNode(BaseModel):
     role: str | None = Field(default=None, description="agent 节点岗位 id")
     gate: GateKind | None = Field(default=None, description="gate 节点审批门类别")
     children: list[str] | None = Field(default=None, description="parallel 节点子节点 id 列表")
+    resources: list[str] | None = Field(
+        default=None,
+        description="节点资源需求列表（v0.7 T14.17 DSL 扩展，缺省=无约束）",
+    )
 
 
 class WorkflowEdge(BaseModel):
@@ -112,6 +116,10 @@ class WorkflowEdge(BaseModel):
     on_reject: str | None = Field(default=None, description="gate 审批 reject 目标")
     on_edit: str | None = Field(default=None, description="gate 审批 edit 目标")
     on_response: str | None = Field(default=None, description="gate 审批 response 目标")
+    depends_on: list[str] | None = Field(
+        default=None,
+        description="任务 id 前置约束列表（v0.7 T14.17 DSL 扩展，缺省=无约束）",
+    )
 
 
 class WorkflowSpec(BaseModel):
@@ -233,6 +241,32 @@ def _validate_spec(spec: WorkflowSpec) -> None:
                 "子节点自带出边会导致未声明节点被执行）"
             )
 
+    # v0.7 T14.17 DSL 扩展：resources / depends_on 条目校验（fail loud；缺省=无约束）
+    for node in spec.nodes:
+        if node.resources is None:
+            continue
+        seen: set[str] = set()
+        for item in node.resources:
+            if not item or not item.strip():
+                raise WorkflowValidationError(f"节点 {node.id!r} 的 resources 条目不能为空")
+            if item in seen:
+                raise WorkflowValidationError(f"节点 {node.id!r} 的 resources 存在重复条目：{item!r}")
+            seen.add(item)
+    for edge in spec.edges:
+        if edge.depends_on is None:
+            continue
+        seen = set()
+        for item in edge.depends_on:
+            if not item or not item.strip():
+                raise WorkflowValidationError(
+                    f"边 {edge.from_!r}→{edge.to!r} 的 depends_on 条目不能为空"
+                )
+            if item in seen:
+                raise WorkflowValidationError(
+                    f"边 {edge.from_!r}→{edge.to!r} 的 depends_on 存在重复条目：{item!r}"
+                )
+            seen.add(item)
+
 
 class CompiledWorkflow:
     """已编译的 LangGraph 流程：运行/恢复产出事件流。"""
@@ -247,6 +281,11 @@ class CompiledWorkflow:
             f"agent_cluster_run_state_{id(self)}", default=None
         )
         self._last_run_state: _RunState | None = None
+
+    @property
+    def spec(self) -> WorkflowSpec:
+        """只读流程规格（编译产物可访问解析后的模型）。"""
+        return self._spec
 
     @property
     def events(self) -> list[Event]:
@@ -264,6 +303,22 @@ class CompiledWorkflow:
     def get_compiled_graph(self) -> Any:
         """返回底层已编译的 LangGraph StateGraph（供 Task 4/7 检查或驱动）。"""
         return self._graph
+
+    def resource_requirements(self) -> dict[str, list[str]]:
+        """编译产物：节点 id -> 资源需求列表（v0.7 T14.17 DSL 扩展，无需求节点不出现）。"""
+        return {
+            node.id: list(node.resources)
+            for node in self._spec.nodes
+            if node.resources is not None
+        }
+
+    def dependency_constraints(self) -> list[dict]:
+        """编译产物：带 depends_on 约束的边列表（缺省=无约束，不出现）。"""
+        return [
+            {"from": edge.from_, "to": edge.to, "depends_on": list(edge.depends_on)}
+            for edge in self._spec.edges
+            if edge.depends_on is not None
+        ]
 
     def compile_graph(self, checkpointer: Any | None = None) -> Any:
         """公开方法：返回绑定 checkpointer 的全新编译图（等价于 run()/resume() 内部使用）。

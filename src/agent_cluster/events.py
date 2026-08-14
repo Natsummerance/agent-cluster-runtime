@@ -66,6 +66,12 @@ KNOWN_SESSION_EVENT_TYPES: frozenset[str] = frozenset(
         "migration/restored",
         # LLM 缓存统计（14.6 消费）
         "llm/cache",
+        # 高级编排（v0.7 Task 14.17，dsh plan/goal/jobs/schedule 语义）
+        "plan/mode",
+        "goal/change",
+        "job/register",
+        "job/settle",
+        "schedule/change",
     }
 )
 

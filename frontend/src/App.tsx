@@ -24,6 +24,7 @@ const Teams = lazy(() => import('./pages/Teams'));
 const Tenants = lazy(() => import('./pages/Tenants'));
 const CalendarPage = lazy(() => import('./pages/Calendar'));
 const DependenciesPage = lazy(() => import('./pages/Dependencies'));
+const PlansPage = lazy(() => import('./pages/Plans'));
 const Login = lazy(() => import('./pages/Login'));
 
 function RequireAuth() {
@@ -80,6 +81,7 @@ export default function App() {
                     <Route path="/tenants" element={<Tenants />} />
                     <Route path="/calendar" element={<CalendarPage />} />
                     <Route path="/dependencies" element={<DependenciesPage />} />
+                    <Route path="/plans" element={<PlansPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                   </Route>

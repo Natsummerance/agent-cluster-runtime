@@ -33,6 +33,13 @@ import type {
   DependencyEdge,
   DependenciesData,
   DependencyImpactData,
+  Goal,
+  Job,
+  Plan,
+  PlanDetailData,
+  PlansData,
+  Schedule,
+  SchedulesData,
 } from './types';
 
 export * from './types';
@@ -251,6 +258,44 @@ export const fetchDependencyImpact = (projectId: string) =>
   apiRequest<DependencyImpactData>('/api/v1/dependencies/impact', {
     query: { project_id: projectId },
   });
+
+// ---- 高级编排（v0.7 T14.17：plan/goal/jobs/schedule）----
+export const fetchPlans = () => apiRequest<PlansData>('/api/v1/plans');
+export const createPlan = (input: { name?: string; mode?: string }) =>
+  apiRequest<{ plan: Plan }>('/api/v1/plans', { method: 'POST', body: input });
+export const fetchPlan = (planId: string) =>
+  apiRequest<PlanDetailData>(`/api/v1/plans/${encodeURIComponent(planId)}`);
+export const createGoal = (planId: string, input: { objective: string; max_rounds?: number }) =>
+  apiRequest<{ goal: Goal }>(`/api/v1/plans/${encodeURIComponent(planId)}/goals`, {
+    method: 'POST',
+    body: input,
+  });
+export const changeGoal = (
+  goalId: string,
+  input: {
+    expected_version: number;
+    objective?: string;
+    status?: string;
+    start_round?: boolean;
+    blocked_reason?: Record<string, string>;
+  },
+) =>
+  apiRequest<{ goal: Goal }>(`/api/v1/goals/${encodeURIComponent(goalId)}/change`, {
+    method: 'POST',
+    body: input,
+  });
+export const settleJob = (jobId: string, outcome: string) =>
+  apiRequest<{ job: Job; first: boolean }>(`/api/v1/jobs/${encodeURIComponent(jobId)}/settle`, {
+    method: 'POST',
+    body: { outcome },
+  });
+export const fetchSchedules = () => apiRequest<SchedulesData>('/api/v1/schedules');
+export const createSchedule = (input: {
+  kind: string;
+  at?: string;
+  after_minutes?: number;
+  every_minutes?: number;
+}) => apiRequest<{ schedule: Schedule }>('/api/v1/schedules', { method: 'POST', body: input });
 
 // ---- 认证（v0.7 T14.10）----
 export const login = (input: { username: string; password: string }) =>

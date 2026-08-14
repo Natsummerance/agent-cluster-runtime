@@ -48,7 +48,7 @@ def test_dockerfile_exists_and_is_multi_stage():
     assert len(stages) >= 2, "Dockerfile 必须是多阶段（builder/runtime 至少两段）"
     assert any("as builder" in ln.lower() for ln in stages), "缺少 builder 阶段"
     assert any("as runtime" in ln.lower() for ln in stages), "缺少 runtime 阶段"
-    assert "python3.11" in text, "后端镜像应基于 Python 3.11"
+    assert ("python3.11" in text) or ("python:3.11" in text), "后端镜像应基于 Python 3.11"
 
 
 def test_dockerfile_healthcheck_and_serve_command():

@@ -54,6 +54,7 @@ BUILTIN_METRICS: tuple[str, ...] = (
     "tokens_per_artifact",
     "budget_remaining",
     "estimate_accuracy",
+    "cache_hit_ratio",
 )
 
 # 阈值常量

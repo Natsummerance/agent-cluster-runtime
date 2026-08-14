@@ -138,6 +138,9 @@ class TokenUsage(BaseModel):
     cache_read_tokens: int = Field(
         default=0, ge=0, description="前缀缓存命中的输入 token 数（v0.5，成本折算与缓存指标用）"
     )
+    cache_miss_tokens: int = Field(
+        default=0, ge=0, description="前缀缓存未命中的输入 token 数（v0.7 T14.6，命中率指标用）"
+    )
 
 
 class ProposalStatus(StrEnum):

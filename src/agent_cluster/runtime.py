@@ -50,6 +50,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from agent_cluster.cache import cache_summary, extract_cache_tokens
+from agent_cluster.context import head_anchored_trim
 from agent_cluster.seam import SeamRegistry
 from agent_cluster.models import (
     ActionRequest,
@@ -266,11 +268,14 @@ def _extract_usage(
     """从 OpenAI 风格响应提取 usage（缺省时回落统一估算）。"""
     usage = getattr(response, "usage", None)
     if usage is not None:
+        cache_read, cache_miss = extract_cache_tokens(usage)
         return TokenUsage(
             prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
             total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
             model=model,
+            cache_read_tokens=cache_read,
+            cache_miss_tokens=cache_miss,
             estimated_total=estimate_usage(messages, text, calls, model).total_tokens,
         )
     return estimate_usage(messages, text, calls, model)
@@ -367,6 +372,8 @@ class DeepSeekClient(ChatModelClient):
         api_base: str | None = None,
         temperature: float = 0.0,
         max_tokens: int = DEEPSEEK_MAX_TOKENS,
+        session_id: str = "",
+        compact: bool = False,
     ) -> None:
         super().__init__()
         # 仅当调用方未显式给出 api_base/api_key_env 时才解析 Codex 配置（避免重复 I/O）
@@ -384,6 +391,8 @@ class DeepSeekClient(ChatModelClient):
         self.api_base = (api_base or default_base).rstrip("/")
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.session_id = session_id
+        self.compact = compact
         self._api_key = api_key
 
     async def complete(self, messages: list[dict]) -> str:
@@ -401,6 +410,22 @@ class DeepSeekClient(ChatModelClient):
         }
         return await asyncio.to_thread(self._post_chat_completion, payload)
 
+    def _request_headers(self) -> dict[str, str]:
+        """请求头：缓存专属头（session-id / compact），不携带匿名 user-id（隐私）。
+
+        对照 dsh llm-deepseek adapter；``x-deepseek-harness-compact`` 仅压缩态请求
+        携带，提示 provider 复用 KV 缓存前缀。
+        """
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+        if self.session_id:
+            headers["x-deepseek-harness-session-id"] = self.session_id
+        if self.compact:
+            headers["x-deepseek-harness-compact"] = "1"
+        return headers
+
     def _post_chat_completion(self, payload: dict) -> str:
         """同步 POST chat/completions（urllib），返回回复文本或抛 ``RuntimeError``。
 
@@ -415,10 +440,7 @@ class DeepSeekClient(ChatModelClient):
         import urllib.request
 
         url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._api_key}",
-        }
+        headers = self._request_headers()
         for attempt in range(2):
             request = urllib.request.Request(
                 url,
@@ -437,11 +459,14 @@ class DeepSeekClient(ChatModelClient):
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 raise RuntimeError(f"DeepSeek API 响应不是合法 JSON：{exc}") from exc
             raw_usage = data.get("usage") or {}
+            cache_read, cache_miss = extract_cache_tokens(raw_usage)
             self.last_usage = TokenUsage(
                 prompt_tokens=int(raw_usage.get("prompt_tokens") or 0),
                 completion_tokens=int(raw_usage.get("completion_tokens") or 0),
                 total_tokens=int(raw_usage.get("total_tokens") or 0),
                 model=self.model,
+                cache_read_tokens=cache_read,
+                cache_miss_tokens=cache_miss,
             )
             choices = data.get("choices") or []
             if not choices:
@@ -528,11 +553,14 @@ class DeepSeekClient(ChatModelClient):
                 calls.append(ToolCall(id=str(raw_call.get("id") or uuid.uuid4().hex), name=name, args=dict(parsed_args)))
             if content or calls:
                 raw_usage = data.get("usage") or {}
+                cache_read, cache_miss = extract_cache_tokens(raw_usage)
                 usage = TokenUsage(
                     prompt_tokens=int(raw_usage.get("prompt_tokens") or 0),
                     completion_tokens=int(raw_usage.get("completion_tokens") or 0),
                     total_tokens=int(raw_usage.get("total_tokens") or 0),
                     model=self.model,
+                    cache_read_tokens=cache_read,
+                    cache_miss_tokens=cache_miss,
                     estimated_total=estimate_usage(payload.get("messages") or [], content, calls, self.model).total_tokens,
                 )
                 self.last_usage = usage
@@ -860,11 +888,14 @@ class AnthropicClient(ChatModelClient):
             raw_usage = data.get("usage") or {}
             input_tokens = int(raw_usage.get("input_tokens") or 0)
             output_tokens = int(raw_usage.get("output_tokens") or 0)
+            cache_read, cache_miss = extract_cache_tokens(raw_usage)
             usage = TokenUsage(
                 prompt_tokens=input_tokens,
                 completion_tokens=output_tokens,
                 total_tokens=input_tokens + output_tokens,
                 model=self.model,
+                cache_read_tokens=cache_read,
+                cache_miss_tokens=cache_miss,
                 estimated_total=estimate_usage(payload.get("messages") or [], content, calls, self.model).total_tokens,
             )
             self.last_usage = usage
@@ -1090,7 +1121,12 @@ class AgentRuntime:
         """把观察到的消息写入 ``agent.state`` 记忆（摘要=消息本身），按上限截断。"""
         max_messages = agent.config.context.max_messages
         merged = list(agent.state.messages) + list(messages)
-        agent.state.messages = merged[-max_messages:]
+        if len(merged) > max_messages:
+            # 头锚定：保头 + 保尾、中间剪枝（v0.7 T14.6，前缀缓存友好）
+            head = list(merged[: max(0, max_messages - max(1, max_messages // 3))])
+            tail = list(merged[-(max(1, max_messages // 3)) :])
+            merged = head + tail
+        agent.state.messages = merged
 
     def client_for(self, role: Role) -> ChatModelClient:
         """构造岗位模型客户端（模型选择优先级：岗位偏好 > default_model > deterministic）。
@@ -1143,6 +1179,17 @@ class AgentRuntime:
         if usage is None:
             return
         self.last_usage = usage
+        if usage.cache_read_tokens or usage.cache_miss_tokens:
+            self.event_bus.publish(
+                Event(
+                    id=uuid.uuid4().hex,
+                    run_id="",
+                    thread_id="",
+                    type="llm/cache",
+                    actor="",
+                    payload=cache_summary(usage),
+                )
+            )
         if self._usage_hook is not None:
             try:
                 self._usage_hook(role, usage)

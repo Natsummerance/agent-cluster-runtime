@@ -16,6 +16,7 @@
 | 版本升级、发布前同步 | `06-versioning` |
 | **任何修复尝试**（先读此模块！） | `07-debugging` |
 | 排查耗时问题、大日志/大产物、token 快用完时 | `08-token-economy` |
+| DeepSeek 缓存命中率、带 key LLM 测试、前缀装配 | `09-llm-cache` |
 
 ## 硬规则（摘要，细节见模块）
 - **3 次即停**：同一问题修复尝试 ≤3 次；第 3 次仍失败 → 停止 → 跑 `scripts/troubleshoot.ps1` 收集证据 → 对照本库定位根因 → 才允许下一次修复（`07-debugging`）。

@@ -28,6 +28,7 @@ def _collector() -> MetricsCollector:
     collector.record("tokens_per_artifact", 300, tags={"artifact": "PRD.md"})
     collector.record("budget_remaining", 420000)
     collector.record("estimate_accuracy", 0.85)
+    collector.record("cache_hit_ratio", 0.98)
     return collector
 
 

@@ -21,7 +21,7 @@ function installApi() {
     if (url.endsWith('/api/v1/status')) {
       return jsonResponse({
         ok: true,
-        data: { version: '0.7.0', projects: 1, sessions: 0, active_sessions: 0, uptime: 60 },
+        data: { version: '0.7.1', projects: 1, sessions: 0, active_sessions: 0, uptime: 60 },
       });
     }
     if (url.endsWith('/api/v1/projects')) {

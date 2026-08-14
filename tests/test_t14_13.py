@@ -77,7 +77,7 @@ def test_chart_files_present():
     meta = chart.read_text(encoding="utf-8")
     assert "apiVersion: v2" in meta
     assert "name: agent-cluster" in meta
-    assert 'appVersion: "0.7.0"' in meta
+    assert 'appVersion: "0.7.1"' in meta
     assert (CHART_DIR / "values.yaml").is_file()
     for tmpl in ("deployment", "service", "ingress", "secrets", "pvc"):
         assert (CHART_DIR / "templates" / f"{tmpl}.yaml").is_file(), f"缺少 templates/{tmpl}.yaml"
@@ -89,7 +89,7 @@ def test_helm_template_renders_deployment_service_ingress():
     out = _helm_template()
     assert "kind: Deployment" in out
     assert "kind: Service" in out
-    assert f"{IMAGE_REF}:v0.7.0" in out, "默认镜像 tag 应为 v0.7.0"
+    assert f"{IMAGE_REF}:v0.7.1" in out, "默认镜像 tag 应为 v0.7.1"
     assert "livenessProbe:" in out and "readinessProbe:" in out
     assert "path: /api/v1/status" in out, "探针必须探测 /api/v1/status"
     assert "containerPort: 8765" in out

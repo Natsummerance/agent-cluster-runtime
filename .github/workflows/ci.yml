@@ -170,18 +170,22 @@ jobs:
             platform: win
             arch: x64-arm64
             build: npx electron-builder --win nsis --x64 --arm64 --publish never
+            uv_sync_extra: ''
           - os: macos-14
             platform: macos
             arch: arm64
             build: npx electron-builder --mac --arm64 --publish never
+            uv_sync_extra: ''
           - os: macos-14
             platform: macos
             arch: x64
             build: npx electron-builder --mac --x64 --publish never
+            uv_sync_extra: --python-platform x86_64-apple-darwin
           - os: ubuntu-latest
             platform: linux
             arch: x64
             build: npx electron-builder --linux deb --x64 --publish never
+            uv_sync_extra: ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -191,6 +195,14 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - name: Install desktop deps
         run: cd desktop && npm ci
+      - uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: uv.lock
+      - name: Build bundled backend runtime (.venv-pack)
+        # Task 15.1：安装包可用性修复——随包分发精简 venv（无 dev 依赖），electron-builder extraResources 打包
+        env:
+          UV_PROJECT_ENVIRONMENT: .venv-pack
+        run: uv sync --no-dev --frozen ${{ matrix.uv_sync_extra }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

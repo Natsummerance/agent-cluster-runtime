@@ -112,24 +112,47 @@ function authHeaders() {
 // ---------------------------------------------------------------------------
 // 后端进程
 // ---------------------------------------------------------------------------
-/** 解析后端启动方式：优先随包分发的 agent-cluster-backend.exe，否则回退 uv run。 */
+/** 解析后端启动方式：优先随包后端（独立 exe 或随包 venv+源码），否则回退 uv run（开发模式）。 */
 function resolveBackendLaunch() {
   const repoRoot = REPO_ROOT;
   const candidates = [];
-  if (app.isPackaged && process.resourcesPath) {
-    candidates.push(path.join(process.resourcesPath, 'agent-cluster-backend.exe'));
-  }
-  candidates.push(path.join(__dirname, 'resources', 'agent-cluster-backend.exe'));
+  const resourceRoot = app.isPackaged && process.resourcesPath
+    ? process.resourcesPath
+    : path.join(__dirname, "resources");
 
+  // 1) 独立后端可执行文件（向后兼容 agent-cluster-backend.exe）
+  if (app.isPackaged && process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, "agent-cluster-backend.exe"));
+  }
+  candidates.push(path.join(__dirname, "resources", "agent-cluster-backend.exe"));
   for (const exe of candidates) {
     if (fs.existsSync(exe)) {
       log(`使用随包后端：${exe}`);
-      return { command: exe, args: [], cwd: repoRoot };
+      return { command: exe, args: [], cwd: repoRoot, env: {} };
     }
   }
 
-  log('未找到随包后端（agent-cluster-backend.exe），回退 uv run agent-cluster serve');
-  return { command: 'uv', args: ['run', 'agent-cluster', 'serve'], cwd: repoRoot };
+  // 2) 随包 venv + 源码（extraResources：resources/backend/{venv,src,pyproject.toml}）
+  const backendDir = path.join(resourceRoot, "backend");
+  const pythonCandidates = [
+    path.join(backendDir, "venv", "Scripts", "python.exe"),
+    path.join(backendDir, "venv", "python.exe"),
+    path.join(backendDir, "venv", "bin", "python"),
+  ];
+  const python = pythonCandidates.find((cand) => fs.existsSync(cand));
+  if (python && fs.existsSync(path.join(backendDir, "src"))) {
+    log(`使用随包后端运行时：${python}`);
+    return {
+      command: python,
+      args: ["-m", "agent_cluster.cli", "serve"],
+      cwd: backendDir,
+      env: { PYTHONPATH: path.join(backendDir, "src") },
+    };
+  }
+
+  // 3) 开发模式回退（本机 uv + 项目源码）
+  log("未找到随包后端（agent-cluster-backend.exe / backend/venv），回退 uv run agent-cluster serve");
+  return { command: "uv", args: ["run", "agent-cluster", "serve"], cwd: repoRoot, env: {} };
 }
 
 /** 轮询 /api/v1/status 等待后端就绪（最多约 30s）。 */
@@ -160,7 +183,7 @@ async function startBackend() {
 
   backendProcess = spawn(launch.command, args, {
     cwd: launch.cwd,
-    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    env: { ...process.env, PYTHONUNBUFFERED: '1', ...launch.env },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });

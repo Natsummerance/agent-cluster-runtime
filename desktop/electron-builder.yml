@@ -11,6 +11,15 @@ files:
   - package.json
   - dist-frontend/**
   - resources/**
+extraResources:
+  # 随包后端运行时：精简 venv（uv sync --no-dev 产物）+ 源码 + pyproject（Task 15.1：安装包可用性修复）
+  # 安装后位于 <resources>/backend/{venv,src,pyproject.toml}，main.js resolveBackendLaunch 优先使用
+  - from: ../.venv-pack
+    to: backend/venv
+  - from: ../src
+    to: backend/src
+  - from: ../pyproject.toml
+    to: backend/pyproject.toml
 win:
   target:
     - target: nsis

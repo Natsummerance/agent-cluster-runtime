@@ -133,11 +133,13 @@ describe('api endpoints 路由', () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => jsonResponse({ ok: true, data: {} }));
     setFetchImpl(fetchMock);
     await api.fetchSessionAudit('s1');
-    await api.exportSessionAudit('s1');
+    await api.exportSessionAudit('s1', 'csv', 7);
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(urls[0]).toContain('/api/v1/sessions/s1/audit');
     expect(urls[1]).toContain('/api/v1/sessions/s1/audit/export');
-    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('POST');
+    expect(urls[1]).toContain('format=csv');
+    expect(urls[1]).toContain('retention_days=7');
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('GET');
   });
 
   it('applyEvolutionProposal / rollbackEvolutionProposal 使用提案子路径', async () => {

@@ -2,6 +2,7 @@
 import { apiRequest, subscribeSse } from './client';
 import type {
   AuditData,
+  AuditExportData,
   ChangeData,
   CreateProjectInput,
   CreateSessionInput,
@@ -123,8 +124,16 @@ export const rollbackSession = (sid: string, version: string | number) =>
 // ---- 审计 ----
 export const fetchSessionAudit = (sid: string) =>
   apiRequest<AuditData>(sidPath(sid, '/audit'));
-export const exportSessionAudit = (sid: string) =>
-  apiRequest<AuditData>(sidPath(sid, '/audit/export'), { method: 'POST' });
+export type AuditExportFormat = 'csv' | 'json' | 'markdown';
+export const exportSessionAudit = (
+  sid: string,
+  format: AuditExportFormat = 'json',
+  retentionDays?: number,
+) =>
+  apiRequest<AuditExportData>(sidPath(sid, '/audit/export'), {
+    method: 'GET',
+    query: { format, retention_days: retentionDays ? String(retentionDays) : undefined },
+  });
 
 // ---- 工作区 ----
 export const fetchWorkspaceTree = (projectId: string, path = '') =>

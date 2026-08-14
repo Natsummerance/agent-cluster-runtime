@@ -236,12 +236,31 @@ export interface CreateSessionResult {
   workspace: string;
 }
 
+export interface AuditTrajectoryEvent {
+  seq?: number;
+  ts?: string;
+  type?: string;
+  actor?: string;
+  payload?: unknown;
+}
+
 export interface AuditData {
   session_id?: string;
+  goal?: string;
   records?: unknown[];
   summary?: string;
   file?: string;
   content?: string;
+  events?: AuditTrajectoryEvent[];
+  [key: string]: unknown;
+}
+
+export interface AuditExportData {
+  session_id?: string;
+  format?: string;
+  retention_days?: number | null;
+  content?: string;
+  files?: Record<string, string>;
   [key: string]: unknown;
 }
 

@@ -56,6 +56,7 @@ from agent_cluster.trace import (
     Tracer,
     build_audit_package,
     compute_health,
+    export_audit,
 )
 
 __all__ = [
@@ -1167,7 +1168,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_changes(parts[3])
             if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "audit":
                 return self._handle_audit(parts[3])
-                return self._handle_changes(parts[3])
+            if (
+                parts[:3] == ["api", "v1", "sessions"]
+                and len(parts) == 6
+                and parts[4] == "audit"
+                and parts[5] == "export"
+            ):
+                return self._handle_audit_export(parts[3])
             if parts[:3] == ["api", "v1", "auth"] and len(parts) == 4 and parts[3] == "me":
                 return self._handle_auth_me()
             if parts[:3] == ["api", "v1", "roles"]:
@@ -2081,20 +2088,56 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_audit_export(self, session_id: str) -> None:
         session = self.server.workbench.get_session(session_id)
+        query = self._query()
+        fmt = (query.get("format") or "json").strip().lower()
+        if fmt not in ("csv", "json", "markdown"):
+            _send_error(self, 400, "format 仅支持 csv|json|markdown", "invalid_format")
+            return
+        retention_days: int | None = None
+        raw_retention = (query.get("retention_days") or "").strip()
+        if raw_retention:
+            try:
+                retention_days = int(raw_retention)
+            except ValueError:
+                _send_error(self, 400, "retention_days 必须为整数", "invalid_retention")
+                return
         data = session.audit_data()
+        records = list(data["events"])
+        content = export_audit(
+            records,
+            fmt=fmt,
+            retention_days=retention_days,
+            session_id=session.session_id,
+            goal=str(data.get("goal") or ""),
+        )
         files = build_audit_package(
             workspace=session.workspace,
             session_id=session.session_id,
             goal=data["goal"],
-            events=data["events"],
+            events=records,
             approvals=data["approvals"],
             token_summary=data["token_summary"],
             change_records=data["changes"],
             spans=session.tracer.spans(),
             cost=data["cost"],
+            export_format=fmt,
+            retention_days=retention_days,
         )
         session.log.append({"type": "audit.exported", "session_id": session.session_id, "payload": files})
-        _send_json(self, 200, {"ok": True, "data": {"files": files}})
+        _send_json(
+            self,
+            200,
+            {
+                "ok": True,
+                "data": {
+                    "session_id": session.session_id,
+                    "format": fmt,
+                    "retention_days": retention_days,
+                    "content": content,
+                    "files": files,
+                },
+            },
+        )
 
     def _handle_plugins(self) -> None:
         workbench = self.server.workbench

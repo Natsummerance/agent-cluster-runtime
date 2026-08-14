@@ -46,7 +46,7 @@ from agent_cluster.projects import (
 )
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
-from agent_cluster.tenancy import QuotaExceededError, TenantStore
+from agent_cluster.tenancy import QuotaExceededError, TenantStore, tenant_payload
 from agent_cluster.calendar import OverlapError, ResourceCalendar
 from agent_cluster.dependency_graph import CycleError, DependencyGraph
 from agent_cluster.orchestration import (
@@ -221,11 +221,13 @@ class ServerSession:
         store_root: Path | None = None,
         checkpoint_root: Path | None = None,
         budget_pool_hook: Any | None = None,
+        tenant_id: str = "",
     ) -> None:
         self.session_id = session_id
         self.project_id = project_id
         self.workspace = workspace
         self.spec = spec
+        self.tenant_id = tenant_id
         self.log = SessionEventLog()
         self.status = "starting"
         # v0.6 T13.5 增量字段（§8.1：取消 / stdin / worktree / 合并冲突）
@@ -251,6 +253,12 @@ class ServerSession:
         self.delivery: dict | None = None
         self.tracer = Tracer(JsonlExporter(workspace))
 
+    def log_event(self, event: dict) -> int:
+        """事件日志追加：会话属于租户时 payload 自动并入 tenant_id（15.15 运行时隔离）。"""
+        if self.tenant_id:
+            event = {**event, "payload": tenant_payload(event.get("payload"), self.tenant_id)}
+        return self.log.append(event)
+
     # ------------------------------------------------------------------
     # HITL 桥接（driver.prompt_fn）
     # ------------------------------------------------------------------
@@ -259,7 +267,7 @@ class ServerSession:
         """会话线程阻塞等待 API 提交的答案；需求变更由 driver 在下一个挂起点消费。"""
         self.pending_hint = hint
         self.status = "waiting_approval"
-        self.log.append({"type": "approval.pending", "session_id": self.session_id, "payload": {"hint": hint}})
+        self.log_event({"type": "approval.pending", "session_id": self.session_id, "payload": {"hint": hint}})
         span = self.tracer.start_span("approval.wait", kind="approval", hint=hint)
         try:
             while True:
@@ -280,7 +288,7 @@ class ServerSession:
             self.tracer.end_span(span)
 
     def _print_fn(self, text: str) -> None:
-        self.log.append({"type": "log", "session_id": self.session_id, "payload": {"text": text}})
+        self.log_event({"type": "log", "session_id": self.session_id, "payload": {"text": text}})
 
     def _event_printer(self, event: Any) -> None:
         payload = {
@@ -295,7 +303,7 @@ class ServerSession:
         # 任何流程推进事件都表示上一次人工挂起已被消费，先清除再等下一个门提示。
         if self.status == "waiting_approval":
             self.pending_hint = ""
-        self.log.append(payload)
+        self.log_event(payload)
 
     def submit_answer(self, text: str) -> None:
         self._answer_queue.put(text)
@@ -363,7 +371,7 @@ class ServerSession:
             except Exception as exc:  # noqa: BLE001 —— 会话线程顶层错误出口
                 self.status = "failed"
                 self.error = str(exc)
-                self.log.append(
+                self.log_event(
                     {"type": "session.error", "session_id": self.session_id, "payload": {"error": str(exc)}}
                 )
             finally:
@@ -395,7 +403,7 @@ class ServerSession:
             end_status = "cancelled"
         else:
             end_status = "completed"
-        self.log.append(
+        self.log_event(
             {
                 "type": "session.end",
                 "session_id": self.session_id,
@@ -434,13 +442,13 @@ class ServerSession:
                 merged = helper.merge_back()
                 if not merged["ok"]:
                     self.merge_conflict = True
-                    self.log.append(
+                    self.log_event(
                         {"type": "worktree.merge_conflict", "session_id": self.session_id, "payload": merged}
                     )
             else:
                 helper.close()
         except Exception as exc:  # noqa: BLE001 —— 收尾失败不吞会话结果，审计落日志
-            self.log.append(
+            self.log_event(
                 {"type": "worktree.finish_error", "session_id": self.session_id, "payload": {"error": str(exc)}}
             )
 
@@ -671,6 +679,17 @@ class WorkbenchServer:
     # 项目/会话生命周期
     # ------------------------------------------------------------------
 
+    def _project_tenant(self, project_id: str) -> str:
+        """项目租户归属（全局索引权威；空串=全局项目）。"""
+        return str(self.index.projects.get(project_id, {}).get("tenant_id") or "")
+
+    def _project_store_for(self, project_id: str) -> ProjectStore:
+        """项目所属存储：租户项目走租户命名空间 ProjectStore（15.15 运行时隔离）。"""
+        tenant_id = self._project_tenant(project_id)
+        if tenant_id:
+            return self.tenants.namespaced_project_store(tenant_id)
+        return self._project_store
+
     def create_project(self, name: str, workspace: str, tenant_id: str | None = None) -> dict:
         project_id = uuid.uuid4().hex[:12]
         root = Path(workspace).expanduser().resolve()
@@ -689,20 +708,24 @@ class WorkbenchServer:
         except Exception as exc:  # noqa: BLE001
             logger.warning("[serve] ProjectStore 双写项目失败：%s", exc)
         if tenant_id:
-            entry = dict(entry)
+            # 15.15：tenant_id 必须落回全局索引（租户过滤/路由权威），直接改存储条目而非副本
             entry["tenant_id"] = tenant_id
+            self.index.save()
         return entry
 
-    def list_projects(self) -> list[dict]:
+    def list_projects(self, tenant_id: str | None = None) -> list[dict]:
         entries: list[dict] = []
         for entry in self.index.projects.values():
+            if tenant_id and str(entry.get("tenant_id") or "") != tenant_id:
+                continue
             item = dict(entry)
             pid = item["id"]
             try:
-                project = self._project_store.get(pid)
+                store = self._project_store_for(pid)
+                project = store.get(pid)
                 item["description"] = project.description
                 item["metadata"] = project.metadata
-                item["budget_pool"] = self._project_store.budget_status(pid)
+                item["budget_pool"] = store.budget_status(pid)
                 item["session_count"] = len(project.sessions)
                 item["active_sessions"] = self.manager.running_in(pid)
                 item["dashboard"] = self._dashboard(pid)
@@ -724,7 +747,8 @@ class WorkbenchServer:
         if not spec.get("goal"):
             raise ValueError("goal 不能为空")
         # v0.6 T13.5：委托 SessionManager（预算 → 并发判定 → worktree → 线程启动）
-        server_session = self.manager.start(project_id, spec)
+        # 15.15：租户项目会话走租户命名空间存储（数据流按 tenant_id 切分）
+        server_session = self.manager.start(project_id, spec, store=self._project_store_for(project_id))
         self.index.add_session(
             server_session.session_id,
             project_id,
@@ -765,22 +789,23 @@ class WorkbenchServer:
         惰性迁移兜底（§4.1）：项目会话目录缺失但项目任一工作区仍存未迁移
         v0.5 session.json → 先 migrate_legacy_session 再决定新建/恢复。
         """
+        store = self._project_store_for(project_id)
         try:
-            project = self._project_store.get(project_id)
+            project = store.get(project_id)
         except KeyError:
             raise NotFoundError(f"项目不存在：{project_id}") from None
-        target = self._project_store.session_dir(project_id, session_id) / "session.json"
+        target = store.session_dir(project_id, session_id) / "session.json"
         if not target.is_file():
             migrated = False
             for workspace in project.workspaces:
                 legacy = Path(workspace) / ".agent-cluster" / "session.json"
                 if legacy.is_file():
-                    if self._project_store.migrate_legacy_session(project_id, workspace) is not None:
+                    if store.migrate_legacy_session(project_id, workspace) is not None:
                         migrated = True
                         break
             if not migrated:
                 raise NotFoundError(f"会话不存在：{session_id}")
-        record = self._project_store.session_store(project_id, session_id).record
+        record = store.session_store(project_id, session_id).record
         if record.status != "active":
             raise ConflictError(f"会话已终态（status={record.status}），不能恢复启动")
         existing = self.manager.sessions.get(session_id)
@@ -793,7 +818,8 @@ class WorkbenchServer:
         worktree_path = None if fork_worktree else (workspace if workspace != main_workspace else None)
         resume_spec = dict(spec)
         resume_spec["resume"] = True
-        checkpoint_root = self._project_store.session_dir(project_id, session_id) / "checkpoints"
+        checkpoint_root = store.session_dir(project_id, session_id) / "checkpoints"
+        tenant_id = str((project.metadata or {}).get("tenant_id") or "")
         server_session = ServerSession(
             session_id,
             project_id,
@@ -801,13 +827,14 @@ class WorkbenchServer:
             resume_spec,
             worktree_path=worktree_path,
             main_workspace=main_workspace if worktree_path is not None else None,
-            store_root=self._project_store.root,
+            store_root=store.root,
             checkpoint_root=checkpoint_root,
-            budget_pool_hook=make_budget_pool_hook(self._project_store, self.manager._emit),
+            budget_pool_hook=make_budget_pool_hook(store, self.manager._emit),
+            tenant_id=tenant_id,
         )
         with self.manager._lock:
             self.manager.sessions[session_id] = server_session
-        server_session.log.append(
+        server_session.log_event(
             {
                 "type": "session.start",
                 "session_id": session_id,
@@ -832,7 +859,7 @@ class WorkbenchServer:
         }
 
     def project_detail(self, project_id: str) -> dict:
-        project = self._project_store.get(project_id)
+        project = self._project_store_for(project_id).get(project_id)
         return {
             "project_id": project.project_id,
             "name": project.name,
@@ -852,7 +879,7 @@ class WorkbenchServer:
         if project_id not in self.index.projects:
             raise KeyError(f"项目不存在：{project_id}")
         try:
-            project = self._project_store.get(project_id)
+            project = self._project_store_for(project_id).get(project_id)
         except KeyError:
             return []  # 旧项目（索引有、未双写）：无任务数据
         live = {sid: session for sid, session in self.manager.sessions.items() if session.project_id == project_id}
@@ -868,7 +895,7 @@ class WorkbenchServer:
         return entries
 
     def _project_session_records(self, project_id: str) -> list[tuple[str, SessionRecord]]:
-        sessions_dir = self._project_store.root / "projects" / project_id / "sessions"
+        sessions_dir = self._project_store_for(project_id).session_dir(project_id, "")
         records: list[tuple[str, SessionRecord]] = []
         if not sessions_dir.is_dir():
             return records
@@ -885,9 +912,10 @@ class WorkbenchServer:
 
     def _dashboard(self, project_id: str) -> dict[str, Any]:
         """§10.1 三轴仪表盘（唯一计算式：cost/progress/health；状态枚举 ok|warn|critical）。"""
-        project = self._project_store.get(project_id)
+        store = self._project_store_for(project_id)
+        project = store.get(project_id)
         pool = project.budget_pool
-        used = self._project_store.aggregate_used_tokens(project_id)
+        used = store.aggregate_used_tokens(project_id)
         limit = pool.hard_limit_tokens
         ratio = (used / limit) if limit > 0 else 0.0
         cost_score = max(0.0, 1.0 - ratio)
@@ -983,8 +1011,9 @@ class WorkbenchServer:
         """§7：终态会话派生；产物为「待启动」会话（记录 status=active、线程为空，
         后续经 spec.session_id 恢复启动）。"""
         project_id = str(spec.get("project_id") or "")
+        store = self._project_store_for(project_id) if project_id else self._project_store
         record = fork_session(
-            self._project_store,
+            store,
             source_session_id=session_id,
             goal=spec.get("goal"),
             project_id=project_id or None,
@@ -994,13 +1023,14 @@ class WorkbenchServer:
         )
         source = self.manager.sessions.get(session_id)
         if source is not None:
-            source.log.append(
+            source.log_event(
                 {
                     "type": "session.forked",
                     "session_id": session_id,
                     "payload": {"child_session_id": record.session_id},
                 }
             )
+        fork_store = self._project_store_for(record.project_id)
         dormant = ServerSession(
             record.session_id,
             record.project_id,
@@ -1012,12 +1042,13 @@ class WorkbenchServer:
             },
             worktree_path=None,
             main_workspace=None,
-            store_root=self._project_store.root,
-            checkpoint_root=self._project_store.session_dir(record.project_id, record.session_id) / "checkpoints",
+            store_root=fork_store.root,
+            checkpoint_root=fork_store.session_dir(record.project_id, record.session_id) / "checkpoints",
+            tenant_id=self._project_tenant(record.project_id),
         )
         dormant.status = "dormant"
         dormant.assignee = str(spec.get("assignee") or "")
-        dormant.log.append(
+        dormant.log_event(
             {
                 "type": "session.start",
                 "session_id": record.session_id,
@@ -1042,27 +1073,30 @@ class WorkbenchServer:
             raise KeyError(f"项目不存在：{project_id}")
         return Path(project["workspace"]).expanduser().resolve()
 
-    def memory_store(self, project_id: str | None = None) -> MemoryStore:
+    def memory_store(self, project_id: str | None = None, *, tenant_id: str | None = None) -> MemoryStore:
+        """记忆库：项目级走项目工作区；全局按租户命名空间切分（15.15 数据流隔离）。"""
         if project_id:
             return MemoryStore(self.project_workspace(project_id))
+        if tenant_id:
+            return MemoryStore(self.tenants.tenant_dir(tenant_id))
         return MemoryStore(INDEX_DIR)
 
-    def evolution_bridge(self, project_id: str | None = None) -> EvolutionBridge:
-        """进化集成桥（全局或项目工作区）。"""
+    def evolution_bridge(self, project_id: str | None = None, *, tenant_id: str | None = None) -> EvolutionBridge:
+        """进化集成桥（项目工作区或全局；全局按租户命名空间切分）。"""
         if project_id:
             return EvolutionBridge(self.project_workspace(project_id))
+        if tenant_id:
+            return EvolutionBridge(self.tenants.tenant_dir(tenant_id))
         return EvolutionBridge(INDEX_DIR)
-    def memory_store(self, project_id: str | None = None) -> MemoryStore:
-        if project_id:
-            return MemoryStore(self.project_workspace(project_id))
-        return MemoryStore(INDEX_DIR)
 
-    def metrics_snapshot(self) -> dict[str, Any]:
+    def metrics_snapshot(self, tenant_id: str | None = None) -> dict[str, Any]:
         total_tokens = 0
         total_cost = 0.0
         sessions_info: list[dict] = []
         health: list[dict] = []
         for session in self.sessions.values():
+            if tenant_id and session.tenant_id != tenant_id:
+                continue
             token = session.token_summary or {}
             total_tokens += int(token.get("used", 0) or 0)
             data = session.audit_data()
@@ -1179,6 +1213,33 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
     def _query(self) -> dict[str, str]:
         parsed = urlparse(self.path)
         return {key: values[0] for key, values in parse_qs(parsed.query).items()}
+
+    def _tenant_id(self) -> str:
+        """当前租户上下文（X-Tenant-Id 头；空串=全局管理面）。"""
+        return (self.headers.get("X-Tenant-Id") or "").strip()
+
+    def _require_project_tenant(self, project_id: str) -> bool:
+        """项目租户校验：租户上下文存在时归属不符 → 404（不泄露存在性）。"""
+        tenant = self._tenant_id()
+        if not tenant:
+            return True
+        if self.server.workbench._project_tenant(project_id) != tenant:
+            _send_error(self, 404, f"项目不存在：{project_id}", "not_found")
+            return False
+        return True
+
+    def _require_session_tenant(self, session: Any) -> bool:
+        """会话租户校验：租户上下文存在时归属不符 → 404（不泄露存在性）。"""
+        tenant = self._tenant_id()
+        if not tenant:
+            return True
+        owner = getattr(session, "tenant_id", "") or self.server.workbench._project_tenant(
+            str(getattr(session, "project_id", "") or "")
+        )
+        if owner != tenant:
+            _send_error(self, 404, f"会话不存在：{session.session_id}", "not_found")
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # 入口
@@ -1572,9 +1633,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_list_projects(self) -> None:
-        _send_json(self, 200, {"ok": True, "data": self.server.workbench.list_projects()})
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": self.server.workbench.list_projects(tenant_id=self._tenant_id() or None)},
+        )
 
     def _handle_project_detail(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         try:
             data = self.server.workbench.project_detail(project_id)
         except KeyError as exc:
@@ -1583,13 +1650,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": data})
 
     def _handle_patch_project(self, project_id: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         allowed = {"name", "description", "metadata", "gate_policy", "budget_pool"}
         updates = {key: value for key, value in body.items() if key in allowed}
         if not updates:
             _send_error(self, 400, "没有可更新字段（支持 name/description/metadata/gate_policy/budget_pool）", "bad_request")
             return
         try:
-            self.server.workbench._project_store.update(project_id, **updates)
+            self.server.workbench._project_store_for(project_id).update(project_id, **updates)
         except KeyError as exc:
             _send_error(self, 404, str(exc), "not_found")
             return
@@ -1600,12 +1669,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         self._handle_project_detail(project_id)
 
     def _handle_workspaces(self, project_id: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         path = str(body.get("path") or "").strip()
         if not path:
             _send_error(self, 400, "path 必填", "bad_request")
             return
         try:
-            updated = self.server.workbench._project_store.add_workspace(project_id, path)
+            updated = self.server.workbench._project_store_for(project_id).add_workspace(project_id, path)
         except KeyError as exc:
             _send_error(self, 404, str(exc), "not_found")
             return
@@ -1616,11 +1687,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_budget(self, project_id: str) -> None:
         workbench = self.server.workbench
+        if not self._require_project_tenant(project_id):
+            return
         if project_id not in workbench.index.projects:
             _send_error(self, 404, f"项目不存在: {project_id}", "not_found")
             return
         try:
-            data = workbench._project_store.budget_status(project_id)
+            data = workbench._project_store_for(project_id).budget_status(project_id)
         except KeyError:
             # 旧项目（索引有、未双写）：返回默认预算结构而非 404
             data = {
@@ -1634,6 +1707,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": data})
 
     def _handle_budget_unlock(self, project_id: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         try:
             additional_tokens = int(body.get("additional_tokens") or 0)
         except (TypeError, ValueError):
@@ -1641,7 +1716,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         reason = str(body.get("reason") or "").strip()
         session_id = str(body.get("session_id") or "")
         try:
-            unlock = self.server.workbench._project_store.unlock_budget(
+            unlock = self.server.workbench._project_store_for(project_id).unlock_budget(
                 project_id,
                 additional_tokens=additional_tokens,
                 reason=reason,
@@ -1658,8 +1733,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, status, {"ok": True, "data": unlock.model_dump(mode="json")})
 
     def _handle_budget_unlock_decide(self, project_id: str, unlock_id: str, action: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         try:
-            project = self.server.workbench._project_store.get(project_id)
+            project = self.server.workbench._project_store_for(project_id).get(project_id)
         except KeyError as exc:
             _send_error(self, 404, str(exc), "not_found")
             return
@@ -1675,7 +1752,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_error(self, 409, f"仅 pending 解锁记录可审批（当前 {target.status}）", "conflict")
             return
         try:
-            decided = self.server.workbench._project_store.decide_unlock(
+            decided = self.server.workbench._project_store_for(project_id).decide_unlock(
                 project_id,
                 unlock_id,
                 approved=(action == "approve"),
@@ -1688,6 +1765,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_dashboard(self, project_id: str) -> None:
         workbench = self.server.workbench
+        if not self._require_project_tenant(project_id):
+            return
         if project_id not in workbench.index.projects:
             _send_error(self, 404, f"项目不存在: {project_id}", "not_found")
             return
@@ -1704,6 +1783,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": data})
 
     def _handle_tasks(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         try:
             entries = self.server.workbench.task_entries(project_id)
         except KeyError as exc:
@@ -1732,12 +1813,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": filtered})
 
     def _handle_task_assign(self, project_id: str, session_id: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         assignee = str(body.get("assignee") or "").strip()
         if not assignee:
             _send_error(self, 400, "assignee 必填（非空字符串）", "bad_request")
             return
         try:
-            project = self.server.workbench._project_store.get(project_id)
+            project = self.server.workbench._project_store_for(project_id).get(project_id)
         except KeyError as exc:
             _send_error(self, 404, str(exc), "not_found")
             return
@@ -1750,13 +1833,20 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_error(self, 404, f"会话不存在：{session_id}", "not_found")
             return
         updated_entry = entry.model_copy(update={"assignee": assignee})
-        self.server.workbench._project_store.index_session(project_id, updated_entry)
+        self.server.workbench._project_store_for(project_id).index_session(project_id, updated_entry)
         live = self.server.workbench.manager.sessions.get(session_id)
         if live is not None and live.project_id == project_id:
             live.assignee = assignee
         _send_json(self, 200, {"ok": True, "data": updated_entry.model_dump(mode="json")})
 
     def _handle_fork(self, session_id: str, body: dict) -> None:
+        try:
+            source = self.server.workbench.get_session(session_id)
+        except KeyError as exc:
+            _send_error(self, 404, str(exc), "not_found")
+            return
+        if not self._require_session_tenant(source):
+            return
         try:
             result = self.server.workbench.fork_session(session_id, body)
         except KeyError as exc:
@@ -1783,6 +1873,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except KeyError as exc:
             _send_error(self, 404, str(exc), "not_found")
             return
+        if not self._require_session_tenant(session):
+            return
         if session.status in ("completed", "failed"):
             _send_error(self, 409, f"会话已终态（{session.status}），拒绝注入", "session_busy")
             return
@@ -1792,12 +1884,21 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 202, {"ok": True, "data": {"accepted": text}})
 
     def _handle_cancel(self, session_id: str) -> None:
+        try:
+            session = self.server.workbench.get_session(session_id)
+        except KeyError as exc:
+            _send_error(self, 404, str(exc), "not_found")
+            return
+        if not self._require_session_tenant(session):
+            return
         if not self.server.workbench.manager.cancel(session_id):
             _send_error(self, 404, f"会话不存在：{session_id}", "not_found")
             return
         _send_json(self, 202, {"ok": True, "data": {"cancelled": "pending"}})
 
     def _handle_project_sessions(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         sessions = [
             self.server.workbench.get_session(sid).snapshot()
             for sid, session in self.server.workbench.sessions.items()
@@ -1806,7 +1907,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": sessions})
 
     def _handle_session_detail(self, session_id: str) -> None:
-        _send_json(self, 200, {"ok": True, "data": self.server.workbench.get_session(session_id).snapshot()})
+        session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
+        _send_json(self, 200, {"ok": True, "data": session.snapshot()})
 
     def _handle_ws_upgrade(self) -> None:
         """§6.4：WebSocket 握手升级。认证 = X-Auth-Token 头（优先）或 token 查询参数。"""
@@ -1815,6 +1919,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             token = self.headers.get("X-Auth-Token") or self._query().get("token") or ""
             if token != server.auth_token:
                 _send_error(self, 401, "未授权（需要 X-Auth-Token 或 token 查询参数）", "not_authorized")
+                return
+        session_id = self._query().get("session_id") or None
+        if session_id:
+            try:
+                session = server.get_session(session_id)
+            except KeyError as exc:
+                _send_error(self, 404, str(exc), "not_found")
+                return
+            if not self._require_session_tenant(session):
                 return
         key = self.headers.get("Sec-WebSocket-Key") or ""
         if not key:
@@ -1830,11 +1943,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
         self.close_connection = True
-        handle_ws(self.connection, server, session_id=self._query().get("session_id") or None)
+        handle_ws(self.connection, server, session_id=session_id)
 
     def _handle_sse(self, session_id: str) -> None:
         server = self.server.workbench
         session = server.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         query = self._query()
         since = int(query.get("since", "0") or 0)
         header_value = self.headers.get("Last-Event-ID")
@@ -1933,6 +2048,13 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_json(self, 400, {"ok": False, "error": "name 与 workspace 必填"})
             return
         tenant_id = str(body.get("tenant_id") or "").strip() or None
+        header_tenant = self._tenant_id() or None
+        if header_tenant:
+            if tenant_id and tenant_id != header_tenant:
+                # 15.15：租户上下文与 body 冲突 → 404（防跨租户冒建）
+                _send_error(self, 404, f"未找到租户：{tenant_id!r}")
+                return
+            tenant_id = header_tenant
         if tenant_id:
             try:
                 self.server.workbench.tenants.get_tenant(tenant_id)
@@ -1947,6 +2069,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 201, {"ok": True, "data": entry})
 
     def _handle_start_session(self, project_id: str, body: dict) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         try:
             result = self.server.workbench.start_session(project_id, body)
         except NotFoundError as exc:
@@ -1971,6 +2095,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_answer(self, session_id: str, answer: str) -> None:
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         session.submit_answer(answer)
         _send_json(self, 200, {"ok": True, "data": {"submitted": answer}})
 
@@ -1980,11 +2106,15 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_json(self, 400, {"ok": False, "error": "text 必填（需求变更内容）"})
             return
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         session.inject_change(text)
         _send_json(self, 202, {"ok": True, "data": {"queued": text}})
 
     def _handle_changes(self, session_id: str) -> None:
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         if session.driver is None:
             _send_json(self, 200, {"ok": True, "data": {"records": [], "summary": {"count": 0}}})
             return
@@ -1997,6 +2127,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_rollback(self, session_id: str, body: dict) -> None:
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         if session.driver is None:
             _send_json(self, 409, {"ok": False, "error": "会话尚未就绪"})
             return
@@ -2005,7 +2137,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if not ok:
             _send_json(self, 404, {"ok": False, "error": f"版本 {version} 不存在或快照缺失"})
             return
-        session.log.append(
+        session.log_event(
             {"type": "change.rollback", "session_id": session_id, "payload": {"version": version}}
         )
         _send_json(self, 200, {"ok": True, "data": {"rolled_back": version}})
@@ -2018,6 +2150,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         return target
 
     def _handle_workspace_tree(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         rel = self._query().get("path", "")
         target = self._resolve_workspace_path(project_id, rel)
         if not target.exists():
@@ -2045,6 +2179,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             )
 
     def _handle_workspace_file(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         rel = self._query().get("path", "")
         target = self._resolve_workspace_path(project_id, rel)
         if not target.is_file():
@@ -2066,7 +2202,11 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_metrics(self) -> None:
-        _send_json(self, 200, {"ok": True, "data": self.server.workbench.metrics_snapshot()})
+        _send_json(
+            self,
+            200,
+            {"ok": True, "data": self.server.workbench.metrics_snapshot(tenant_id=self._tenant_id() or None)},
+        )
 
     def _auth_user(self) -> str:
         return getattr(self, "_auth_user_id", None) or self.headers.get("X-Auth-User", "admin") or "admin"
@@ -2444,17 +2584,24 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
 
     def _handle_memory(self, project_id: str) -> None:
+        if not self._require_project_tenant(project_id):
+            return
         store = self.server.workbench.memory_store(project_id)
         items = [item.__dict__ for item in store.list_items(limit=200)]
         _send_json(self, 200, {"ok": True, "data": {"items": items, "proposals": [p.__dict__ for p in store.list_proposals()]}})
 
     def _handle_evolution_proposals(self) -> None:
         project_id = self._query().get("project_id")
-        bridge = self.server.workbench.evolution_bridge(project_id)
+        if project_id and not self._require_project_tenant(project_id):
+            return
+        bridge = self.server.workbench.evolution_bridge(project_id, tenant_id=self._tenant_id() or None)
         _send_json(self, 200, {"ok": True, "data": {"proposals": bridge.list_proposals()}})
 
     def _handle_evolution_generate(self, body: dict) -> None:
-        bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+        project_id = body.get("project_id")
+        if project_id and not self._require_project_tenant(project_id):
+            return
+        bridge = self.server.workbench.evolution_bridge(project_id, tenant_id=self._tenant_id() or None)
         result = bridge.generate_from_memory(
             min_evidence=int(body.get("min_evidence", 2) or 2),
             limit=int(body.get("limit", 20) or 20),
@@ -2462,7 +2609,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": result})
 
     def _handle_evolution_action(self, proposal_id: str, action: str, body: dict) -> None:
-        bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+        project_id = body.get("project_id")
+        if project_id and not self._require_project_tenant(project_id):
+            return
+        bridge = self.server.workbench.evolution_bridge(project_id, tenant_id=self._tenant_id() or None)
         if action == "apply":
             proposal = bridge.apply_proposal(
                 proposal_id,
@@ -2481,6 +2631,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         session_id = str(body.get("session_id") or "")
         if session_id:
             session = self.server.workbench.get_session(session_id)
+            if not self._require_session_tenant(session):
+                return
             data = session.audit_data()
             bridge = EvolutionBridge(session.workspace)
             path = bridge.generate_retro_report(
@@ -2491,22 +2643,29 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 events=data.get("events") or [],
             )
         else:
-            bridge = self.server.workbench.evolution_bridge(body.get("project_id"))
+            project_id = body.get("project_id")
+            if project_id and not self._require_project_tenant(project_id):
+                return
+            bridge = self.server.workbench.evolution_bridge(project_id, tenant_id=self._tenant_id() or None)
             path = bridge.generate_retro_report()
         _send_json(self, 200, {"ok": True, "data": {"report": str(path)}})
 
     def _handle_memory_promote(self, item_id: str) -> None:
-        # 无项目上下文时用全局记忆库
-        store = self.server.workbench.memory_store(None)
+        # 无项目上下文时用全局记忆库（租户上下文下走租户命名空间）
+        store = self.server.workbench.memory_store(None, tenant_id=self._tenant_id() or None)
         ok = store.promote(item_id, human_confirm=True)
         _send_json(self, 200, {"ok": ok, "data": {"promoted": ok}})
 
     def _handle_audit(self, session_id: str) -> None:
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         _send_json(self, 200, {"ok": True, "data": session.audit_data()})
 
     def _handle_audit_export(self, session_id: str) -> None:
         session = self.server.workbench.get_session(session_id)
+        if not self._require_session_tenant(session):
+            return
         query = self._query()
         fmt = (query.get("format") or "json").strip().lower()
         if fmt not in ("csv", "json", "markdown"):
@@ -2542,7 +2701,7 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             export_format=fmt,
             retention_days=retention_days,
         )
-        session.log.append({"type": "audit.exported", "session_id": session.session_id, "payload": files})
+        session.log_event({"type": "audit.exported", "session_id": session.session_id, "payload": files})
         _send_json(
             self,
             200,

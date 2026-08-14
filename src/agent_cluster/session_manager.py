@@ -131,15 +131,18 @@ class SessionManager:
     # 启动（§8.1：预算 → 并发 → worktree → 线程）
     # ------------------------------------------------------------------
 
-    def start(self, project_id: str, spec: dict) -> Any:
+    def start(self, project_id: str, spec: dict, *, store: ProjectStore | None = None) -> Any:
         from agent_cluster.server import ServerSession  # 惰性导入避免循环
 
-        if self.project_store.is_budget_exhausted(project_id):
+        store = store or self.project_store
+        if store.is_budget_exhausted(project_id):
             raise BudgetPoolExhaustedError(f"项目 {project_id} 预算硬上限已耗尽，请先解锁")
         try:
-            project = self.project_store.get(project_id)
+            project = store.get(project_id)
         except KeyError:
             raise KeyError(f"项目不存在：{project_id}") from None
+        # 15.15：会话运行时携带租户归属（派生自项目记录 metadata）
+        tenant_id = str((project.metadata or {}).get("tenant_id") or "")
         main_workspace = Path(project.workspaces[0])
         spec.setdefault("goal", "")
 
@@ -167,7 +170,7 @@ class SessionManager:
             workspace = helper.path
             worktree_path = helper.path
 
-        checkpoint_root = self.project_store.session_dir(project_id, session_id) / "checkpoints"
+        checkpoint_root = store.session_dir(project_id, session_id) / "checkpoints"
         server_session = ServerSession(
             session_id,
             project_id,
@@ -175,13 +178,14 @@ class SessionManager:
             spec,
             worktree_path=worktree_path,
             main_workspace=main_workspace if worktree_path is not None else None,
-            store_root=self.project_store.root,
+            store_root=store.root,
             checkpoint_root=checkpoint_root,
-            budget_pool_hook=make_budget_pool_hook(self.project_store, self._emit),
+            budget_pool_hook=make_budget_pool_hook(store, self._emit),
+            tenant_id=tenant_id,
         )
         with self._lock:
             self.sessions[session_id] = server_session
-        server_session.log.append(
+        server_session.log_event(
             {"type": "session.start", "session_id": session_id, "payload": {"goal": spec.get("goal", "")}}
         )
         server_session.start()
@@ -196,7 +200,7 @@ class SessionManager:
         session_id = str(payload.get("session_id") or "")
         session = self.sessions.get(session_id)
         if session is not None:
-            session.log.append({"type": name, "session_id": session_id, "payload": payload})
+            session.log_event({"type": name, "session_id": session_id, "payload": payload})
         with self._lock:
             self.events.append({"type": name, **payload})
 
@@ -208,7 +212,7 @@ class SessionManager:
             return False
         session.cancel_event.set()
         session._answer_queue.put("/abort")
-        session.log.append(
+        session.log_event(
             {"type": "session.cancel", "session_id": session_id, "payload": {"cancelled": "pending"}}
         )
         return True

@@ -2,7 +2,7 @@
   "name": "doai-workbench",
   "version": "0.7.2",
   "description": "DoAI Workbench 桌面壳：Electron 把 agent-cluster serve 后端与 React 工作台前端串成桌面应用",
-  "homepage": "https://github.com/Natsummerance/agent-cluster-runtime",
+  "homepage": "https://github.com/Natsummerance/doAI",
   "main": "main.js",
   "private": true,
   "scripts": {

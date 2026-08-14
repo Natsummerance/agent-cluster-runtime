@@ -3,8 +3,9 @@
 # 健康检查：GET /api/v1/status；启用认证时经 AGENT_CLUSTER_AUTH_TOKEN 环境变量带 X-Auth-Token。
 
 # ---------- 构建阶段 ----------
-FROM ghcr.io/astral-sh/uv:python3.11 AS builder
+FROM python:3.11-slim AS builder
 WORKDIR /app
+RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock ./
 COPY src ./src
 RUN uv sync --frozen --no-dev

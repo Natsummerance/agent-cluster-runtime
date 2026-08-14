@@ -1,4 +1,4 @@
-# agent-cluster-runtime 持续集成（设计 §14，决策 D22/D23/D24）
+# doAI 持续集成（设计 §14，决策 D22/D23/D24）
 #
 # 触发：push（main 及 PR 分支）+ pull_request，不按路径豁免（全量门槛）。
 # 分支保护口径：PR 合并要求 backend-test + frontend-test + e2e-real 全绿（与「每任务门槛」一致）。
@@ -12,7 +12,7 @@
 #   release       —— 仅 tag v*，needs package：patch-update-metadata 注入 minimumVersion/unsigned 后
 #                    经 gh CLI 上传安装包与 latest*.yml（Release Notes 由 tag 生成）
 #   publish-ghcr  —— 仅 tag v*，needs backend-test：docker buildx 多阶段构建后端镜像并推送 GHCR
-#                    （ghcr.io/natsummerance/agent-cluster-runtime:<tag> + latest，Task 14.13）
+#                    （ghcr.io/natsummerance/doai:<tag> + latest，Task 14.13）
 on:
   push:
     branches:
@@ -305,8 +305,8 @@ jobs:
           file: Dockerfile
           push: true
           tags: |
-            ghcr.io/natsummerance/agent-cluster-runtime:${{ github.ref_name }}
-            ghcr.io/natsummerance/agent-cluster-runtime:latest
+            ghcr.io/natsummerance/doai:${{ github.ref_name }}
+            ghcr.io/natsummerance/doai:latest
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

@@ -1,9 +1,9 @@
-# agent-cluster Helm chart 默认值（Task 14.13）
+# doAI Helm chart 默认值（Task 14.13）
 replicaCount: 1
 
 image:
-  repository: ghcr.io/natsummerance/agent-cluster-runtime
-  tag: "v0.7.1"
+  repository: ghcr.io/natsummerance/doai
+  tag: "v0.7.2"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

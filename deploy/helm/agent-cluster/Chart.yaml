@@ -1,6 +1,6 @@
 apiVersion: v2
-name: agent-cluster
-description: agent-cluster-runtime 后端服务（K8s/Helm 部署，Task 14.13）
+name: doai
+description: DoAI 后端服务（K8s/Helm 部署，Task 14.13）
 type: application
-version: 0.7.1
-appVersion: "0.7.1"
+version: 0.7.2
+appVersion: "0.7.2"

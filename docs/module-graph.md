@@ -30,6 +30,7 @@ flowchart LR
     pricing[pricing]
     projects[projects]
     providers[providers]
+    rbac[rbac]
     repl[repl]
     roles[roles]
     runtime[runtime]
@@ -98,6 +99,8 @@ flowchart LR
     projects --> memory
     projects --> session
     projects --> worktree
+    rbac --> roles
+    rbac --> seam
     repl --> mcp_client
     repl --> models
     repl --> roles
@@ -123,6 +126,8 @@ flowchart LR
     server --> plugins
     server --> pricing
     server --> projects
+    server --> rbac
+    server --> seam
     server --> session
     server --> session_manager
     server --> skills

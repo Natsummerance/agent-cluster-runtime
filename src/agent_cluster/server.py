@@ -47,6 +47,8 @@ from agent_cluster.projects import (
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.worktree import WorktreeError
+from agent_cluster.rbac import AUTHZ_SEAM, AuthzProvider, PermissionDenied, RbacStore
+from agent_cluster.seam import SeamRegistry
 from agent_cluster.ws import WebSocketPeer, handle_ws
 from agent_cluster.trace import (
     JsonlExporter,
@@ -573,6 +575,9 @@ class WorkbenchServer:
         self.mcp_http_servers = list(mcp_http_servers or [])
         self._plugin_manager: Any = self._build_plugin_manager()
         self._skills_loader: Any = None
+        self.rbac = RbacStore()
+        self._seams = SeamRegistry()
+        self._authz_registration = self._seams.register(AUTHZ_SEAM, AuthzProvider(self.rbac))
 
     @property
     def sessions(self) -> dict[str, ServerSession]:
@@ -1146,6 +1151,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "audit":
                 return self._handle_audit(parts[3])
                 return self._handle_changes(parts[3])
+            if parts[:3] == ["api", "v1", "roles"]:
+                return self._handle_roles()
+            if parts[:3] == ["api", "v1", "users"] and len(parts) == 3:
+                return self._handle_users()
+            if parts[:3] == ["api", "v1", "users"] and len(parts) == 4:
+                return self._handle_user_detail(parts[3])
+            if parts[:3] == ["api", "v1", "teams"] and len(parts) == 3:
+                return self._handle_teams()
             if parts[:3] == ["api", "v1", "metrics"]:
                 return self._handle_metrics()
             if parts[:3] == ["api", "v1", "plugins"]:
@@ -1157,6 +1170,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
+        except PermissionDenied as exc:
+            _send_error(self, 403, str(exc), "permission_denied")
         except Exception as exc:  # noqa: BLE001 —— 路由顶层统一错误出口
             _send_json(self, 500, {"ok": False, "error": str(exc)})
 
@@ -1254,9 +1269,17 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 return self._handle_evolution_generate(self._read_json())
             if parts[:3] == ["api", "v1", "evolution"] and len(parts) == 4 and parts[3] == "retro":
                 return self._handle_evolution_retro(self._read_json())
+            if parts[:3] == ["api", "v1", "users"] and len(parts) == 3:
+                return self._handle_create_user(self._read_json())
+            if parts[:3] == ["api", "v1", "teams"] and len(parts) == 3:
+                return self._handle_create_team(self._read_json())
+            if parts[:3] == ["api", "v1", "teams"] and len(parts) == 5 and parts[4] == "members":
+                return self._handle_team_members(parts[3], self._read_json())
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
+        except PermissionDenied as exc:
+            _send_error(self, 403, str(exc), "permission_denied")
         except Exception as exc:  # noqa: BLE001 —— 路由顶层统一错误出口
             _send_json(self, 500, {"ok": False, "error": str(exc)})
 
@@ -1268,6 +1291,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         try:
             if parts[:3] == ["api", "v1", "projects"] and len(parts) == 4:
                 return self._handle_patch_project(parts[3], self._read_json())
+            if parts[:3] == ["api", "v1", "users"] and len(parts) == 4:
+                return self._handle_update_user(parts[3], self._read_json())
             if (
                 len(parts) == 6
                 and parts[:3] == ["api", "v1", "projects"]
@@ -1277,6 +1302,26 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
         except KeyError as exc:
             _send_json(self, 404, {"ok": False, "error": str(exc)})
+        except PermissionDenied as exc:
+            _send_error(self, 403, str(exc), "permission_denied")
+        except Exception as exc:  # noqa: BLE001
+            _send_json(self, 500, {"ok": False, "error": str(exc)})
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        if not self._check_auth():
+            _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
+            return
+        parts = self._path_parts()
+        try:
+            if parts[:3] == ["api", "v1", "users"] and len(parts) == 4:
+                return self._handle_delete_user(parts[3])
+            if parts[:3] == ["api", "v1", "teams"] and len(parts) == 4:
+                return self._handle_delete_team(parts[3])
+            _send_json(self, 404, {"ok": False, "error": f"未知路由：{self.path}"})
+        except KeyError as exc:
+            _send_json(self, 404, {"ok": False, "error": str(exc)})
+        except PermissionDenied as exc:
+            _send_error(self, 403, str(exc), "permission_denied")
         except Exception as exc:  # noqa: BLE001
             _send_json(self, 500, {"ok": False, "error": str(exc)})
 
@@ -1845,6 +1890,75 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
 
     def _handle_metrics(self) -> None:
         _send_json(self, 200, {"ok": True, "data": self.server.workbench.metrics_snapshot()})
+
+    def _auth_user(self) -> str:
+        return self.headers.get("X-Auth-User", "admin") or "admin"
+
+    def _require_permission(self, permission: str, project_id: str | None = None) -> None:
+        self.server.workbench.rbac.require(self._auth_user(), permission, project_id=project_id)
+
+    def _handle_roles(self) -> None:
+        _send_json(self, 200, {"ok": True, "data": {"roles": self.server.workbench.rbac.roles_catalog()}})
+
+    def _handle_users(self) -> None:
+        users = [user.__dict__ for user in self.server.workbench.rbac.list_users()]
+        _send_json(self, 200, {"ok": True, "data": {"users": users}})
+
+    def _handle_user_detail(self, user_id: str) -> None:
+        user = self.server.workbench.rbac.get_user(user_id)
+        _send_json(self, 200, {"ok": True, "data": {"user": user.__dict__}})
+
+    def _handle_create_user(self, body: dict) -> None:
+        self._require_permission("users.manage")
+        user = self.server.workbench.rbac.add_user(
+            id=str(body.get("id") or ""),
+            name=str(body.get("name") or ""),
+            role_ids=[str(role) for role in (body.get("role_ids") or [])],
+            scopes=[str(scope) for scope in (body.get("scopes") or [])],
+        )
+        _send_json(self, 201, {"ok": True, "data": {"user": user.__dict__}})
+
+    def _handle_update_user(self, user_id: str, body: dict) -> None:
+        self._require_permission("users.manage")
+        user = self.server.workbench.rbac.update_user(
+            user_id,
+            name=body.get("name"),
+            role_ids=[str(role) for role in body["role_ids"]] if "role_ids" in body else None,
+            scopes=[str(scope) for scope in body["scopes"]] if "scopes" in body else None,
+        )
+        _send_json(self, 200, {"ok": True, "data": {"user": user.__dict__}})
+
+    def _handle_delete_user(self, user_id: str) -> None:
+        self._require_permission("users.manage")
+        self.server.workbench.rbac.remove_user(user_id)
+        _send_json(self, 200, {"ok": True, "data": {"removed": user_id}})
+
+    def _handle_teams(self) -> None:
+        teams = [team.__dict__ for team in self.server.workbench.rbac.list_teams()]
+        _send_json(self, 200, {"ok": True, "data": {"teams": teams}})
+
+    def _handle_create_team(self, body: dict) -> None:
+        self._require_permission("team.manage")
+        team = self.server.workbench.rbac.add_team(id=str(body.get("id") or ""), name=str(body.get("name") or ""))
+        _send_json(self, 201, {"ok": True, "data": {"team": team.__dict__}})
+
+    def _handle_delete_team(self, team_id: str) -> None:
+        self._require_permission("team.manage")
+        self.server.workbench.rbac.remove_team(team_id)
+        _send_json(self, 200, {"ok": True, "data": {"removed": team_id}})
+
+    def _handle_team_members(self, team_id: str, body: dict) -> None:
+        self._require_permission("team.manage")
+        user_id = str(body.get("user_id") or "")
+        action = str(body.get("action") or "add")
+        if action == "add":
+            self.server.workbench.rbac.add_member(team_id, user_id)
+        elif action == "remove":
+            self.server.workbench.rbac.remove_member(team_id, user_id)
+        else:
+            raise ValueError(f"未知成员操作：{action!r}")
+        team = self.server.workbench.rbac.get_team(team_id)
+        _send_json(self, 200, {"ok": True, "data": {"team": team.__dict__}})
 
     def _handle_memory(self, project_id: str) -> None:
         store = self.server.workbench.memory_store(project_id)

@@ -248,3 +248,24 @@ export interface IntegrationNote {
   note?: string;
   [key: string]: unknown;
 }
+// ---- RBAC（v0.7 T14.9）----
+export interface RbacRole {
+  id: string;
+  name: string;
+  kind: string;
+  permissions: string[];
+}
+
+export interface RbacUser {
+  id: string;
+  name: string;
+  role_ids: string[];
+  scopes: string[];
+  is_admin?: boolean;
+}
+
+export interface RbacTeam {
+  id: string;
+  name: string;
+  member_ids: string[];
+}

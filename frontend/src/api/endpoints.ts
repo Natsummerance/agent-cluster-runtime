@@ -21,6 +21,9 @@ import type {
   TaskEntry,
   WorkspaceFile,
   WorkspaceTree,
+  RbacRole,
+  RbacUser,
+  RbacTeam,
 } from './types';
 
 export * from './types';
@@ -179,3 +182,22 @@ export const rollbackEvolutionProposal = (proposalId: string) =>
   });
 export const runEvolutionRetro = (input: { project_id?: string; session_id?: string }) =>
   apiRequest<unknown>('/api/v1/evolution/retro', { method: 'POST', body: input });
+// ---- RBAC（v0.7 T14.9）----
+export const fetchRoles = () => apiRequest<{ roles: RbacRole[] }>('/api/v1/roles');
+export const fetchUsers = () => apiRequest<{ users: RbacUser[] }>('/api/v1/users');
+export const createUser = (input: { id: string; name: string; role_ids?: string[]; scopes?: string[] }) =>
+  apiRequest<{ user: RbacUser }>('/api/v1/users', { method: 'POST', body: input });
+export const updateUser = (userId: string, input: { name?: string; role_ids?: string[]; scopes?: string[] }) =>
+  apiRequest<{ user: RbacUser }>(`/api/v1/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: input });
+export const deleteUser = (userId: string) =>
+  apiRequest<{ removed: string }>(`/api/v1/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
+export const fetchTeams = () => apiRequest<{ teams: RbacTeam[] }>('/api/v1/teams');
+export const createTeam = (input: { id: string; name: string }) =>
+  apiRequest<{ team: RbacTeam }>('/api/v1/teams', { method: 'POST', body: input });
+export const deleteTeam = (teamId: string) =>
+  apiRequest<{ removed: string }>(`/api/v1/teams/${encodeURIComponent(teamId)}`, { method: 'DELETE' });
+export const updateTeamMembers = (teamId: string, action: 'add' | 'remove', userId: string) =>
+  apiRequest<{ team: RbacTeam }>(`/api/v1/teams/${encodeURIComponent(teamId)}/members`, {
+    method: 'POST',
+    body: { user_id: userId, action },
+  });

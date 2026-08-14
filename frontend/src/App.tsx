@@ -19,6 +19,8 @@ const Evolution = lazy(() => import('./pages/Evolution'));
 const Integrations = lazy(() => import('./pages/Integrations'));
 const Audit = lazy(() => import('./pages/Audit'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Users = lazy(() => import('./pages/Users'));
+const Teams = lazy(() => import('./pages/Teams'));
 
 export default function App() {
   const darkMode = useAppStore((s) => s.darkMode);
@@ -57,6 +59,8 @@ export default function App() {
                     <Route path="/integrations" element={<Integrations />} />
                     <Route path="/audit" element={<Audit />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/users" element={<Users />} />
+                    <Route path="/teams" element={<Teams />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Route>
                 </Routes>

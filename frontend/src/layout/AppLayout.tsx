@@ -12,6 +12,8 @@ import {
   ReloadOutlined,
   SettingOutlined,
   SunOutlined,
+  TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
@@ -49,6 +51,8 @@ export default function AppLayout() {
       { key: '/evolution', icon: <ExperimentOutlined />, label: intl.formatMessage({ id: 'layout.menu.evolution', defaultMessage: 'Evolution' }) },
       { key: '/integrations', icon: <ApiOutlined />, label: intl.formatMessage({ id: 'layout.menu.integrations', defaultMessage: 'Integrations' }) },
       { key: '/audit', icon: <AuditOutlined />, label: intl.formatMessage({ id: 'layout.menu.audit', defaultMessage: 'Audit' }) },
+      { key: '/users', icon: <UserOutlined />, label: intl.formatMessage({ id: 'layout.menu.users', defaultMessage: 'Users' }) },
+      { key: '/teams', icon: <TeamOutlined />, label: intl.formatMessage({ id: 'layout.menu.teams', defaultMessage: 'Teams' }) },
       { key: '/settings', icon: <SettingOutlined />, label: intl.formatMessage({ id: 'layout.menu.settings', defaultMessage: 'Settings' }) },
     ],
     [intl],

@@ -26,6 +26,7 @@ export interface StatusData {
   sessions: number;
   active_sessions: number;
   uptime: number;
+  auth?: { enabled: boolean; user?: string | null };
 }
 
 export interface Project {
@@ -268,4 +269,10 @@ export interface RbacTeam {
   id: string;
   name: string;
   member_ids: string[];
+}
+
+export interface LoginResult {
+  user: string;
+  access_token: string;
+  refresh_token: string;
 }

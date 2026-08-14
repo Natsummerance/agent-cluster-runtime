@@ -47,6 +47,7 @@ from agent_cluster.projects import (
 from agent_cluster.session import SessionDriver, SessionRecord
 from agent_cluster.session_manager import SessionManager, SessionWorktree, WorktreeConflictError
 from agent_cluster.worktree import WorktreeError
+from agent_cluster.auth import TokenService
 from agent_cluster.rbac import AUTHZ_SEAM, AuthzProvider, PermissionDenied, RbacStore
 from agent_cluster.seam import SeamRegistry
 from agent_cluster.ws import WebSocketPeer, handle_ws
@@ -556,6 +557,8 @@ class WorkbenchServer:
         host: str = "127.0.0.1",
         port: int = 8765,
         auth_token: str = "",
+        auth_provider: Any = None,
+        auth_secret: str = "",
         plugins_dir: list[str] | None = None,
         mcp_servers: list[str] | None = None,
         mcp_http_servers: list[str] | None = None,
@@ -565,6 +568,11 @@ class WorkbenchServer:
         self.port = port
         self.auth_token = auth_token
         self.heartbeat_seconds = heartbeat_seconds
+        self.auth_provider = auth_provider
+        self.auth_enabled = auth_provider is not None
+        if self.auth_enabled and not auth_secret:
+            raise ValueError("启用认证必须提供 auth_secret（--auth-secret 或 AGENT_CLUSTER_AUTH_SECRET）")
+        self.tokens = TokenService(secret=auth_secret) if self.auth_enabled else None
         self.index = GlobalIndex()
         self._lock = threading.Lock()
         # v0.6 T13.5：会话注册表委托 SessionManager（ProjectStore 与全局索引同根，测试经 INDEX_DIR 隔离）
@@ -1083,7 +1091,16 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             return {}
 
     def _check_auth(self) -> bool:
-        token = self.server.workbench.auth_token
+        workbench = self.server.workbench
+        if workbench.auth_enabled:
+            scheme, _, token = self.headers.get("Authorization", "").partition(" ")
+            if scheme.lower() == "bearer" and token:
+                user_id = workbench.tokens.verify_access(token)
+                if user_id:
+                    self._auth_user_id = user_id
+                    return True
+            return False
+        token = workbench.auth_token
         if not token:
             return True
         return self.headers.get("X-Auth-Token") == token
@@ -1151,6 +1168,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             if parts[:3] == ["api", "v1", "sessions"] and len(parts) == 5 and parts[4] == "audit":
                 return self._handle_audit(parts[3])
                 return self._handle_changes(parts[3])
+            if parts[:3] == ["api", "v1", "auth"] and len(parts) == 4 and parts[3] == "me":
+                return self._handle_auth_me()
             if parts[:3] == ["api", "v1", "roles"]:
                 return self._handle_roles()
             if parts[:3] == ["api", "v1", "users"] and len(parts) == 3:
@@ -1184,10 +1203,14 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
     def do_POST(self) -> None:  # noqa: N802
+        parts = self._path_parts()
+        if parts[:3] == ["api", "v1", "auth"] and len(parts) == 4 and parts[3] in ("login", "refresh"):
+            if parts[3] == "login":
+                return self._handle_auth_login(self._read_json())
+            return self._handle_auth_refresh(self._read_json())
         if not self._check_auth():
             _send_error(self, 401, "未授权（需要 X-Auth-Token）", "not_authorized")
             return
-        parts = self._path_parts()
         try:
             if parts[:3] == ["api", "v1", "doctor"] and len(parts) == 4 and parts[3] == "fix-docker":
                 return self._handle_doctor_fix_docker()
@@ -1344,6 +1367,10 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                         1 for s in server.sessions.values() if s.status in ("running", "waiting_approval")
                     ),
                     "uptime": _now_iso(),
+                    "auth": {
+                        "enabled": self.server.workbench.auth_enabled,
+                        "user": self._auth_user() if self.server.workbench.auth_enabled else None,
+                    },
                 },
             },
         )
@@ -1892,10 +1919,40 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(self, 200, {"ok": True, "data": self.server.workbench.metrics_snapshot()})
 
     def _auth_user(self) -> str:
-        return self.headers.get("X-Auth-User", "admin") or "admin"
+        return getattr(self, "_auth_user_id", None) or self.headers.get("X-Auth-User", "admin") or "admin"
 
     def _require_permission(self, permission: str, project_id: str | None = None) -> None:
         self.server.workbench.rbac.require(self._auth_user(), permission, project_id=project_id)
+
+    def _handle_auth_login(self, body: dict) -> None:
+        workbench = self.server.workbench
+        if not workbench.auth_enabled:
+            _send_error(self, 404, "认证未启用（serve 未配置 auth provider）", "auth_disabled")
+            return
+        username = str(body.get("username") or "")
+        password = str(body.get("password") or "")
+        user_id = workbench.auth_provider.authenticate(username, password)
+        if not user_id:
+            _send_error(self, 401, "用户名或密码错误", "invalid_credentials")
+            return
+        tokens = workbench.tokens.issue(user_id)
+        _send_json(self, 200, {"ok": True, "data": {"user": user_id, **tokens}})
+
+    def _handle_auth_refresh(self, body: dict) -> None:
+        workbench = self.server.workbench
+        if not workbench.auth_enabled:
+            _send_error(self, 404, "认证未启用（serve 未配置 auth provider）", "auth_disabled")
+            return
+        try:
+            tokens = workbench.tokens.refresh(str(body.get("refresh_token") or ""))
+        except ValueError:
+            _send_error(self, 401, "无效或过期的 refresh token", "invalid_refresh_token")
+            return
+        user_id = workbench.tokens.verify_access(tokens["access_token"])
+        _send_json(self, 200, {"ok": True, "data": {"user": user_id, **tokens}})
+
+    def _handle_auth_me(self) -> None:
+        _send_json(self, 200, {"ok": True, "data": {"user": self._auth_user()}})
 
     def _handle_roles(self) -> None:
         _send_json(self, 200, {"ok": True, "data": {"roles": self.server.workbench.rbac.roles_catalog()}})
@@ -2084,22 +2141,39 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         )
 
 
-def serve_main(args: Any) -> int:
-    """serve 子命令入口（由 cli.py 调用）。"""
+def build_server(args: Any) -> tuple[WorkbenchServer, ThreadingHTTPServer]:
+    """构造 serve 实例（先跑认证/监听守卫，再绑定端口）。"""
+    host = args.host or "127.0.0.1"
+    auth_provider = getattr(args, "auth_provider", None)
+    auth_secret = getattr(args, "auth_secret", "") or os.environ.get("AGENT_CLUSTER_AUTH_SECRET", "")
+    if host not in ("127.0.0.1", "localhost") and not auth_provider:
+        raise RuntimeError(
+            "监听非本机地址（0.0.0.0 等）必须先启用认证（--auth-mode local/ldap/oidc），否则任何机器都可访问工作台"
+        )
     server = WorkbenchServer(
-        host=args.host,
+        host=host,
         port=args.port,
-        auth_token=args.auth_token or "",
-        plugins_dir=list(args.plugin_dir or []),
-        mcp_servers=list(args.mcp or []),
-        mcp_http_servers=list(args.mcp_http or []),
+        auth_token=getattr(args, "auth_token", "") or "",
+        auth_provider=auth_provider,
+        auth_secret=auth_secret,
+        plugins_dir=list(getattr(args, "plugin_dir", None) or []),
+        mcp_servers=list(getattr(args, "mcp", None) or []),
+        mcp_http_servers=list(getattr(args, "mcp_http", None) or []),
     )
     httpd = ThreadingHTTPServer((server.host, server.port), WorkbenchHandler)
     httpd.workbench = server  # type: ignore[attr-defined]
+    return server, httpd
+
+
+def serve_main(args: Any) -> int:
+    """serve 子命令入口（由 cli.py 调用）。"""
+    server, httpd = build_server(args)
     url = f"http://{server.host}:{server.port}"
     print(f"agent-cluster serve 已启动：{url}（Ctrl+C 停止）")
     if server.auth_token:
         print("认证：已启用（请求头 X-Auth-Token）")
+    if server.auth_enabled:
+        print("认证：已启用（/api/v1/auth/login 获取 Bearer token）")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

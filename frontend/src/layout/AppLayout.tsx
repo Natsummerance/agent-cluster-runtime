@@ -31,6 +31,9 @@ export default function AppLayout() {
   const serverUrl = useAppStore((s) => s.serverUrl);
   const darkMode = useAppStore((s) => s.darkMode);
   const setDarkMode = useAppStore((s) => s.setDarkMode);
+  const authEnabled = useAppStore((s) => s.authEnabled);
+  const authUser = useAppStore((s) => s.authUser);
+  const logout = useAppStore((s) => s.logout);
   const refreshAll = useAppStore((s) => s.refreshAll);
   const loading = useAppStore((s) => s.loading);
   const status = useAppStore((s) => s.status);
@@ -115,6 +118,14 @@ export default function AppLayout() {
             </Tooltip>
           </Space>
           <Space size="middle">
+            {authEnabled && authUser && (
+              <Space size={8} data-testid="auth-user-space">
+                <Typography.Text data-testid="auth-user">{authUser}</Typography.Text>
+                <Button size="small" onClick={logout} data-testid="logout-btn">
+                  {intl.formatMessage({ id: 'layout.logout', defaultMessage: 'Logout' })}
+                </Button>
+              </Space>
+            )}
             <Button
               icon={<ReloadOutlined />}
               onClick={() => void refreshAll()}

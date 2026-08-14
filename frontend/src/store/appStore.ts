@@ -16,6 +16,10 @@ export interface CreateProjectInput {
 interface AppState {
   serverUrl: string;
   authToken: string;
+  accessToken: string;
+  refreshToken: string;
+  authUser: string | null;
+  authEnabled: boolean;
   darkMode: boolean;
   locale: Locale;
   status: StatusData | null;
@@ -26,6 +30,9 @@ interface AppState {
   loading: boolean;
   setServerUrl(url: string): void;
   setAuthToken(token: string): void;
+  setTokens(accessToken: string, refreshToken: string): void;
+  login(username: string, password: string): Promise<string>;
+  logout(): void;
   setDarkMode(dark: boolean): void;
   setLocale(locale: Locale): void;
   syncApi(): void;
@@ -40,6 +47,10 @@ interface AppState {
 const initialState = {
   serverUrl: DEFAULT_BASE_URL,
   authToken: '',
+  accessToken: '',
+  refreshToken: '',
+  authUser: null as string | null,
+  authEnabled: false,
   darkMode: false,
   locale: DEFAULT_LOCALE,
   status: null as StatusData | null,
@@ -63,6 +74,31 @@ export const useAppStore = create<AppState>()(
         set({ authToken: token });
         get().syncApi();
       },
+      setTokens(accessToken: string, refreshToken: string) {
+        set({ accessToken, refreshToken, authEnabled: true });
+        configureApi({ baseUrl: get().serverUrl, authToken: `Bearer ${accessToken}` });
+      },
+      async login(username: string, password: string) {
+        get().syncApi();
+        try {
+          const result = await api.login({ username, password });
+          set({
+            accessToken: result.access_token,
+            refreshToken: result.refresh_token,
+            authUser: result.user,
+            authEnabled: true,
+          });
+          configureApi({ baseUrl: get().serverUrl, authToken: `Bearer ${result.access_token}` });
+          return result.user;
+        } catch (err) {
+          set({ error: apiErrorMessage(err) });
+          throw err;
+        }
+      },
+      logout() {
+        set({ accessToken: '', refreshToken: '', authUser: null, authEnabled: false });
+        get().syncApi();
+      },
       setDarkMode(dark: boolean) {
         set({ darkMode: dark });
       },
@@ -70,7 +106,10 @@ export const useAppStore = create<AppState>()(
         set({ locale });
       },
       syncApi() {
-        configureApi({ baseUrl: get().serverUrl, authToken: get().authToken || null });
+        configureApi({
+          baseUrl: get().serverUrl,
+          authToken: get().accessToken ? `Bearer ${get().accessToken}` : get().authToken || null,
+        });
       },
 
       async refreshStatus() {
@@ -78,7 +117,17 @@ export const useAppStore = create<AppState>()(
         try {
           const status = await api.fetchStatus();
           set({ status, connected: true, error: null, loading: false });
+          if (status?.auth) {
+            set({
+              authEnabled: Boolean(status.auth.enabled),
+              authUser: status.auth.enabled ? (status.auth.user ?? get().authUser) : null,
+            });
+          }
         } catch (err) {
+          if (err instanceof ApiError && err.status === 401) {
+            // 401 = 服务端已启用认证：切到登录页（无需 token 即可触发）
+            set({ authEnabled: true, authUser: null });
+          }
           set({ connected: false, error: apiErrorMessage(err), loading: false });
         }
       },
@@ -141,6 +190,10 @@ export const useAppStore = create<AppState>()(
       partialize: (state) => ({
         serverUrl: state.serverUrl,
         authToken: state.authToken,
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        authUser: state.authUser,
+        authEnabled: state.authEnabled,
         darkMode: state.darkMode,
         locale: state.locale,
       }),

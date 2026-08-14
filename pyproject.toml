@@ -10,6 +10,13 @@ dependencies = [
     "PyYAML>=6",
 ]
 
+[project.optional-dependencies]
+enterprise = [
+    "ldap3>=2.9",
+    "pyjwt>=2.8",
+    "cryptography>=42",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",

@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
     __main__[__main__]
+    auth[auth]
     budget[budget]
     cache[cache]
     changes[changes]
@@ -52,6 +53,7 @@ flowchart LR
     __main__ --> cli
     budget --> tokens
     cache --> models
+    cli --> auth
     cli --> config_layers
     cli --> doctor
     cli --> eval
@@ -119,6 +121,7 @@ flowchart LR
     runtime --> tokens
     runtime --> tools
     runtime --> workflow
+    server --> auth
     server --> doctor
     server --> evolution_integration
     server --> memory

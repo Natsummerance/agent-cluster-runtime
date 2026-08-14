@@ -665,6 +665,32 @@ def _cmd_metrics_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build_auth_provider(args: argparse.Namespace) -> Any:
+    """按 --auth-mode 构造认证 provider（local/ldap/oidc；空模式 = 禁用）。"""
+    mode = args.auth_mode or os.environ.get("AGENT_CLUSTER_AUTH_MODE", "")
+    if not mode:
+        return None
+    from agent_cluster.auth import LdapAuthProvider, LocalAuthProvider, OidcAuthProvider
+
+    if mode == "local":
+        raw = args.local_users or os.environ.get("AGENT_CLUSTER_LOCAL_USERS", "{}")
+        users = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
+        return LocalAuthProvider({str(key): str(value) for key, value in users.items()})
+    if mode == "ldap":
+        return LdapAuthProvider(
+            server=args.ldap_server or os.environ.get("AGENT_CLUSTER_LDAP_SERVER", ""),
+            base_dn=args.ldap_base_dn or os.environ.get("AGENT_CLUSTER_LDAP_BASE_DN", ""),
+            user_dn_template=args.ldap_user_dn or os.environ.get("AGENT_CLUSTER_LDAP_USER_DN", "cn={username},{base_dn}"),
+        )
+    if mode == "oidc":
+        return OidcAuthProvider(
+            shared_secret=args.oidc_secret or os.environ.get("AGENT_CLUSTER_OIDC_SECRET", ""),
+            issuer=args.oidc_issuer or os.environ.get("AGENT_CLUSTER_OIDC_ISSUER", ""),
+            audience=args.oidc_audience or os.environ.get("AGENT_CLUSTER_OIDC_AUDIENCE", ""),
+        )
+    raise ValueError(f"未知 auth-mode：{mode!r}（支持 local/ldap/oidc）")
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     """serve 子命令（v0.5）：启动本地 Web 工作台后端（REST+SSE）。
 
@@ -673,8 +699,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     - 退出码：0 正常停止 / 1 启动失败。
     """
     try:
+        args.auth_provider = _build_auth_provider(args)
         return serve_main(args)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         print(f"serve 启动失败：{exc}", file=sys.stderr)
         return 1
 
@@ -1340,6 +1367,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
     serve_parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
     serve_parser.add_argument("--auth-token", default="", help="可选认证 token（请求头 X-Auth-Token）")
+    serve_parser.add_argument("--auth-mode", choices=["local", "ldap", "oidc"], default="", help="认证模式（启用后 /api/v1/auth/login 发 Bearer token；默认禁用）")
+    serve_parser.add_argument("--auth-secret", default="", help="JWT 签名密钥（≥16 字符；或环境变量 AGENT_CLUSTER_AUTH_SECRET）")
+    serve_parser.add_argument("--local-users", default="", help="local 模式用户表 JSON {user: password}（或 AGENT_CLUSTER_LOCAL_USERS）")
+    serve_parser.add_argument("--ldap-server", default="", help="LDAP 服务器 URL（如 ldap://dc.example.com）")
+    serve_parser.add_argument("--ldap-base-dn", default="", help="LDAP base DN（如 ou=people,dc=example,dc=com）")
+    serve_parser.add_argument("--ldap-user-dn", default="", help="LDAP 用户 DN 模板（{username}/{base_dn} 占位）")
+    serve_parser.add_argument("--oidc-secret", default="", help="OIDC 共享密钥（校验 id_token 签名）")
+    serve_parser.add_argument("--oidc-issuer", default="", help="OIDC issuer（iss 声明）")
+    serve_parser.add_argument("--oidc-audience", default="", help="OIDC audience（aud 声明）")
     serve_parser.add_argument("--plugin-dir", action="append", default=[], help="插件目录（可重复）")
     serve_parser.add_argument("--mcp", action="append", default=[], metavar="NAME=COMMAND", help="MCP stdio 服务器（可重复，会话启动时注册工具）")
     serve_parser.add_argument("--mcp-http", action="append", default=[], metavar="NAME=URL", help="MCP Streamable HTTP 服务器（可重复）")

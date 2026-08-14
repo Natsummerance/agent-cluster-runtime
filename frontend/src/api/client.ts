@@ -91,7 +91,10 @@ export async function apiRequest<T>(
     }
   }
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (ctx.authToken) headers['X-Auth-Token'] = ctx.authToken;
+  if (ctx.authToken) {
+    if (ctx.authToken.startsWith('Bearer ')) headers['Authorization'] = ctx.authToken;
+    else headers['X-Auth-Token'] = ctx.authToken;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -175,7 +178,10 @@ export function subscribeSse<T = unknown>(
   const url = new URL(buildUrl(path));
   if (options.since !== undefined) url.searchParams.set('since', String(options.since));
   const headers: Record<string, string> = { Accept: 'text/event-stream' };
-  if (ctx.authToken) headers['X-Auth-Token'] = ctx.authToken;
+  if (ctx.authToken) {
+    if (ctx.authToken.startsWith('Bearer ')) headers['Authorization'] = ctx.authToken;
+    else headers['X-Auth-Token'] = ctx.authToken;
+  }
   const outer = options.signal;
   const maxRetries = options.maxRetries ?? Number.POSITIVE_INFINITY;
 

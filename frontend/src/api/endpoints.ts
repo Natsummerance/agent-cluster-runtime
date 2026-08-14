@@ -24,6 +24,7 @@ import type {
   RbacRole,
   RbacUser,
   RbacTeam,
+  LoginResult,
 } from './types';
 
 export * from './types';
@@ -201,3 +202,10 @@ export const updateTeamMembers = (teamId: string, action: 'add' | 'remove', user
     method: 'POST',
     body: { user_id: userId, action },
   });
+
+// ---- 认证（v0.7 T14.10）----
+export const login = (input: { username: string; password: string }) =>
+  apiRequest<LoginResult>('/api/v1/auth/login', { method: 'POST', body: input });
+export const refreshAccessToken = (refreshToken: string) =>
+  apiRequest<LoginResult>('/api/v1/auth/refresh', { method: 'POST', body: { refresh_token: refreshToken } });
+export const fetchMe = () => apiRequest<{ user: string }>('/api/v1/auth/me');

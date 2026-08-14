@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { App as AntdApp, ConfigProvider, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
@@ -21,6 +21,17 @@ const Audit = lazy(() => import('./pages/Audit'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Users = lazy(() => import('./pages/Users'));
 const Teams = lazy(() => import('./pages/Teams'));
+const Login = lazy(() => import('./pages/Login'));
+
+function RequireAuth() {
+  const authEnabled = useAppStore((s) => s.authEnabled);
+  const accessToken = useAppStore((s) => s.accessToken);
+  const location = useLocation();
+  if (authEnabled && !accessToken && location.pathname !== '/login') {
+    return <Navigate to="/login" replace />;
+  }
+  return <Outlet />;
+}
 
 export default function App() {
   const darkMode = useAppStore((s) => s.darkMode);
@@ -48,7 +59,9 @@ export default function App() {
                 }
               >
                 <Routes>
-                  <Route element={<AppLayout />}>
+                  <Route path="/login" element={<Login />} />
+                  <Route element={<RequireAuth />}>
+                    <Route element={<AppLayout />}>
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/projects" element={<Projects />} />
                     <Route path="/projects/:pid/sessions" element={<ProjectSessions />} />
@@ -61,7 +74,8 @@ export default function App() {
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/users" element={<Users />} />
                     <Route path="/teams" element={<Teams />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Route>
                   </Route>
                 </Routes>
               </Suspense>

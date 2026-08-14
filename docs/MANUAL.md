@@ -1,7 +1,7 @@
-# 用户手册：agent-cluster-runtime
+# 用户手册：DoAI Workbench（doAI）
 
-> 多 Agent 组织型全栈开发集群运行时 —— 安装、配置、运行与扩展指南。
-> 适用版本：0.7.1 ｜ 环境：Windows 优先（其余平台兼容不验收），Python 3.11+
+> DoAI Workbench（多 Agent 组织型全栈开发集群运行时）—— 安装、配置、运行与扩展指南。
+> 适用版本：0.7.2 ｜ 环境：Windows 优先（其余平台兼容不验收），Python 3.11+
 
 ---
 
@@ -63,7 +63,7 @@
 ```bash
 # 1) 克隆或进入项目目录
 git clone <本仓库地址>
-cd agent-cluster-runtime
+cd doAI
 
 # 2) 安装依赖（首次）
 uv sync
@@ -801,7 +801,7 @@ JSON payload，另注入 `AGENT_CLUSTER_*` 环境变量）。
 ## 23. 目录结构
 
 ```text
-agent-cluster-runtime/
+doAI/
 ├── src/agent_cluster/
 │   ├── models.py        # pydantic v2 数据模型与枚举
 │   ├── workflow.py      # YAML 流程 DSL → StateGraph 编译与执行

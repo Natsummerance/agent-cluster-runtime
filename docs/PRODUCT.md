@@ -1,13 +1,13 @@
-# 产品介绍：agent-cluster-runtime
+# 产品介绍：DoAI Workbench（doAI）
 
-> 多 Agent 组织型全栈开发集群运行时 —— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.7.1 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
+> DoAI Workbench（多 Agent 组织型全栈开发集群运行时）—— 让 AI 像一家成熟软件公司一样运转。
+> 版本：0.7.2 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
 
 ---
 
 ## 1. 一句话定位
 
-`agent-cluster-runtime` 是一个「像企业一样运转」的多 Agent 组织型全栈开发集群运行时：
+`DoAI Workbench` 是一个「像企业一样运转」的多 Agent 组织型全栈开发集群运行时：
 12 个专业岗位按「决策—管理—执行」三层治理组织，7 类会议驱动协作，关键决策由审批门
 （人机共治 HITL）把关，YAML 流程 DSL 编译为 LangGraph 状态图，并内置「收集→提炼→
 提案→评审→生效→回滚」六步自我进化闭环。
@@ -21,13 +21,13 @@
 - **决策缺失**：关键变更没有审批记录，无法审计、无法回滚。
 - **经验不沉淀**：项目做完，方法论、技能、SOP 全部丢失，下一个项目从零开始。
 
-`agent-cluster-runtime` 的目标是把「软件公司的组织、流程、技能、治理」抽象为可运行的
+`DoAI Workbench` 的目标是把「软件公司的组织、流程、技能、治理」抽象为可运行的
 软件：Agent 不再是孤立的对话助手，而是一个有岗位、有会议、有门禁、有度量、能自我进化的
 虚拟研发组织。
 
 ## 3. 产品定位与差异化
 
-| 对比维度 | 单 Agent 助手 | 简单多 Agent 编排 | **agent-cluster-runtime** |
+| 对比维度 | 单 Agent 助手 | 简单多 Agent 编排 | **DoAI Workbench** |
 |---|---|---|---|
 | 组织 | 无 | 平级对话 | 决策/管理/执行三层 + 12 岗位 |
 | 过程 | 无 | 无 | 会议 + 审批门 + 返工边 + 敏捷节奏 |

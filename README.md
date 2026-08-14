@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/logo.svg" width="170" alt="agent-cluster-runtime logo" />
+  <img src="docs/logo.svg" width="170" alt="DoAI logo" />
 </p>
 
-<h1 align="center">agent-cluster-runtime</h1>
+<h1 align="center">DoAI Workbench</h1>
 
 <p align="center"><b>多 Agent 组织型全栈开发集群运行时</b></p>
 
@@ -11,13 +11,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Natsummerance/agent-cluster-runtime/releases"><img src="https://img.shields.io/github/v/release/Natsummerance/agent-cluster-runtime?label=Release&color=blue" alt="Release" /></a>
-  <a href="https://github.com/Natsummerance/agent-cluster-runtime/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Natsummerance/agent-cluster-runtime/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
+  <a href="https://github.com/Natsummerance/agent-cluster-runtime/releases"><img src="https://img.shields.io/github/v/release/Natsummerance/doAI?label=Release&color=blue" alt="Release" /></a>
+  <a href="https://github.com/Natsummerance/agent-cluster-runtime/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Natsummerance/doAI/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=white" alt="React" />
   <img src="https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/Tests-650%20passed-brightgreen" alt="Tests" />
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/Natsummerance/agent-cluster-runtime" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Natsummerance/doAI" alt="License" /></a>
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@
 
 ## 🧠 项目简介
 
-`agent-cluster-runtime` 是一个「像企业一样运转」的多 Agent 组织型全栈开发集群运行时：
+`DoAI Workbench` 是一个「像企业一样运转」的多 Agent 组织型全栈开发集群运行时：
 12 个岗位（产品/项目/前端/后端/算法/架构/测试/运维/文档/评审/排查/治理）按「决策—管理—执行」
 三层治理组织，7 类会议以审批门（HITL interrupt）落地，YAML 流程 DSL 编译为 LangGraph
 StateGraph，跑通「需求评审 → 设计评审 → 开发 → 代码评审 → 测试 → 发布评审」MVP 闭环，
@@ -150,12 +150,12 @@ flowchart TD
 
 ## 📦 下载与安装（桌面工作台发布版）
 
-无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/agent-cluster-runtime/releases)
-（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.7.1](https://github.com/Natsummerance/agent-cluster-runtime/releases/tag/v0.7.1)）：
+无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/doAI/releases)
+（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.7.2](https://github.com/Natsummerance/doAI/releases/tag/v0.7.2)）：
 
-- **Windows**：`AgentClusterWorkbench-Setup-0.7.1.exe`（x64+arm64 合并安装包；或按架构的 `Setup 0.7.1 x64.exe` / `Setup 0.7.1 arm64.exe`）
-- **macOS**：`AgentClusterWorkbench-0.7.1-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
-- **Linux**：`AgentClusterWorkbench-0.7.1-amd64.deb`（Debian/Ubuntu x64）
+- **Windows**：`DoAI Workbench Setup 0.7.2 x64.exe` / `DoAI Workbench Setup 0.7.2 arm64.exe`（按架构分发的 NSIS 安装包）
+- **macOS**：`DoAI Workbench-0.7.2-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
+- **Linux**：`DoAI Workbench-0.7.2-amd64.deb`（Debian/Ubuntu x64）
 
 桌面应用内置 electron-updater 自动更新（启动时检查，读 Releases 的 `latest*.yml` 元数据），
 小版本升级无需手动下载；CLI 与源码运行方式见下节「安装与运行」。

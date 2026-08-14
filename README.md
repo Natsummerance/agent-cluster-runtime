@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Natsummerance/agent-cluster-runtime/releases"><img src="https://img.shields.io/github/v/release/Natsummerance/doAI?label=Release&color=blue" alt="Release" /></a>
-  <a href="https://github.com/Natsummerance/agent-cluster-runtime/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Natsummerance/doAI/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
+  <a href="https://github.com/Natsummerance/doAI/releases"><img src="https://img.shields.io/github/v/release/Natsummerance/doAI?label=Release&color=blue" alt="Release" /></a>
+  <a href="https://github.com/Natsummerance/doAI/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Natsummerance/doAI/ci.yml?branch=main&label=CI&logo=github" alt="CI" /></a>
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=white" alt="React" />
   <img src="https://img.shields.io/badge/Desktop-Electron-47848F?logo=electron&logoColor=white" alt="Electron" />

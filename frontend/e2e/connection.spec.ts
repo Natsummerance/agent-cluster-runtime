@@ -33,7 +33,7 @@ test.describe('连接状态', () => {
     await page.route('**/api/v1/projects', (r) => r.fulfill({ json: { ok: true, data: [] } }));
     await page.addInitScript(() => {
       localStorage.setItem(
-        'agent-cluster-workbench',
+        'doai-workbench',
         JSON.stringify({ state: { serverUrl: 'http://127.0.0.1:8765', authToken: 'e2e-token-123', darkMode: false }, version: 0 }),
       );
     });

@@ -72,7 +72,7 @@ function messageFromError(err: unknown): string {
     return '请求超时或已中断';
   }
   if (err instanceof TypeError || (err instanceof Error && /failed to fetch/i.test(err.message))) {
-    return '无法连接到服务器（请确认 agent-cluster serve 已启动）';
+    return '无法连接到服务器（请确认 DoAI 工作台后端 agent-cluster serve 已启动）';
   }
   return err instanceof Error ? err.message : String(err);
 }

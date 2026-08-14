@@ -164,7 +164,7 @@ export const useAppStore = create<AppState>()(
         const anyConnected = results.some((r) => r.status === 'fulfilled');
         set({ loading: false });
         if (!anyConnected && !failed) {
-          set({ connected: false, error: '连接失败，请确认 agent-cluster serve 已启动' });
+          set({ connected: false, error: '连接失败，请确认 DoAI 工作台后端 agent-cluster serve 已启动' });
         }
       },
 
@@ -185,7 +185,7 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
-      name: 'agent-cluster-workbench',
+      name: 'doai-workbench',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         serverUrl: state.serverUrl,

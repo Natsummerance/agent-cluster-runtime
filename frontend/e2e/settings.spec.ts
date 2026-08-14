@@ -9,7 +9,7 @@ test.describe('设置', () => {
     await page.getByTestId('auth-token-input').fill('token-e2e');
     await page.getByTestId('save-settings-btn').click();
     await expect(page.getByText('设置已保存')).toBeVisible();
-    const raw = await page.evaluate(() => localStorage.getItem('agent-cluster-workbench'));
+    const raw = await page.evaluate(() => localStorage.getItem('doai-workbench'));
     expect(raw).toContain('http://127.0.0.1:9000');
     expect(raw).toContain('token-e2e');
     await page.reload();
@@ -36,11 +36,11 @@ test.describe('设置', () => {
     await installApiMocks(page);
     await page.goto('/settings');
     await page.getByTestId('settings-dark-switch').click();
-    const raw = await page.evaluate(() => localStorage.getItem('agent-cluster-workbench'));
+    const raw = await page.evaluate(() => localStorage.getItem('doai-workbench'));
     expect(raw).toContain('"darkMode":true');
     await page.reload();
     await expect(page.getByTestId('settings-page')).toBeVisible();
-    const after = await page.evaluate(() => localStorage.getItem('agent-cluster-workbench'));
+    const after = await page.evaluate(() => localStorage.getItem('doai-workbench'));
     expect(after).toContain('"darkMode":true');
   });
 
@@ -51,7 +51,7 @@ test.describe('设置', () => {
     await page.locator('.ant-select-item-option', { hasText: 'en-US' }).click();
     await expect(page.getByText('Server address')).toBeVisible();
     await expect(page.getByText('Language')).toBeVisible();
-    const raw = await page.evaluate(() => localStorage.getItem('agent-cluster-workbench'));
+    const raw = await page.evaluate(() => localStorage.getItem('doai-workbench'));
     expect(raw).toContain('"locale":"en-US"');
   });
 

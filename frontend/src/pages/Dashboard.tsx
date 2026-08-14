@@ -75,7 +75,7 @@ export default function Dashboard() {
         title={intl.formatMessage({ id: 'dashboard.header.title', defaultMessage: 'Dashboard' })}
         description={intl.formatMessage({
           id: 'dashboard.header.desc',
-          defaultMessage: 'Agent Cluster overview: status, metrics and quick links',
+          defaultMessage: 'DoAI Workbench overview: status, metrics and quick links',
         })}
       />
       {connected === false && (
@@ -85,7 +85,7 @@ export default function Dashboard() {
           style={{ marginBottom: 16 }}
           message={intl.formatMessage({
             id: 'dashboard.connAlert.message',
-            defaultMessage: 'Connection failed; please start agent-cluster serve',
+            defaultMessage: 'Connection failed; please start the DoAI Workbench backend (agent-cluster serve)',
           })}
           description={
             <span>

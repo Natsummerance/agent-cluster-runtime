@@ -102,7 +102,7 @@ describe('appStore', () => {
     useAppStore.getState().setServerUrl('http://persisted:1234');
     useAppStore.getState().setAuthToken('persist-token');
     useAppStore.getState().setDarkMode(true);
-    const raw = localStorage.getItem('agent-cluster-workbench');
+    const raw = localStorage.getItem('doai-workbench');
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw ?? '{}');
     expect(parsed.state.serverUrl).toBe('http://persisted:1234');

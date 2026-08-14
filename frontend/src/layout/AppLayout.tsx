@@ -88,7 +88,7 @@ export default function AppLayout() {
           <Space align="center" size={8}>
             <img src="/logo.svg" width={28} height={28} style={{ borderRadius: 6 }} alt="logo" />
             <Typography.Title level={5} style={{ margin: 0, whiteSpace: 'nowrap' }}>
-              Agent Cluster
+              DoAI Workbench
             </Typography.Title>
           </Space>
         </div>

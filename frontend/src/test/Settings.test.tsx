@@ -49,7 +49,7 @@ describe('Settings 页面', () => {
     await userEvent.click(screen.getByTestId('save-settings-btn'));
     expect(useAppStore.getState().serverUrl).toBe('http://127.0.0.1:9000');
     expect(useAppStore.getState().authToken).toBe('my-token');
-    const raw = localStorage.getItem('agent-cluster-workbench');
+    const raw = localStorage.getItem('doai-workbench');
     expect(raw).toContain('http://127.0.0.1:9000');
     expect(raw).toContain('my-token');
   });

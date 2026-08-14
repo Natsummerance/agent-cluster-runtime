@@ -52,7 +52,7 @@ describe('i18n', () => {
     expect(useAppStore.getState().locale).toBe(DEFAULT_LOCALE);
     useAppStore.getState().setLocale('en-US');
     expect(useAppStore.getState().locale).toBe('en-US');
-    const raw = JSON.parse(localStorage.getItem('agent-cluster-workbench') ?? '{}') as {
+    const raw = JSON.parse(localStorage.getItem('doai-workbench') ?? '{}') as {
       state?: { locale?: string };
     };
     expect(raw.state?.locale).toBe('en-US');

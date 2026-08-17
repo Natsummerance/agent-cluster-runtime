@@ -7,10 +7,21 @@ export type OnionInterceptor<Payload, Result> = (
   next: OnionNext<Result>,
 ) => Result | Promise<Result>
 
-export class EventHub {
-  readonly #interceptors = new Map<string, OnionInterceptor<unknown, unknown>[]>()
+type InterceptorStore = Map<string, OnionInterceptor<unknown, unknown>[]>
+const interceptorStores = new WeakMap<Context, InterceptorStore>()
 
-  constructor(readonly context: Context) {}
+export class EventHub {
+  readonly #interceptors: InterceptorStore
+
+  constructor(readonly context: Context) {
+    const root = context.root
+    const existing = interceptorStores.get(root)
+    if (existing !== undefined) this.#interceptors = existing
+    else {
+      this.#interceptors = new Map()
+      interceptorStores.set(root, this.#interceptors)
+    }
+  }
 
   on(name: string, listener: EventListener): () => void {
     return this.context.on(name as never, listener as never)

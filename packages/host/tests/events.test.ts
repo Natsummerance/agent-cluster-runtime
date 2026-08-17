@@ -36,22 +36,23 @@ describe('EventHub', () => {
 
   it('runs onion interceptors around the terminal operation', async () => {
     const ctx = new Context()
-    const hub = new EventHub(ctx)
+    const registrationHub = new EventHub(ctx)
+    const executionHub = new EventHub(ctx.extend({ session: 's-1' }))
     const trace: string[] = []
-    hub.intercept('tool.execute', async (_payload, next) => {
+    registrationHub.intercept('tool.execute', async (_payload, next) => {
       trace.push('outer:before')
       const result = await next()
       trace.push('outer:after')
       return `${result}:outer`
     })
-    hub.intercept('tool.execute', async (_payload, next) => {
+    registrationHub.intercept('tool.execute', async (_payload, next) => {
       trace.push('inner:before')
       const result = await next()
       trace.push('inner:after')
       return `${result}:inner`
     })
 
-    const result = await hub.onion('tool.execute', {}, async () => {
+    const result = await executionHub.onion('tool.execute', {}, async () => {
       trace.push('terminal')
       return 'ok'
     })

@@ -9,6 +9,7 @@ events:
   - {type: session.closed, owner: host, durable: true}
   - {type: input.received, owner: host, durable: true, model_visible: true}
   - {type: agent.started, owner: host, durable: true}
+  - {type: agent.system-prompt, owner: host, durable: true, model_visible: true}
   - {type: agent.completed, owner: host, durable: true}
   - {type: agent.failed, owner: host, durable: true}
   - {type: model.requested, owner: host, durable: true, model_visible: true}

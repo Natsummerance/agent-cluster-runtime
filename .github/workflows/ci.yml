@@ -24,6 +24,44 @@ on:
   workflow_call:
 
 jobs:
+  v1-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.17.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.18.2'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: uv.lock
+      - name: Install v1 workspace
+        run: pnpm install --frozen-lockfile
+      - name: Verify generated protocol and Agent Notes
+        run: |
+          uv run python scripts/generate_protocol.py --check
+          uv run python scripts/verify_agent_notes.py
+      - name: Typecheck and test v1 planes
+        run: |
+          pnpm typecheck:host
+          pnpm typecheck:agent
+          pnpm typecheck:organization
+          pnpm typecheck:presets
+          pnpm typecheck:enterprise
+          pnpm typecheck:cli
+          pnpm test:host
+          pnpm test:agent
+          pnpm test:organization
+          pnpm test:presets
+          pnpm test:enterprise
+          pnpm test:cli
+
   backend-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15

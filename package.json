@@ -9,7 +9,9 @@
   },
   "scripts": {
     "test:agent": "pnpm --filter @doai/agent-runtime test",
+    "test:organization": "pnpm --filter @doai/organization-bridge test",
     "typecheck:agent": "pnpm --filter @doai/agent-runtime typecheck",
+    "typecheck:organization": "pnpm --filter @doai/organization-bridge typecheck",
     "test:host": "pnpm --filter @doai/host test",
     "typecheck:host": "pnpm --filter @doai/host typecheck"
   },

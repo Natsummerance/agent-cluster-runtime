@@ -33,6 +33,7 @@ events:
   - {type: budget.reserved, owner: organization, durable: true}
   - {type: budget.committed, owner: organization, durable: true}
   - {type: budget.released, owner: organization, durable: true}
+  - {type: memory.captured, owner: organization, durable: true}
   - {type: evolution.proposed, owner: organization, durable: true}
   - {type: evolution.approved, owner: organization, durable: true}
   - {type: plugin.activated, owner: host, durable: false, ignorable: true}

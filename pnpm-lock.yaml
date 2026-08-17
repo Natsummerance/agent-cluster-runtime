@@ -52,6 +52,18 @@ importers:
         specifier: 7.7.0
         version: 7.7.0
 
+  packages/organization-bridge:
+    dependencies:
+      '@doai/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
+      '@doai/host':
+        specifier: workspace:*
+        version: link:../host
+      '@doai/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+
   packages/protocol: {}
 
 packages:

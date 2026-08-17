@@ -60,4 +60,18 @@ describe('JsonlSessionEventStore', () => {
     expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
     expect(await store.revision('race')).toBe(1)
   })
+
+  it('returns the original event for an idempotent mutation replay', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-idempotent-'))
+    const store = new JsonlSessionEventStore(root)
+    const mutation = { request_id: 'r-1', idempotency_key: 'key-1', session_revision: 0 }
+    const draft = { type: 'session.created', scope, payload: { value: 1 }, ignorable: false }
+
+    const first = await store.appendIdempotent('idempotent', mutation, draft)
+    const replay = await store.appendIdempotent('idempotent', mutation, draft)
+
+    expect(replay).toEqual(first)
+    expect(await store.revision('idempotent')).toBe(1)
+    expect((await store.findIdempotency('idempotent', 'key-1'))?.seq).toBe(1)
+  })
 })

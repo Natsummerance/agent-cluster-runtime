@@ -1,7 +1,7 @@
-import type { EventScope, JsonValue, SessionEvent } from '@doai/protocol'
+import type { EventScope, JsonValue, MutationMeta, SessionEvent } from '@doai/protocol'
 
 import { projectModelMessages, type ModelMessage, type ToolCall } from './projection.ts'
-import type { SessionEventDraft, SessionEventStore } from './session-store.ts'
+import type { IdempotentSessionEventStore, SessionEventDraft, SessionEventStore } from './session-store.ts'
 import type { ApprovalService, ToolRuntime } from './tools.ts'
 
 export interface ModelResult {
@@ -23,6 +23,7 @@ export interface AgentInvokeRequest {
   input: string
   system_prompt: string
   signal?: AbortSignal
+  mutation?: MutationMeta
 }
 
 export interface AgentInvokeResult {
@@ -52,23 +53,42 @@ export class StandardAgent {
   }
 
   async invoke(request: AgentInvokeRequest): Promise<AgentInvokeResult> {
-    let events = await this.#store.read(request.session_id)
-    let revision = events.length
+    const idempotentStore = this.#store as Partial<IdempotentSessionEventStore>
+    if (request.mutation !== undefined && idempotentStore.findIdempotency !== undefined) {
+      const completed = await idempotentStore.findIdempotency(request.session_id, request.mutation.idempotency_key)
+      if (completed !== undefined) {
+        return { content: String(completed.payload.content ?? ''), revision: completed.seq }
+      }
+    }
+    let events = await this.#store.read(request.session_id, request.mutation?.session_revision)
+    let revision = request.mutation?.session_revision ?? events.length
+    let eventIndex = 0
     const append = async (draft: SessionEventDraft): Promise<SessionEvent> => {
-      const event = await this.#store.append(request.session_id, revision, draft)
-      revision = event.seq
-      events.push(event)
-      return event
+      const isFinal = draft.type === 'agent.completed'
+      const mutation = request.mutation === undefined ? undefined : {
+        ...request.mutation,
+        idempotency_key: isFinal
+          ? request.mutation.idempotency_key
+          : `${request.mutation.idempotency_key}:event:${eventIndex}`,
+        session_revision: revision,
+      }
+      eventIndex += 1
+      const appended = mutation !== undefined && idempotentStore.appendIdempotent !== undefined
+        ? await idempotentStore.appendIdempotent(request.session_id, mutation, draft)
+        : await this.#store.append(request.session_id, revision, draft)
+      revision = appended.seq
+      events.push(appended)
+      return appended
     }
     const event = (type: string, payload: { [key: string]: JsonValue } = {}): SessionEventDraft => ({
       type, payload, scope: request.scope, ignorable: false,
     })
 
     try {
-      if (revision === 0) {
+      if ((request.mutation?.session_revision ?? revision) === 0) {
         await append(event('session.created'))
-        await append(event('agent.system-prompt', { content: request.system_prompt }))
       }
+      await append(event('agent.system-prompt', { content: request.system_prompt }))
       await append(event('input.received', { content: request.input }))
       await append(event('agent.started'))
 

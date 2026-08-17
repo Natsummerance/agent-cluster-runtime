@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 
-import type { EventScope, JsonValue, SessionEvent } from '@doai/protocol'
+import type { EventScope, JsonValue, MutationMeta, SessionEvent } from '@doai/protocol'
 
 export interface SessionEventDraft {
   type: string
@@ -15,6 +15,11 @@ export interface SessionEventStore {
   read(sessionId: string, throughSeq?: number): Promise<SessionEvent[]>
   revision(sessionId: string): Promise<number>
   fork(sourceSessionId: string, throughSeq: number, targetSessionId: string): Promise<void>
+}
+
+export interface IdempotentSessionEventStore extends SessionEventStore {
+  appendIdempotent(sessionId: string, mutation: MutationMeta, draft: SessionEventDraft): Promise<SessionEvent>
+  findIdempotency(sessionId: string, idempotencyKey: string): Promise<SessionEvent | undefined>
 }
 
 export class RevisionConflictError extends Error {
@@ -58,6 +63,48 @@ export class JsonlSessionEventStore implements SessionEventStore {
       }
       await this.#writeAtomic(sessionId, [...events, event])
       return event
+    })
+  }
+
+  async appendIdempotent(sessionId: string, mutation: MutationMeta, draft: SessionEventDraft): Promise<SessionEvent> {
+    return await this.#locked(sessionId, async () => {
+      const events = await this.#readUnlocked(sessionId)
+      const existing = events.find((event) => {
+        const metadata = event.payload._mutation
+        return metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
+          && metadata.idempotency_key === mutation.idempotency_key
+      })
+      if (existing !== undefined) {
+        if (existing.type !== draft.type) {
+          throw new Error(`idempotency key reused for a different event: ${mutation.idempotency_key}`)
+        }
+        return existing
+      }
+      if (events.length !== mutation.session_revision) {
+        throw new RevisionConflictError(sessionId, mutation.session_revision, events.length)
+      }
+      const event: SessionEvent = {
+        schema_version: '1.0', session_id: sessionId, seq: events.length + 1,
+        type: draft.type, ts: this.#now().toISOString(), scope: draft.scope,
+        payload: {
+          ...draft.payload,
+          _mutation: {
+            request_id: mutation.request_id,
+            idempotency_key: mutation.idempotency_key,
+          },
+        },
+        ignorable: draft.ignorable,
+      }
+      await this.#writeAtomic(sessionId, [...events, event])
+      return event
+    })
+  }
+
+  async findIdempotency(sessionId: string, idempotencyKey: string): Promise<SessionEvent | undefined> {
+    return (await this.#readUnlocked(sessionId)).find((event) => {
+      const metadata = event.payload._mutation
+      return metadata !== null && typeof metadata === 'object' && !Array.isArray(metadata)
+        && metadata.idempotency_key === idempotencyKey
     })
   }
 

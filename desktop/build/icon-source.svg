@@ -1,10 +1,10 @@
-<!-- DoAI Workbench LOGO 源（bite-v0 定稿）
+<!-- DoAI Workbench LOGO 源（bite-v2 定稿）
      几何参数（1024 画布，与 scripts/gen_logo_assets.py 保持一致）：
      INK=#1B2A4A PAPER=#F5F7FA SW=60 RING_R=215 RING=(512,440)
-     BITE_R=150 LEFT_TOP=(325.8,332.5) LEFT_BOT=(325.8,547.5)
-     A=(555,345)-(505,460)-(605,460) I=628,345,30x115 rx13
+     BITE_R=135 LEFT_TOP=(325.8,332.5) LEFT_BOT=(340.8,570)
+     A=(555,345)-(505,460)-(605,460) rounded corners, I=628,345,30x115 rx15
      左半线（含 bite 内凹弧）：M 512 225 A 215 215 0 0 0 325.8 332.5
-       A 150 150 0 0 1 325.8 547.5 A 215 215 0 0 0 512 655
+       A 135 135 0 0 0 340.8 570 A 215 215 0 0 0 512 655
      右半环：M 512 225 A 215 215 0 0 1 512 655
      替换 LOGO：改 scripts/gen_logo_assets.py 参数后重跑即可 -->
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><path d="M 512 225 A 215 215 0 0 0 325.8 332.5 A 150 150 0 0 1 325.8 547.5 A 215 215 0 0 0 512 655" fill="none" stroke="#1B2A4A" stroke-width="60" stroke-linecap="round"/><path d="M 512 225 A 215 215 0 0 1 512 655" fill="none" stroke="#1B2A4A" stroke-width="60" stroke-linecap="round"/><path d="M 555 345 L 505 460 L 605 460 Z" fill="#1B2A4A"/><rect x="628" y="345" width="30" height="115" rx="13" fill="#1B2A4A"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><path d="M 512 225 A 215 215 0 0 0 325.8 332.5 A 135 135 0 0 0 340.8 570 A 215 215 0 0 0 512 655" fill="none" stroke="#1B2A4A" stroke-width="60" stroke-linecap="round"/><path d="M 512 225 A 215 215 0 0 1 512 655" fill="none" stroke="#1B2A4A" stroke-width="60" stroke-linecap="round"/><path d="M 560.58 357.84 Q 555.00 345.00 549.42 357.84 L 510.58 447.16 Q 505.00 460.00 519.00 460.00 L 591.00 460.00 Q 605.00 460.00 599.42 447.16 L 560.58 357.84 Z" fill="#1B2A4A"/><rect x="628" y="345" width="30" height="115" rx="13" fill="#1B2A4A"/></svg>

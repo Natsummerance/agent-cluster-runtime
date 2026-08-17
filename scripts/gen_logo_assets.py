@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# gen_logo_assets.py -- DoAI Workbench 品牌 LOGO 参数化生成器（bite-v0 定稿）
+# gen_logo_assets.py -- DoAI Workbench 品牌 LOGO 参数化生成器（bite-v2 定稿）
 #
 # 用法：
 #   python scripts/gen_logo_assets.py          # 需 Pillow（系统 python 已带；uv 环境可用 uv run --with pillow）
@@ -27,18 +27,18 @@ PAPER = "#F5F7FA"        # 奶油纸白（深底反白）
 SW = 60                  # 环线宽（圆帽）
 RING_R = 215             # 主环半径
 RING_CX, RING_CY = 512, 440
-BITE_R = 150             # 左 bite 内凹弧半径
+BITE_R = 135             # 左 bite 内凹弧半径（更深、更像自然咬痕）
 TOP = (512, 225)         # 环顶
 BOT = (512, 655)         # 环底
 LEFT_TOP = (325.8, 332.5)   # 左半线上接点（bite 上端）
-LEFT_BOT = (325.8, 547.5)   # 左半线下接点（bite 下端）
+LEFT_BOT = (340.8, 570.0)   # 左半线下接点（沿环弧下移，底部更饱满）
 A_PTS = [(555, 345), (505, 460), (605, 460)]   # A 三角
 I_BAR = (628, 345, 658, 460)                   # I 竖线 x0 y0 x1 y1
-I_RX = 13
+I_RX = 15
 SQUARE_BOX = (32, 32, 992, 992)                # 圆角方块外框
 SQUARE_RX = 190
 ARC_LEFT = ("M 512 225 A 215 215 0 0 0 325.8 332.5 "
-            "A 150 150 0 0 1 325.8 547.5 A 215 215 0 0 0 512 655")
+            "A 135 135 0 0 0 340.8 570 A 215 215 0 0 0 512 655")
 ARC_RIGHT = "M 512 225 A 215 215 0 0 1 512 655"
 # ------------------------------------------------------------------------
 
@@ -60,19 +60,85 @@ def bite_pt(deg):
     return (cx + BITE_R * math.cos(r), cy + BITE_R * math.sin(r))
 
 
+def rounded_polygon_points(vertices, radius, samples=8):
+    """Return a polygon whose corners are quadratic Bézier rounds."""
+    corners = []
+    for i, point in enumerate(vertices):
+        prev_point = vertices[i - 1]
+        next_point = vertices[(i + 1) % len(vertices)]
+
+        def toward(other):
+            dx = other[0] - point[0]
+            dy = other[1] - point[1]
+            length = math.hypot(dx, dy)
+            distance = min(radius, length / 2)
+            return (point[0] + dx / length * distance,
+                    point[1] + dy / length * distance)
+
+        corners.append((toward(prev_point), toward(next_point)))
+
+    result = [corners[0][0]]
+    for i, point in enumerate(vertices):
+        incoming = corners[i][0]
+        outgoing = corners[i][1]
+        if i > 0:
+            result.append(incoming)
+        for step in range(1, samples + 1):
+            t = step / samples
+            result.append((
+                (1 - t) ** 2 * incoming[0] + 2 * (1 - t) * t * point[0] + t ** 2 * outgoing[0],
+                (1 - t) ** 2 * incoming[1] + 2 * (1 - t) * t * point[1] + t ** 2 * outgoing[1],
+            ))
+    return result
+
+
+def rounded_polygon_path(vertices, radius):
+    """Return an SVG path for the same rounded polygon used by the raster asset."""
+    corners = []
+    for i, point in enumerate(vertices):
+        prev_point = vertices[i - 1]
+        next_point = vertices[(i + 1) % len(vertices)]
+
+        def toward(other):
+            dx = other[0] - point[0]
+            dy = other[1] - point[1]
+            length = math.hypot(dx, dy)
+            distance = min(radius, length / 2)
+            return (point[0] + dx / length * distance,
+                    point[1] + dy / length * distance)
+
+        corners.append((toward(prev_point), toward(next_point)))
+
+    d = ["M %.2f %.2f" % corners[0][0]]
+    for i, point in enumerate(vertices):
+        next_i = (i + 1) % len(vertices)
+        d.append("Q %.2f %.2f %.2f %.2f" % (point[0], point[1], corners[i][1][0], corners[i][1][1]))
+        d.append("L %.2f %.2f" % corners[next_i][0])
+    return " ".join(d) + " Z"
+
+
 def left_polyline(step=2.0):
     pts = []
     d = -90.0
-    while d >= -150.0:
+    left_top_angle = math.degrees(math.atan2(LEFT_TOP[1] - RING_CY, LEFT_TOP[0] - RING_CX))
+    left_bot_angle = math.degrees(math.atan2(LEFT_BOT[1] - RING_CY, LEFT_BOT[0] - RING_CX))
+    while d >= left_top_angle:
         pts.append(ring_pt(d))
         d -= step
     pts.append(LEFT_TOP)
-    d = -45.8
-    while d <= 45.8:
+    bite_mid_x = (LEFT_TOP[0] + LEFT_BOT[0]) / 2.0
+    bite_mid_y = (LEFT_TOP[1] + LEFT_BOT[1]) / 2.0
+    half = (LEFT_BOT[1] - LEFT_TOP[1]) / 2.0
+    offset = math.sqrt(max(BITE_R * BITE_R - half * half, 0.0))
+    bite_cx = bite_mid_x - offset
+    bite_start = math.degrees(math.atan2(LEFT_TOP[1] - bite_mid_y, LEFT_TOP[0] - bite_cx))
+    bite_end = math.degrees(math.atan2(LEFT_BOT[1] - bite_mid_y, LEFT_BOT[0] - bite_cx))
+    d = bite_start
+    while d <= bite_end:
         pts.append(bite_pt(d))
         d += step
     pts.append(LEFT_BOT)
-    d = 150.0
+    d = left_bot_angle
     while d >= 90.0:
         pts.append(ring_pt(d))
         d -= step
@@ -92,11 +158,14 @@ def draw_glyph(draw, color, s):
     # s = 超采样倍率
     w = SW * s
     for pts in (left_polyline(), right_polyline()):
-        draw.line([(p[0] * s, p[1] * s) for p in pts], fill=color, width=w, joint="curve")
+        scaled = [(p[0] * s, p[1] * s) for p in pts]
+        draw.line(scaled, fill=color, width=w)
+        for x, y in scaled:
+            draw.ellipse([x - w / 2, y - w / 2, x + w / 2, y + w / 2], fill=color)
     for cap in (TOP, BOT):
         draw.ellipse([cap[0] * s - w / 2, cap[1] * s - w / 2,
                       cap[0] * s + w / 2, cap[1] * s + w / 2], fill=color)
-    draw.polygon([(p[0] * s, p[1] * s) for p in A_PTS], fill=color)
+    draw.polygon([(p[0] * s, p[1] * s) for p in rounded_polygon_points(A_PTS, 14)], fill=color)
     draw.rounded_rectangle([v * s for v in I_BAR], radius=I_RX * s, fill=color)
 
 
@@ -106,9 +175,10 @@ def glyph_svg(foreground, header_comments=""):
     body = (
         '<path d="%s" fill="none" stroke="%s" stroke-width="%d" stroke-linecap="round"/>'
         '<path d="%s" fill="none" stroke="%s" stroke-width="%d" stroke-linecap="round"/>'
-        '<path d="M 555 345 L 505 460 L 605 460 Z" fill="%s"/>'
+        '<path d="%s" fill="%s"/>'
         '<rect x="628" y="345" width="30" height="115" rx="13" fill="%s"/>'
-    ) % (ARC_LEFT, foreground, SW, ARC_RIGHT, foreground, SW, foreground, foreground)
+    ) % (ARC_LEFT, foreground, SW, ARC_RIGHT, foreground, SW,
+         rounded_polygon_path(A_PTS, 14), foreground, foreground)
     return head + body + "</svg>"
 
 
@@ -142,13 +212,13 @@ def main():
         os.makedirs(os.path.dirname(p), exist_ok=True)
 
     params = (
-        "<!-- DoAI Workbench LOGO 源（bite-v0 定稿）\n"
+        "<!-- DoAI Workbench LOGO 源（bite-v2 定稿）\n"
         "     几何参数（1024 画布，与 scripts/gen_logo_assets.py 保持一致）：\n"
         "     INK=#1B2A4A PAPER=#F5F7FA SW=60 RING_R=215 RING=(512,440)\n"
-        "     BITE_R=150 LEFT_TOP=(325.8,332.5) LEFT_BOT=(325.8,547.5)\n"
-        "     A=(555,345)-(505,460)-(605,460) I=628,345,30x115 rx13\n"
+        "     BITE_R=135 LEFT_TOP=(325.8,332.5) LEFT_BOT=(340.8,570)\n"
+        "     A=(555,345)-(505,460)-(605,460) rounded corners, I=628,345,30x115 rx15\n"
         "     左半线（含 bite 内凹弧）：M 512 225 A 215 215 0 0 0 325.8 332.5\n"
-        "       A 150 150 0 0 1 325.8 547.5 A 215 215 0 0 0 512 655\n"
+        "       A 135 135 0 0 0 340.8 570 A 215 215 0 0 0 512 655\n"
         "     右半环：M 512 225 A 215 215 0 0 1 512 655\n"
         "     替换 LOGO：改 scripts/gen_logo_assets.py 参数后重跑即可 -->\n"
     )
@@ -172,13 +242,13 @@ def main():
         '<g transform="translate(150,0)">'
         '<path d="%s" fill="none" stroke="%s" stroke-width="60" stroke-linecap="round"/>'
         '<path d="%s" fill="none" stroke="%s" stroke-width="60" stroke-linecap="round"/>'
-        '<path d="M 555 345 L 505 460 L 605 460 Z" fill="%s"/>'
+        '<path d="%s" fill="%s"/>'
         '<rect x="628" y="345" width="30" height="115" rx="13" fill="%s"/>'
         "</g>"
         '<text x="1000" y="668" font-family="Inter, -apple-system, Segoe UI, '
         'PingFang SC, Microsoft YaHei, sans-serif" font-size="190" font-weight="700" '
         'fill="%s">DoAI Workbench</text></svg>'
-    ) % (ARC_LEFT, INK, ARC_RIGHT, INK, INK, INK, INK)
+    ) % (ARC_LEFT, INK, ARC_RIGHT, INK, rounded_polygon_path(A_PTS, 14), INK, INK, INK)
     with open(paths["logo-with-text.svg"], "w", encoding="utf-8") as f:
         f.write(wordmark)
 

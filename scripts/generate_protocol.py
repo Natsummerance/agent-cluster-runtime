@@ -11,7 +11,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT / "protocol" / "schema" / "doai-v1.schema.json"
-TS_PATH = ROOT / "packages" / "protocol" / "src" / "generated.ts"
+TS_PATHS = (
+    ROOT / "packages" / "protocol" / "src" / "generated.ts",
+    ROOT / "frontend" / "src" / "api" / "v1.generated.ts",
+)
 PY_PATH = ROOT / "src" / "doai_protocol" / "generated.py"
 
 
@@ -158,10 +161,9 @@ def _expected_outputs() -> dict[Path, str]:
     raw = SCHEMA_PATH.read_bytes()
     schema = json.loads(raw)
     digest = hashlib.sha256(raw).hexdigest()
-    return {
-        TS_PATH: _render_ts(schema, digest),
-        PY_PATH: _render_python(schema, digest),
-    }
+    outputs = {path: _render_ts(schema, digest) for path in TS_PATHS}
+    outputs[PY_PATH] = _render_python(schema, digest)
+    return outputs
 
 
 def main() -> int:

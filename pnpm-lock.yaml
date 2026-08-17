@@ -30,6 +30,12 @@ importers:
         specifier: 8.17.1
         version: 8.17.1
 
+  packages/enterprise-plugins:
+    dependencies:
+      '@doai/host':
+        specifier: workspace:*
+        version: link:../host
+
   packages/host:
     dependencies:
       '@deepseek-ai/cordis':

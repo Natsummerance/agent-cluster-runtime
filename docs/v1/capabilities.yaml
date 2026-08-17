@@ -23,3 +23,10 @@ capabilities:
   - {name: organization.evolution, owner: organization, provider_policy: optional}
   - {name: transport.organization, owner: plugin, provider_policy: optional}
   - {name: ui.card, owner: plugin, provider_policy: many}
+  - {name: project.registry, owner: plugin, provider_policy: exactly_one}
+  - {name: tenant.registry, owner: plugin, provider_policy: exactly_one}
+  - {name: mcp.oauth, owner: plugin, provider_policy: exactly_one}
+  - {name: audit.sink, owner: plugin, provider_policy: exactly_one}
+  - {name: calendar.resources, owner: plugin, provider_policy: exactly_one}
+  - {name: dependency.graph, owner: plugin, provider_policy: exactly_one}
+  - {name: evolution.manage, owner: plugin, provider_policy: exactly_one}

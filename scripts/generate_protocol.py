@@ -45,8 +45,8 @@ def _ts_type(schema: dict[str, Any]) -> str:
     if kind == "object":
         additional = schema.get("additionalProperties")
         if isinstance(additional, dict):
-            return f"Record<string, {_ts_type(additional)}>"
-        return "Record<string, unknown>"
+            return f"{{ [key: string]: {_ts_type(additional)} }}"
+        return "{ [key: string]: unknown }"
     return "unknown"
 
 

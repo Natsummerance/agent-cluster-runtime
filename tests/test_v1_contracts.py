@@ -86,6 +86,11 @@ def test_dsh_provenance_is_pinned_and_licensed() -> None:
     assert provenance["upstream"]["license"] == "MIT"
     assert provenance["policy"]["automatic_tracking"] is False
 
+    host_package = json.loads(
+        (ROOT / "packages" / "host" / "package.json").read_text(encoding="utf-8")
+    )
+    assert host_package["dependencies"]["@deepseek-ai/cordis"] == provenance["cordis"]["version"]
+
 
 def test_generated_protocol_types_are_fresh() -> None:
     result = subprocess.run(

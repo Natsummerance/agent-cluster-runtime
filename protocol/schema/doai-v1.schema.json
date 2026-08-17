@@ -117,12 +117,13 @@
     "PluginManifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version", "api_version", "dependencies", "provides", "config_schema", "permissions"],
+      "required": ["name", "version", "api_version", "dependencies", "requires", "provides", "config_schema", "permissions"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?$" },
         "version": { "type": "string" },
         "api_version": { "const": "1" },
         "dependencies": { "type": "object", "additionalProperties": { "type": "string" } },
+        "requires": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "provides": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "config_schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } },
         "permissions": { "type": "array", "items": { "$ref": "#/$defs/PluginPermission" } }

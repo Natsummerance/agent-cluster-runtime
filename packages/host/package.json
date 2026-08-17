@@ -1,0 +1,23 @@
+{
+  "name": "@doai/host",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@doai/protocol": "workspace:*",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "semver": "7.7.2"
+  },
+  "devDependencies": {
+    "@types/semver": "7.7.0"
+  }
+}

@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypeAliasType
 
-SCHEMA_SHA256 = "f1df08ff017474b429e122475ae618c58f7424ecf87995f5fb5dba982b2c65d9"
+SCHEMA_SHA256 = "141c396d5b0abc120bf94db5ea1c2707c67fc008a2dc4eba06f9c52caa71526d"
 
 JsonValue = TypeAliasType("JsonValue", None | bool | int | float | str | list['JsonValue'] | dict[str, 'JsonValue'])
 
@@ -81,6 +81,7 @@ class PluginManifest(BaseModel):
     version: str
     api_version: Literal['1']
     dependencies: dict[str, str]
+    requires: list[str]
     provides: list[str]
     config_schema: dict[str, JsonValue]
     permissions: list[PluginPermission]

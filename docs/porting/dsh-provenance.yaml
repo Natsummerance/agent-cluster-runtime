@@ -9,6 +9,15 @@ policy:
   automatic_tracking: false
   permitted_actions: [reuse, port, adapt, differential-test]
   required_fields: [source, commit, license, action, deviation, verification]
+cordis:
+  package: "@deepseek-ai/cordis"
+  version: 4.0.1
+  source: vendor/cordis
+  commit: 47f943859bef60e4160492346772ded9b24f765a
+  license: MIT
+  action: pinned-runtime-dependency
+  deviation: DoAI narrows the public context and adds transactional shadow activation.
+  verification: packages/host/tests
 imports:
   - source: vendor/cordis/src/events.ts
     commit: 47f943859bef60e4160492346772ded9b24f765a

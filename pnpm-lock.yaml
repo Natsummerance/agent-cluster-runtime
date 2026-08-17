@@ -64,6 +64,21 @@ importers:
         specifier: workspace:*
         version: link:../protocol
 
+  packages/presets:
+    dependencies:
+      '@doai/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
+      '@doai/host':
+        specifier: workspace:*
+        version: link:../host
+      '@doai/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      typescript:
+        specifier: 5.9.2
+        version: 5.9.2
+
   packages/protocol: {}
 
 packages:

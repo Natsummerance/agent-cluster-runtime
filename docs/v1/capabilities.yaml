@@ -12,6 +12,7 @@ capabilities:
   - {name: tool.execute, owner: host, provider_policy: exactly_one}
   - {name: runtime.python, owner: plugin, provider_policy: optional}
   - {name: runtime.typescript, owner: plugin, provider_policy: optional}
+  - {name: creator.conformance, owner: plugin, provider_policy: optional}
   - {name: approval.request, owner: host, provider_policy: exactly_one}
   - {name: artifact.put, owner: host, provider_policy: exactly_one}
   - {name: credential.resolve, owner: plugin, provider_policy: exactly_one}

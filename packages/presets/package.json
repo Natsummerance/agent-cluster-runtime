@@ -1,0 +1,17 @@
+{
+  "name": "@doai/presets",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@doai/agent-runtime": "workspace:*",
+    "@doai/host": "workspace:*",
+    "@doai/protocol": "workspace:*",
+    "typescript": "5.9.2"
+  }
+}

@@ -1,0 +1,30 @@
+schema_version: 1
+upstream:
+  project: deepseek-ai/deepseek-harness
+  commit: 47f943859bef60e4160492346772ded9b24f765a
+  release: 0.1.0-rc.5
+  license: MIT
+  license_url: https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/LICENSE
+policy:
+  automatic_tracking: false
+  permitted_actions: [reuse, port, adapt, differential-test]
+  required_fields: [source, commit, license, action, deviation, verification]
+imports:
+  - source: vendor/cordis/src/events.ts
+    commit: 47f943859bef60e4160492346772ded9b24f765a
+    license: MIT
+    action: reference
+    deviation: DoAI exposes an explicit onion interceptor in addition to Cordis waterfall.
+    verification: M1 event-semantics differential fixtures
+  - source: vendor/cordis/src/fiber.ts
+    commit: 47f943859bef60e4160492346772ded9b24f765a
+    license: MIT
+    action: reference
+    deviation: DoAI adds shadow-scope validation and atomic activation as a host policy.
+    verification: M1 lifecycle state-machine tests
+  - source: vendor/cordis/src/context.ts
+    commit: 47f943859bef60e4160492346772ded9b24f765a
+    license: MIT
+    action: reference
+    deviation: Public DoAI context narrows the surface to resolve/provide/on/effect/scope.
+    verification: M1 plugin conformance tests

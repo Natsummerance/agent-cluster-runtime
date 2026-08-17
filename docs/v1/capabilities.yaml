@@ -1,0 +1,24 @@
+schema_version: "1.0"
+provider_rules:
+  exactly_one: startup fails unless exactly one provider resolves in the active scope
+  many: providers compose using the capability's declared dispatch mode
+  optional: absence is valid only when the active profile does not require it
+capabilities:
+  - {name: session.event-store, owner: host, provider_policy: exactly_one}
+  - {name: session.projector, owner: host, provider_policy: many}
+  - {name: agent.invoke, owner: host, provider_policy: exactly_one}
+  - {name: model.generate, owner: plugin, provider_policy: exactly_one}
+  - {name: tool.registry, owner: host, provider_policy: exactly_one}
+  - {name: tool.execute, owner: host, provider_policy: exactly_one}
+  - {name: runtime.python, owner: plugin, provider_policy: optional}
+  - {name: runtime.typescript, owner: plugin, provider_policy: optional}
+  - {name: approval.request, owner: host, provider_policy: exactly_one}
+  - {name: artifact.put, owner: host, provider_policy: exactly_one}
+  - {name: credential.resolve, owner: plugin, provider_policy: exactly_one}
+  - {name: policy.authorize, owner: plugin, provider_policy: exactly_one}
+  - {name: organization.run, owner: organization, provider_policy: optional}
+  - {name: organization.task-board, owner: organization, provider_policy: optional}
+  - {name: organization.budget, owner: organization, provider_policy: optional}
+  - {name: organization.evolution, owner: organization, provider_policy: optional}
+  - {name: transport.organization, owner: plugin, provider_policy: optional}
+  - {name: ui.card, owner: plugin, provider_policy: many}

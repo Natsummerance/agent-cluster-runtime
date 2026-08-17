@@ -1,0 +1,24 @@
+schema_version: 1
+scenarios:
+  - id: greenfield-repository
+    fixture: fixtures/greenfield
+    profile: workbench
+    preset: standard
+    required_outcomes: [repository_created, tests_passed, durable_log_replays]
+  - id: existing-repository-repair
+    fixture: fixtures/broken-python-package
+    profile: headless
+    preset: code-python
+    required_outcomes: [failure_reproduced, minimal_patch, tests_passed, restart_recovers]
+  - id: software-company-lifecycle
+    fixture: fixtures/software-company-request
+    profile: workbench
+    preset: standard
+    bundle: software-company
+    required_outcomes:
+      - requirement_clarified
+      - plan_approved
+      - implementation_verified
+      - release_approved
+      - retrospective_recorded
+      - organization_projection_replays

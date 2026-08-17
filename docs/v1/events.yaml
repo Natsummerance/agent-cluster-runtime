@@ -1,0 +1,40 @@
+schema_version: "1.0"
+rules:
+  ordering: seq is strictly increasing within a session and allocated only by the Host
+  compatibility: unknown non-ignorable events stop replay; unknown ignorable events may be skipped
+  model_context: every model-visible byte is stored in or addressed by a durable event
+events:
+  - {type: session.created, owner: host, durable: true}
+  - {type: session.forked, owner: host, durable: true}
+  - {type: session.closed, owner: host, durable: true}
+  - {type: input.received, owner: host, durable: true, model_visible: true}
+  - {type: agent.started, owner: host, durable: true}
+  - {type: agent.completed, owner: host, durable: true}
+  - {type: agent.failed, owner: host, durable: true}
+  - {type: model.requested, owner: host, durable: true, model_visible: true}
+  - {type: model.completed, owner: host, durable: true, model_visible: true}
+  - {type: model.failed, owner: host, durable: true}
+  - {type: tool.requested, owner: host, durable: true, model_visible: true}
+  - {type: tool.completed, owner: host, durable: true, model_visible: true}
+  - {type: tool.failed, owner: host, durable: true, model_visible: true}
+  - {type: approval.requested, owner: host, durable: true, model_visible: true}
+  - {type: approval.resolved, owner: host, durable: true, model_visible: true}
+  - {type: artifact.stored, owner: host, durable: true}
+  - {type: organization.started, owner: organization, durable: true}
+  - {type: organization.transitioned, owner: organization, durable: true}
+  - {type: organization.completed, owner: organization, durable: true}
+  - {type: organization.failed, owner: organization, durable: true}
+  - {type: task.created, owner: organization, durable: true}
+  - {type: task.transitioned, owner: organization, durable: true}
+  - {type: meeting.started, owner: organization, durable: true, model_visible: true}
+  - {type: meeting.message, owner: organization, durable: true, model_visible: true}
+  - {type: meeting.completed, owner: organization, durable: true}
+  - {type: budget.reserved, owner: organization, durable: true}
+  - {type: budget.committed, owner: organization, durable: true}
+  - {type: budget.released, owner: organization, durable: true}
+  - {type: evolution.proposed, owner: organization, durable: true}
+  - {type: evolution.approved, owner: organization, durable: true}
+  - {type: plugin.activated, owner: host, durable: false, ignorable: true}
+  - {type: plugin.failed, owner: host, durable: false, ignorable: true}
+  - {type: rpc.peer-restarted, owner: host, durable: false, ignorable: true}
+  - {type: diagnostic.emitted, owner: host, durable: false, ignorable: true}

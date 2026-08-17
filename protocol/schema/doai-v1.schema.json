@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://doai.dev/schema/protocol/v1",
+  "title": "DoAI Host–Organization Protocol v1",
+  "type": "object",
+  "$defs": {
+    "JsonValue": {
+      "description": "A JSON-compatible value.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/JsonValue" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } }
+      ]
+    },
+    "EventScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenant_id", "project_id"],
+      "properties": {
+        "tenant_id": { "type": "string", "minLength": 1 },
+        "project_id": { "type": "string", "minLength": 1 },
+        "agent_id": { "type": ["string", "null"] },
+        "organization_id": { "type": ["string", "null"] }
+      }
+    },
+    "SessionEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "session_id", "seq", "type", "ts", "scope", "payload", "ignorable"],
+      "properties": {
+        "schema_version": { "const": "1.0" },
+        "session_id": { "type": "string", "minLength": 1 },
+        "seq": { "type": "integer", "minimum": 1 },
+        "type": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_-]*)+$" },
+        "ts": { "type": "string", "format": "date-time" },
+        "scope": { "$ref": "#/$defs/EventScope" },
+        "payload": { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } },
+        "ignorable": { "type": "boolean" }
+      }
+    },
+    "MutationMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "idempotency_key", "session_revision"],
+      "properties": {
+        "request_id": { "type": "string", "minLength": 1 },
+        "idempotency_key": { "type": "string", "minLength": 1 },
+        "session_revision": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ProtocolHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "event_schema_version", "capabilities"],
+      "properties": {
+        "protocol_version": { "const": "1.0" },
+        "event_schema_version": { "const": "1.0" },
+        "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "RpcRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "params": { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } },
+        "mutation": { "$ref": "#/$defs/MutationMeta" }
+      }
+    },
+    "RpcSuccess": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "type": "string" },
+        "result": { "$ref": "#/$defs/JsonValue" }
+      }
+    },
+    "RpcError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" },
+        "details": { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } }
+      }
+    },
+    "RpcFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "type": ["string", "null"] },
+        "error": { "$ref": "#/$defs/RpcError" }
+      }
+    },
+    "PluginPermission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resources"],
+      "properties": {
+        "kind": { "enum": ["network", "filesystem", "process", "credential"] },
+        "resources": { "type": "array", "items": { "type": "string" } },
+        "reason": { "type": ["string", "null"] }
+      }
+    },
+    "PluginManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "api_version", "dependencies", "provides", "config_schema", "permissions"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(/[a-z][a-z0-9-]*)?$" },
+        "version": { "type": "string" },
+        "api_version": { "const": "1" },
+        "dependencies": { "type": "object", "additionalProperties": { "type": "string" } },
+        "provides": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "config_schema": { "type": "object", "additionalProperties": { "$ref": "#/$defs/JsonValue" } },
+        "permissions": { "type": "array", "items": { "$ref": "#/$defs/PluginPermission" } }
+      }
+    }
+  }
+}

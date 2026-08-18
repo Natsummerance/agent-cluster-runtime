@@ -242,6 +242,8 @@ artifact 四个证据等级。
 - 恢复：真实 peer kill、Host kill、工具完成响应丢失、approval commit 响应丢失、重复 cancel。
 - 产品：Standard、Code-Python、Code-TypeScript、Minimal、Creator real E2E；Software Company 修改
   真实仓、运行测试、产生 artifact，并从同一日志得到一致投影。
+- 模型/Creator：真实模型流式响应覆盖背压、取消、恢复与单一 terminal；Creator 覆盖 trust root、
+  signer/revocation、source pinning、完整 conformance 资源审计，以及 installed install/upgrade/rollback。
 - 迁移：对比任务、审批、预算、记忆、artifact、fork、changes、checkpoint 和 UI projection。
 
 ## 9. 每阶段验收命令
@@ -278,6 +280,8 @@ npm run e2e:real
 
 发布阶段还必须运行新增的 benchmark、security、installed-artifact、migration rollback、license
 freshness 与 zero-legacy-import 命令；这些命令应随对应任务实现，不能预先伪造为空壳门禁。
+optional-dependency import/packed missing-dependency gate 必须在首个 optional package 前落地；最终
+release graph/notices/SBOM freshness 则必须等待 payload 与逐模块 legacy 删除稳定后再生成。
 
 ## 10. 已知风险
 

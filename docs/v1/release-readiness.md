@@ -51,8 +51,11 @@ active master roadmap linked above.
 - [ ] Replace the synthetic organization loop with a replayable domain state machine and real delivery actions.
 - [ ] Migrate task board, usage-based budget, artifacts, memory retrieval and evolution apply/rollback.
 - [ ] Propagate cancellation through RPC, model, tool and child-process boundaries.
+- [ ] Stream real model responses through the generated durable content/replay spine and pass real-provider
+  backpressure, cancellation, restart and exactly-once terminal-result E2E.
 - [ ] Replace generic enterprise Maps with the mature RBAC/OAuth/audit/calendar/dependency/evolution behavior.
 - [ ] Require an OS/container sandbox provider for Code Mode and pass escape/resource-limit tests.
+- [ ] Before the first optional package, pass module-scope import and real packed missing-dependency gates.
 
 ## P2 product blockers
 
@@ -61,6 +64,8 @@ active master roadmap linked above.
 - [ ] Make `doai run`, `web`, `config`, and `session` operate real profiles instead of failing closed.
 - [ ] Implement Workbench, Web Server, Headless and Python SDK profiles plus the software-company bundle.
 - [ ] Add a Codex MCP facade as a transport adapter without creating another runtime owner.
+- [ ] Enforce Creator trust root, signer/revocation and immutable source pinning; pass its complete conformance
+  resource audit and real E2E alongside Standard, both Code modes and Minimal.
 - [ ] Bundle the Node Host and Python Organization Plane in Electron installers and exercise installed
   artifacts without system Node/Python.
 
@@ -68,16 +73,20 @@ active master roadmap linked above.
 
 - [ ] Migrate the complete v0.7.2 data tree, including checkpoints, ledger, changes, memory, artifacts and forks.
 - [ ] Turn all three benchmark descriptions into executable CI gates with retained evidence.
-- [ ] Run real Standard and both Code modes against release fixtures, plus migration rollback in an installed artifact.
+- [ ] Run real Standard, Code-Python, Code-TypeScript, Minimal and trusted Creator modes against release fixtures,
+  plus migration rollback in an installed artifact.
 - [ ] Verify packaged applications on Windows, macOS and Linux without system Node/Python.
+- [ ] Prove Creator installation, signed upgrade, signer revocation and atomic rollback in each installed artifact.
 - [ ] Include the pinned license text and verify provenance/license freshness.
-- [ ] Only after all items above pass, remove `src/agent_cluster` runtime paths, legacy EventBus/logs,
+- [ ] Only after all replacement-evidence items above pass, remove `src/agent_cluster` runtime paths, legacy EventBus/logs,
   old CLI and duplicate frontend types, then enforce a zero-legacy-import release check.
+- [ ] Only after the payload and all legacy deletions are stable, regenerate the installed candidates and verify
+  release dependency graph, notices and SBOM freshness against their exact contents.
 - [ ] Synchronize all product versions and release metadata to `1.0.0` only after the deletion gate.
 
 ## Current regression evidence
 
-- Python: 893 passed, 4 skipped.
+- Python: 897 passed, 4 skipped.
 - Frontend: 164 passed; production Vite build passed.
 - v1 TypeScript packages: 47 passed; all six packages typecheck.
 - Protocol and Python Organization Plane: 16 passed.

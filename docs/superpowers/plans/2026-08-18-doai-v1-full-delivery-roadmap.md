@@ -27,15 +27,20 @@ second master roadmap. In short: handoff 是现状与证据；release-readiness 
 | Stage | Non-parallel spine | Lanes allowed only after the listed spine gate |
 |---|---|---|
 | P0 | `H1 → H2 → H3 → H4A → H4B → H5` | None. Each package must be GREEN, committed and reviewed before the next starts. |
-| P1 | durable domain/runtime foundations | After H5: O1–O7, then O8; E1–E9 after their security/domain owners; S1; C1→C4; J1→J3. Independent ready lanes may run in parallel. |
-| P2 | product entry points | After their named P1 owners: P1→P2, T1→T2→T3, K1, U1, D1, S2→S3 may run in parallel where their dependency sets are GREEN. |
-| P3 | proof, deletion, release | M1/B1/A1/G1 may overlap only where dependencies permit. L1–L5 wait for replacement evidence; L6 waits for all deletion packages; R1 is last. |
+| P1 | durable domain/runtime foundations | G1 must be GREEN before the first optional package. After H5: O1–O7, then O8; E1–E9 after their security/domain owners; G1→S1; C1→C4; J1→J3; N1. Independent ready lanes may run in parallel. |
+| P2 | product entry points | After their named P1 owners: X1, P1→P2, T1→T2→T3, K1, U1, D1, S2→S3 and then Q1 may run in parallel where dependency sets are GREEN. |
+| P3 | proof, deletion, release | M1/B1/A1 may overlap only where dependencies permit; X2 follows A1. L1–L5 wait for replacement evidence; L6 waits for all deletion packages; G2 waits for the stable post-L6 payload; R1 is last. |
 
 Hard safety boundaries: rich content waits for typed vocabulary, durable event/artifact truth and crash recovery;
 durable Jobs wait for durable store/crash, cancellation and process-tree ownership; remote settings wait for
 Host-local ownership, transport, tenant/RBAC, redaction and CAS; installed artifacts wait for profiles, transport,
 Python supervision and packaging ownership. Legacy deletion/version/tag/release never run in parallel with the
 replacement evidence that authorizes them.
+
+Streaming model work waits for generated content/replay, durable crash recovery and cancellation. Creator trust
+and conformance wait for G1's optional-package gate; installed Creator install/upgrade/rollback waits for A1.
+Q1 proves all five real modes before installed/release gates, while G2 derives release metadata only after the
+payload and every legacy deletion are stable.
 
 Coverage registry: P1 owns `Organization durable state machine`, `token + cost`, `end-to-end cancellation`,
 `OS/container sandbox`, `rich content/attachments/MCP/ACP`, and `durable product Jobs`. P2 owns
@@ -44,6 +49,9 @@ Coverage registry: P1 owns `Organization durable state machine`, `token + cost`,
 `Electron Host→Python supervision`, `plugin settings`, and `Codex MCP facade`. P3 owns
 `lossless full data tree migration`, `three benchmark runners/golden/CI`,
 `Windows/macOS/Linux installed artifacts`, and `optional dependency/release graph/notices/SBOM`.
+Cross-cutting proof adds `streaming model + real model/streaming-response E2E`, a Creator package
+`trust root / signer / revocation / source pinning` with `full conformance resource audit`, the
+`Creator installed lifecycle`, and `Standard / Code-Python / Code-TypeScript / Minimal / Creator real E2E`.
 
 ## Controller and review protocol
 
@@ -76,7 +84,7 @@ and Agent Note evidence.
 - Depends on: H1 GREEN, committed and reviewed; non-parallel spine step.
 - Allowed/forbidden scope: test-only Host/Agent observation of real model calls; forbid runtime fixes, replay/store and frontend.
 - RED: capture each real model request's ordered messages plus complete tool schemas and fail if hidden/inactive tools or ordering drift are visible.
-- GREEN: no runtime implementation; preserve the failing snapshot as evidence and, if it exposes a real defect, stop and open a separately authorized runtime fix.
+- GREEN: no runtime implementation; the committed snapshot contract passes against the real request path. If RED exposes a runtime defect, H2 is blocked and the controller opens a separately authorized runtime fix before returning to make the snapshot contract pass.
 - Acceptance: current `pnpm test:host`; current `pnpm test:agent`; current Host/Agent typechecks.
 - Commit boundary: snapshot fixtures/assertions only in an independent test-only commit.
 - Rollback/blocker: revert only the snapshot commit; any runtime defect blocks H3 until separately fixed and reviewed.
@@ -127,6 +135,17 @@ and Agent Note evidence.
 - Definition of complete: all three real crash points recover exactly once with correct cursor and zero orphan descendants.
 
 ## P1 — Dual-plane runtime and product semantics
+
+### G1 — Optional-dependency import and packed-package preflight
+
+- Depends on: H5; this gate is serially before the first package that introduces or consumes an optional dependency.
+- Allowed/forbidden scope: module-scope import audit, real packed-package missing-dependency fixtures and CI policy; forbid release graph/notices/SBOM generation and source-tree-only proof.
+- RED: remove each declared optional dependency from its real packed package and expose eager module-scope import, misleading availability or an untyped failure.
+- GREEN: add one reusable packed missing-dependency gate and make every optional package declare G1 as a stable-ID predecessor before implementation starts.
+- Acceptance: current base package tests/typechecks; `to be introduced by G1: pnpm test:packed-missing-deps` against actual package archives.
+- Commit boundary: the reusable import/packing harness and first failing package fix are separately reviewable G1 commits.
+- Rollback/blocker: retain fail-closed package availability; any source-tree substitution or eager optional import blocks S1/C4/J2/N1/T2/T3/X1/D1/A1.
+- Definition of complete: CI proves real packed packages import and fail clearly with each optional dependency absent, before an optional feature package begins.
 
 ### O1 — Organization durable state machine
 
@@ -317,7 +336,7 @@ and Agent Note evidence.
 
 ### S1 — OS/container sandbox
 
-- Depends on: H5, O8; parallel with mature domain lanes.
+- Depends on: H5, O8, G1; parallel with mature domain lanes only after optional-package preflight.
 - Allowed/forbidden scope: sandbox provider, Code Mode launch and security tests; forbid process-local permission theater and silent fallback.
 - RED: escape symlink/TOCTOU/interpreter boundaries; violate default-deny network, read-only base, declared workspace mount and CPU/memory/process/output limits.
 - GREEN: require a real OS/container provider for Code Mode and fail loud when unavailable.
@@ -361,7 +380,7 @@ and Agent Note evidence.
 
 ### C4 — rich content/attachments/MCP/ACP adapters
 
-- Depends on: C1, C2, C3, O8.
+- Depends on: C1, C2, C3, O8, G1.
 - Allowed/forbidden scope: outbound MCP/ACP adapter route/cancel/verified content transport; forbid inbound Host MCP ownership and bypass logs/artifacts.
 - RED: route mismatch, cancel race, unverified attachment and content/replay divergence against real adapters.
 - GREEN: adapt generated content and artifact references over verified MCP/ACP channels with O8 cancellation.
@@ -383,7 +402,7 @@ and Agent Note evidence.
 
 ### J2 — Codex and Claude Job adapters
 
-- Depends on: J1, C4.
+- Depends on: J1, C4, G1.
 - Allowed/forbidden scope: provider adapters translating Job inputs/results/cancel; forbid second job ledger and provider-specific durable truth.
 - RED: Codex/Claude success/failure/cancel/rich-content mappings diverge or duplicate retries.
 - GREEN: implement thin adapters over J1 and generated content/fault contracts.
@@ -403,7 +422,29 @@ and Agent Note evidence.
 - Rollback/blocker: remove opt-in without touching durable jobs; implicit activation or missing capability blocks profiles.
 - Definition of complete: Jobs run only in explicitly opted-in, dependency-valid presets.
 
+### N1 — Streaming model path and real streaming-response E2E
+
+- Depends on: H3, H4A, H4B, H5, O8, C2, G1.
+- Allowed/forbidden scope: model adapter streaming, generated content/event projection, backpressure/cancel/recovery and real-provider E2E; forbid fake-only completion, plaintext credentials and UI work.
+- RED: a real model request with streamed text/tool content exposes chunk loss/reordering, replay divergence, cancel/timeout leaks, backpressure failure or duplicate completion after peer restart.
+- GREEN: normalize provider chunks into the generated durable content/event spine, persist one terminal outcome, redact provider faults and make non-streaming and streaming paths share ownership.
+- Acceptance: current host/agent tests and typechecks; `to be introduced by N1: pnpm test:real-model-streaming` with protected real-provider fixtures and retained response evidence.
+- Commit boundary: provider-neutral stream contract first, then each real provider adapter/recovery fix in a narrow N1 commit.
+- Rollback/blocker: disable streaming and retain the durable non-stream result; credential exposure, unordered chunks, duplicate terminal events or fake-only proof blocks Q1/release.
+- Definition of complete: streaming model + real model/streaming-response E2E passes with ordered durable projection, cancel/backpressure/restart and exactly one terminal result.
+
 ## P2 — Product entry points and user-visible profiles
+
+### X1 — Creator trust, source pinning and conformance
+
+- Depends on: H3, H5, O4, O5, E2, E3, E5, S1, C4, G1.
+- Allowed/forbidden scope: Creator package manifest, immutable source pin, trust root, signer verification/revocation, sandboxed resource accounting and conformance fixtures; forbid unsigned fallback, network-floating sources, installed lifecycle and UI polish.
+- RED: unsigned/unknown/revoked signers, mutated pinned sources, manifest/path/symlink/resource-limit violations and incomplete conformance resources are accepted or unaudited.
+- GREEN: establish `trust root / signer / revocation / source pinning`, verify immutable packages before any execution, and run a `full conformance resource audit` through existing approval/artifact/audit/sandbox owners.
+- Acceptance: current host/agent/presets/enterprise tests and typechecks; `to be introduced by X1: pnpm test:creator-conformance` with signed, revoked, tampered and resource-exhaustion fixtures.
+- Commit boundary: trust format/verifier, revocation/source pinning and full conformance resource audit are separately reviewable X1 commits.
+- Rollback/blocker: quarantine the Creator package without executing it; trust ambiguity, incomplete resource accounting or audit gaps block Q1/X2/release.
+- Definition of complete: only pinned, currently trusted signed Creator packages pass complete conformance and every requested/used resource is attributable and bounded.
 
 ### P1 — Workbench / Web Server / Headless / Python SDK profiles
 
@@ -440,7 +481,7 @@ and Agent Note evidence.
 
 ### T2 — Host MCP transport
 
-- Depends on: T1, C4.
+- Depends on: T1, C4, G1.
 - Allowed/forbidden scope: inbound Host MCP transport translating generated Host capabilities; forbid another runtime/store owner and Codex-specific facade.
 - RED: MCP handshake/auth/tenant/content/cancel/backpressure behavior diverges from T1/Host contracts.
 - GREEN: add an adapter over existing Host owners, generated faults and C4 content semantics.
@@ -451,7 +492,7 @@ and Agent Note evidence.
 
 ### T3 — Codex MCP facade
 
-- Depends on: T2, J2.
+- Depends on: T2, J2, G1.
 - Allowed/forbidden scope: Codex-facing MCP naming/config/translation; forbid runtime ownership, duplicate Job state and generic MCP changes.
 - RED: Codex tool/resource calls, cancel and rich results fail facade-to-T2 conformance.
 - GREEN: implement a thin Codex MCP facade over T2/J2 contracts.
@@ -484,7 +525,7 @@ and Agent Note evidence.
 
 ### D1 — Electron Host→Python supervision
 
-- Depends on: P1, T1, O8.
+- Depends on: P1, T1, O8, G1.
 - Allowed/forbidden scope: Electron launches/supervises Cordis Host; Host alone supervises Python; forbid Electron→Python direct ownership and installer claims.
 - RED: start, Host/Python crash recovery, shutdown and descendant cleanup fail source-tree Electron integration.
 - GREEN: implement the single Electron→Host→Python supervision chain with durable recovery signals.
@@ -515,6 +556,17 @@ and Agent Note evidence.
 - Rollback/blocker: hide card without deleting settings; stale overwrite or secret exposure blocks L1/release.
 - Definition of complete: authorized users see current keyed cards, conflicts are explicit and secrets never round-trip to UI.
 
+### Q1 — Five-mode real model E2E
+
+- Depends on: N1, X1, P1, P2, T1, C4, J3, S1.
+- Allowed/forbidden scope: real-provider end-to-end fixtures for Standard, Code-Python, Code-TypeScript, Minimal and Creator through production profiles/transport; forbid fake models, smoke-only assertions and installed upgrade/rollback.
+- RED: at least one mode cannot complete a real request/stream, durable replay, cancel/recovery and mode-specific artifact or trust assertion through the real Host and Python peer.
+- GREEN: make all five profiles use N1 and the same durable lifecycle while preserving Code sandboxing, Minimal capability limits and X1 Creator verification.
+- Acceptance: current base/product regressions; `to be introduced by Q1: pnpm test:five-mode-real-e2e` with retained provider, event, artifact and process evidence.
+- Commit boundary: fixture/harness first, then one minimal mode fix per Q1 commit; no installed packaging changes.
+- Rollback/blocker: keep the affected mode alpha-disabled; any fake substitution, missing durable projection, sandbox/trust bypass or orphan process blocks A1/B1/R1.
+- Definition of complete: Standard / Code-Python / Code-TypeScript / Minimal / Creator real E2E all pass real model and streaming-response, replay, cancellation and recovery criteria.
+
 ## P3 — Migration, proof, deletion and release
 
 ### M1 — lossless full data tree migration
@@ -530,7 +582,7 @@ and Agent Note evidence.
 
 ### B1 — three benchmark runners/golden/CI
 
-- Depends on: P2, T3, M1.
+- Depends on: P2, T3, M1, Q1.
 - Allowed/forbidden scope: three existing scenario classes, runner, immutable evidence, thresholds/update policy and CI; forbid YAML-only completion and silent golden refresh.
 - RED: `greenfield-repository`, `existing-repository-repair` and `software-company-lifecycle` each lack an executable result or fail their explicit threshold before implementation.
 - GREEN: add deterministic runners, reviewed golden evidence and CI comparisons with an approval rule for updates.
@@ -541,25 +593,25 @@ and Agent Note evidence.
 
 ### A1 — Windows/macOS/Linux installed artifacts
 
-- Depends on: D1, P1, P2, T1, K1, M1.
+- Depends on: D1, P1, P2, T1, K1, M1, Q1, G1.
 - Allowed/forbidden scope: packaging owner/installers and installed smoke on three OSes; forbid source-tree Node/Python substitution and legacy-backend ownership.
-- RED: packaged app without system Node/Python fails start, Standard/both Code modes, recovery, migration, cancel and process cleanup on each OS.
+- RED: packaged app without system Node/Python fails start, Standard, Code-Python, Code-TypeScript, Minimal or trusted Creator mode, recovery, migration, cancel and process cleanup on each OS.
 - GREEN: bundle Node Host/Python plane and required runtimes/assets under one installer lifecycle per platform.
 - Acceptance: `to be introduced by A1: pnpm test:installed:windows`; `to be introduced by A1: pnpm test:installed:macos`; `to be introduced by A1: pnpm test:installed:linux`.
 - Commit boundary: packaging owner first, then one independently reviewable platform artifact/gate per A1 commit.
-- Rollback/blocker: keep last alpha artifact and do not publish broken platform; system-runtime dependency or orphan process blocks G1/L4/R1.
-- Definition of complete: all three installed artifacts pass the full smoke without system Node/Python.
+- Rollback/blocker: keep last alpha artifact and do not publish broken platform; system-runtime dependency or orphan process blocks X2/L4/G2/R1.
+- Definition of complete: all three installed artifacts pass the full five-mode smoke without system Node/Python.
 
-### G1 — optional dependency/release graph/notices/SBOM
+### X2 — Creator installed lifecycle
 
-- Depends on: A1 and all runtime/package owners it inventories.
-- Allowed/forbidden scope: module-scope optional-import gate, packed missing-dependency tests, release graph, license/notices freshness and SBOM; forbid source-tree-only substitution.
-- RED: remove each optional dependency from a real packed artifact and expose eager import; make graph/notices/SBOM stale against the payload.
-- GREEN: isolate optional imports, generate one release dependency graph and derive verified notices/SBOM from actual artifacts and pinned provenance.
-- Acceptance: `to be introduced by G1: pnpm test:packed-missing-deps`; `to be introduced by G1: uv run python scripts/check_release_graph.py`; `to be introduced by G1: uv run python scripts/check_notices_sbom.py`.
-- Commit boundary: optional import fixes, graph generation and notices/SBOM gates are separate G1 commits.
-- Rollback/blocker: retain prior artifacts/notices and block publication; undeclared payload, missing license or source-only proof blocks deletion/release.
-- Definition of complete: packed artifacts tolerate absent optional modules and graph/notices/SBOM exactly match shipped payloads.
+- Depends on: X1, Q1, A1, G1.
+- Allowed/forbidden scope: signed Creator install, versioned upgrade, downgrade policy, revocation response and atomic rollback inside real installed artifacts; forbid source-tree simulation, unsigned recovery and release metadata generation.
+- RED: install/upgrade injected failures, revoked signer, source-pin drift or application restart leaves a partial package, loses the previous trusted version, leaks resources or executes unverified content.
+- GREEN: make the Creator installed lifecycle stage and verify the entire package, atomically switch versions, retain an auditable prior version and rollback on any validation/startup/conformance failure.
+- Acceptance: all A1 installed gates; `to be introduced by X2: pnpm test:creator-installed-lifecycle` on Windows/macOS/Linux with install/upgrade/revoke/rollback fixtures.
+- Commit boundary: install, upgrade/revocation and rollback/recovery are separate X2 commits, each preserving X1 trust ownership.
+- Rollback/blocker: keep the last verified pinned Creator package and quarantine the candidate; partial activation, trust bypass, lost rollback or leaked resources blocks G2/R1.
+- Definition of complete: Creator installed lifecycle passes real installation, signed upgrade, signer revocation and atomic rollback on every supported installed artifact.
 
 ### L1 — Delete legacy server/transport/DTO/React paths
 
@@ -574,8 +626,8 @@ and Agent Note evidence.
 
 ### L2 — Delete SessionDriver/AgentRuntime/domain legacy paths
 
-- Depends on: P2, O1, O2, O3, O4, O5, O6, O7, O8, C1, C2, C3, C4, J1, J2, J3, S1 and real repository/recovery evidence.
-- Allowed/forbidden scope: covered SessionDriver, old AgentRuntime, workflow/meetings/ledger/budget/memory/evolution modules; forbid enterprise/data-reader deletion.
+- Depends on: P2, O1, O2, O3, O4, O5, O6, O7, O8, C1, C2, C3, C4, J1, J2, J3, N1, X1, X2, Q1, S1 and real repository/recovery evidence.
+- Allowed/forbidden scope: covered SessionDriver, old AgentRuntime/Creator installer, workflow/meetings/ledger/budget/memory/evolution modules; forbid enterprise/data-reader deletion.
 - RED: production imports or semantic scenarios still depend on each target module.
 - GREEN: delete one covered module family and tighten import/behavior gates to reviewed replacements.
 - Acceptance: current Python and all v1 package regressions; `to be introduced by L2: pnpm test:zero-old-domain-runtime`.
@@ -627,9 +679,20 @@ and Agent Note evidence.
 - Rollback/blocker: revert the failing deletion while retaining historical evidence; any production match blocks R1.
 - Definition of complete: zero-legacy gate is GREEN and no production entrypoint depends on old runtime, DTO or event vocabulary.
 
+### G2 — Final release graph, notices and SBOM freshness
+
+- Depends on: G1, A1, X2, L1, L2, L3, L4, L5, L6.
+- Allowed/forbidden scope: rebuild the final candidate payload, release dependency graph, pinned license/notices freshness and SBOM verification; forbid optional-import implementation, payload mutation after capture and source-tree-only proof.
+- RED: the stable post-L6 candidate contains an undeclared/missing dependency or license, or its graph/notices/SBOM hashes diverge from the actual Windows/macOS/Linux payload.
+- GREEN: rebuild through A1's reviewed recipe after every legacy deletion, inventory the immutable payload and derive one verified release graph plus fresh notices/SBOM from that exact candidate.
+- Acceptance: rerun all A1 installed gates; `to be introduced by G2: uv run python scripts/check_release_graph.py`; `to be introduced by G2: uv run python scripts/check_notices_sbom.py`.
+- Commit boundary: final payload inventory/graph and notices/SBOM generation are separate G2 commits against the same frozen candidate hash.
+- Rollback/blocker: retain the prior alpha artifacts/notices and block publication; any payload change, undeclared component, missing license or stale hash resets G2 and blocks R1.
+- Definition of complete: the post-legacy-deletion installed payload is frozen and its dependency graph, notices and SBOM exactly match all shipped artifacts.
+
 ### R1 — Version 1.0.0, tag and release
 
-- Depends on: H1, H2, H3, H4A, H4B, H5, O1, O2, O3, O4, O5, O6, O7, O8, E1, E2, E3, E4, E5, E6, E7, E8, E9, S1, C1, C2, C3, C4, J1, J2, J3, P1, P2, T1, T2, T3, K1, U1, D1, S2, S3, M1, B1, A1, G1, L1, L2, L3, L4, L5, L6.
+- Depends on: H1, H2, H3, H4A, H4B, H5, G1, O1, O2, O3, O4, O5, O6, O7, O8, E1, E2, E3, E4, E5, E6, E7, E8, E9, S1, C1, C2, C3, C4, J1, J2, J3, N1, X1, P1, P2, T1, T2, T3, K1, U1, D1, S2, S3, Q1, M1, B1, A1, X2, L1, L2, L3, L4, L5, L6, G2.
 - Allowed/forbidden scope: version/metadata/tag/release/assets and immutable evidence only; forbid feature fixes, skipped gates and alpha removal before dependencies pass.
 - RED: release verification detects non-1.0.0 versions, tag/artifact/provenance mismatch or any missing gate/evidence.
 - GREEN: synchronize every product version to `1.0.0`, generate final metadata/assets, create signed/annotated tag and publish only the reviewed immutable artifacts.
@@ -674,7 +737,7 @@ Set-Location ..
 
 These are current legacy/front-end regression evidence; `npm run e2e:real` is not yet the T1-backed installed-product
 gate. Every nonexistent future gate is written at its owning package as `to be introduced by <ID>` and must first
-fail there. H5/C1/C2/C3/C4/J1/J2/O8/S1/P1/P2/T1/T2/T3/D1/S2/S3/M1/B1/A1/G1/L1–L6/R1 own those commands;
+fail there. H4A/H5/G1/C1/C2/C3/C4/J1/J2/O8/S1/N1/X1/P1/P2/T1/T2/T3/D1/S2/S3/Q1/M1/B1/A1/X2/G2/L1–L6/R1 own those commands;
 none is claimed GREEN today.
 
 ## Legacy deletion prerequisite matrix
@@ -685,7 +748,7 @@ back alone. No row may start while its replacement evidence is still being creat
 | Legacy deletion target | Replacement evidence required first | Owner |
 |---|---|---|
 | Old server, REST/SSE/WS, DTO, React stores/pages | Generated client for every page plus real Host transport E2E, reconnect/cursor/auth/tenant | L1 after T1–T3/U1/S3 |
-| SessionDriver, AgentRuntime, workflow/meetings/ledger/budget/memory/evolution | Software Company real-repository delivery plus recovery, approval, usage budget, artifact, memory/evolution | L2 after O1–O8/C/J/P2/S1 |
+| SessionDriver, AgentRuntime, Creator installer, workflow/meetings/ledger/budget/memory/evolution | Software Company real-repository delivery plus recovery, approval, usage budget, artifact, memory/evolution; five-mode real E2E and trusted Creator installed install/upgrade/rollback | L2 after O1–O8/C/J/N1/X1/X2/Q1/P2/S1 |
 | RBAC, tenancy, OAuth MCP, audit, calendar, dependency graph, evolution enterprise implementations | Per-plugin semantics, durable storage, permission and two-tenant differential evidence | L3 after E1–E9 |
 | Electron legacy backend startup | Electron→Host→Python three-platform installed smoke and process cleanup | L4 after D1/A1 |
 | Old session/checkpoint/memory/artifact/fork/governance readers | Full-tree manifest/hash/projection comparison and whole-batch rollback in installed artifact | L5 after M1/A1 |
@@ -701,8 +764,12 @@ All deletion packages and the L6 zero-legacy gate must be GREEN before any `1.0.
   Electron and MCP facade share the generated protocol and dual-plane lifecycle.
 - Organization, enterprise plugins, sandbox, attachments and Jobs are real implementations with real E2E,
   security and recovery evidence—not placeholders or shared Maps.
+- Real model streaming has ordered durable response/replay/cancel/recovery evidence. Standard, Code-Python,
+  Code-TypeScript, Minimal and Creator each pass real E2E; Creator additionally passes pinned-source trust root,
+  signer/revocation, full conformance resource audit and three-platform installed install/upgrade/rollback.
 - Full-tree migration/rollback, three benchmark runners/golden/CI, three-platform installed artifacts without
-  system Node/Python, packed optional-dependency checks and license/notices/SBOM are GREEN.
+  system Node/Python, early G1 packed optional-dependency checks and post-L6 G2 release graph/notices/SBOM
+  freshness are GREEN against the final payload.
 - Legacy is deleted only through the prerequisite matrix; L6's zero-legacy gate is GREEN while historical evidence
   and provenance documents remain intact.
 - All versions are `1.0.0`; the reviewed tag, release and assets match immutable provenance and preserve rollback

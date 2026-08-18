@@ -45,3 +45,28 @@ GREEN:
 This task changes documentation, focused documentation contracts and this Agent Note only. It does not change
 runtime, frontend, legacy code or the untracked activation-policy RED. The next action is H1 / Task 16.11; after
 reviewed GREEN it automatically advances to H2 / Task 16.11a and H3 / Task 16.12 without asking to continue.
+
+## Review fix
+
+The first independent review found that the master omitted real streaming-model proof, Creator supply-chain and
+installed lifecycle work, and the final five-mode E2E gate. It also found that the original G1 incorrectly mixed
+an early optional-dependency gate with final release metadata, and that H2 described retaining a failing snapshot
+instead of making the test-only contract GREEN.
+
+The fix adds N1 (real model streaming), X1 (Creator trust/conformance), Q1 (Standard/Code-Python/
+Code-TypeScript/Minimal/Creator real E2E), and X2 (Creator installed install/upgrade/revoke/rollback). G1 now owns
+only the pre-optional-package import/real-packed missing-dependency gate; G2 runs after X2 and L1–L6 to derive the
+release graph/notices/SBOM from the frozen final payload. H2 commits only a passing snapshot contract; a runtime
+defect blocks H2 and requires separately authorized repair. H4A is present in the future-command owner summary.
+
+Review-fix RED:
+
+- `uv run pytest -q tests/test_v1_contracts.py -k "master_roadmap"` — `2 failed, 1 passed, 9 deselected`;
+  the five new stable IDs were absent and H2 lacked the passing-contract/blocked-runtime semantics.
+
+Review-fix GREEN:
+
+- `uv run pytest -q tests/test_v1_contracts.py -k "master_roadmap"` — `3 passed, 9 deselected`.
+- `uv run pytest -q tests/test_v1_contracts.py` — `12 passed`.
+- Final acceptance also runs the Agent Note verifier and whitespace/range checks; the ignored Task 16.9b report
+  retains their exact output and the activation RED hash.

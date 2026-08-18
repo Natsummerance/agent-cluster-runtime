@@ -28,8 +28,8 @@ MASTER_ROADMAP_IDS = {
     "O1", "O2", "O3", "O4", "O5", "O6", "O7", "O8",
     "E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9",
     "S1", "C1", "C2", "C3", "C4", "J1", "J2", "J3",
-    "P1", "P2", "T1", "T2", "T3", "K1", "U1", "D1", "S2", "S3",
-    "M1", "B1", "A1", "G1", "L1", "L2", "L3", "L4", "L5", "L6", "R1",
+    "N1", "X1", "P1", "P2", "T1", "T2", "T3", "K1", "U1", "D1", "S2", "S3", "Q1",
+    "M1", "B1", "A1", "X2", "G1", "G2", "L1", "L2", "L3", "L4", "L5", "L6", "R1",
 }
 MASTER_ROADMAP_FIELDS = {
     "Depends on:",
@@ -237,6 +237,11 @@ def test_v1_master_roadmap_has_executable_packages_for_all_four_phases() -> None
         "three benchmark runners/golden/CI",
         "Windows/macOS/Linux installed artifacts",
         "optional dependency/release graph/notices/SBOM",
+        "streaming model + real model/streaming-response E2E",
+        "Creator installed lifecycle",
+        "trust root / signer / revocation / source pinning",
+        "full conformance resource audit",
+        "Standard / Code-Python / Code-TypeScript / Minimal / Creator real E2E",
     ):
         assert required_contract in text
 
@@ -261,6 +266,55 @@ def test_v1_master_roadmap_preserves_order_next_action_and_release_gates() -> No
     assert "H4A" in packages["H4B"] and "H4A, H4B" in packages["H5"]
     assert "to be introduced by H5" in packages["H5"]
     assert "to be introduced by R1" in packages["R1"]
+    assert "snapshot contract passes" in packages["H2"]
+    assert "preserve the failing snapshot" not in packages["H2"]
+    assert "blocked" in packages["H2"] and "separately authorized runtime fix" in packages["H2"]
+
+    g1_dependencies = re.search(r"^- Depends on: (.+)$", packages["G1"], re.MULTILINE)
+    assert g1_dependencies is not None and "H5" in g1_dependencies.group(1)
+    assert "A1" not in g1_dependencies.group(1)
+    assert "packed missing-dependency" in packages["G1"]
+    g1_implementation = "\n".join(
+        line for line in packages["G1"].splitlines()
+        if line.startswith(("- GREEN:", "- Acceptance:", "- Definition of complete:"))
+    )
+    assert "release graph" not in g1_implementation.lower()
+    assert "L1, L2, L3, L4, L5, L6" in packages["G2"]
+    assert "release graph" in packages["G2"].lower()
+    assert "notices/SBOM" in packages["G2"]
+    assert "G1" in packages["X1"] and "G1" in packages["S1"]
+    assert "G1" in packages["R1"] and "G2" in packages["R1"]
+
+    assert "to be introduced by N1" in packages["N1"]
+    assert "to be introduced by X1" in packages["X1"]
+    assert "to be introduced by X2" in packages["X2"]
+    assert "to be introduced by Q1" in packages["Q1"]
+    assert "streaming model + real model/streaming-response E2E" in packages["N1"]
+    assert "trust root / signer / revocation / source pinning" in packages["X1"]
+    assert "full conformance resource audit" in packages["X1"]
+    assert "Creator installed lifecycle" in packages["X2"]
+    assert "Standard / Code-Python / Code-TypeScript / Minimal / Creator real E2E" in packages["Q1"]
+    r1_dependencies = re.search(r"^- Depends on: (.+)$", packages["R1"], re.MULTILINE)
+    assert r1_dependencies is not None
+    for package_id in MASTER_ROADMAP_IDS - {"R1"}:
+        assert re.search(rf"\b{package_id}\b", r1_dependencies.group(1)), package_id
+
+    definition_of_done = text.split("## Definition of Done", 1)[1].split("## Next action", 1)[0]
+    for required_gate in (
+        "Real model streaming",
+        "Standard, Code-Python",
+        "Minimal and Creator",
+        "signer/revocation",
+        "full conformance resource audit",
+        "installed install/upgrade/rollback",
+        "early G1 packed optional-dependency checks",
+        "post-L6 G2 release graph/notices/SBOM",
+    ):
+        assert required_gate in definition_of_done
+    command_registry = text.split("## Command registry and evidence level", 1)[1].split(
+        "## Legacy deletion prerequisite matrix", 1
+    )[0]
+    assert "H4A" in command_registry
 
     assert "fixed implementer" in text
     assert "read-only reviewer" in text

@@ -28,6 +28,78 @@ const TRAY_TOOLTIP = 'DoAI Workbench';
 const TRAY_ICON_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACYElEQVR4nO2X6U4TURTHJ+EFeAQTAgargKK4sUhL+wJ9EL+bGDGIKwioSLEL/cSLlC6uWHBBBSVoTPjSN2iu+d3MIZMJzNzO2ExIOMlJ7tyz/O//nNM7U8s6kWMlqWKpI7myFkuurKUmCuU0ypo9bO3CJf9EoXwzka+sxnPVejxXbYxna02UNXvY8MH3f+GmiqVOcsZz1dJ4tqZuvHqtxpbfaB3NvNUqz9jwwZcYYsNyTuQrGTiSG6yRpXdq+OV7rdcXP2iVZ2z42OdoEhu0Fjb2KnzgJrjXXqyrq88/ar3yrK5VnrHJOYghlhytnoG62bwPsOEJxuWFDTU0v6m8BF/XGTKt9ILeUT/Bhhc8wb0090kNzn7xxMeXGMcZmuQ0rTvzQw+Ft2BffPpZXZj56omN4EuM1IFc5DTpg81dzxG9pOZO7IHH33zx8SWGWHKQi5x+NeD+YF6EOzWk39TcFBvBlxhipQ/kJLfXHWXXvk7PnNzp9/knW6rv4Q9fbHzwJcZZA3KS26sH3KPcZYfhm3I/92Bb+x6B3wDDo/dpZpV+ydxJ7VsV6YHMoT0D/A7SQfD7H31XZ+/vqN6pXdUz+Vt13f6rTt3a18qaPWz44BsE36/+1PbMvV/q9N091X3nj8ZFWbOHLUz9TeYvNv1T8wQPzihr9rCFmT+T3x/8wIErmChr9oR70N+fZXj/wBEseo2yZk+wg94/luH9S33BYs5Q1uw5sYPev5bh+wcFD5VnbIId9P1jGb5/5SyCiWLDJ+z714r4+8N1hki+v0Si/P501yKK72+3RPX/40TaI/8ATtOdWeIReB8AAAAASUVORK5CYII=';
 
+/** 诊断后端环境：检查 Python、依赖、资源文件等。 */
+function diagnoseBackendEnvironment() {
+  const diagnostics = [];
+  
+  // 1. 检查 Python
+  try {
+    const pythonVersion = execFileSync(
+      process.platform === 'win32' ? 'python' : 'python3',
+      ['--version'],
+      { encoding: 'utf8', windowsHide: true }
+    ).trim();
+    diagnostics.push(`✅ Python: ${pythonVersion}`);
+  } catch (err) {
+    diagnostics.push(`❌ Python 未找到: ${err.message}`);
+  }
+  
+  // 2. 检查 agent-cluster 包
+  try {
+    execFileSync(
+      process.platform === 'win32' ? 'python' : 'python3',
+      ['-c', 'import agent_cluster; print(agent_cluster.__file__)'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }
+    );
+    diagnostics.push('✅ agent-cluster 包已安装');
+  } catch (err) {
+    diagnostics.push('❌ agent-cluster 包未安装（运行: pip install -e .）');
+  }
+  
+  // 3. 检查随包资源
+  const resourceRoot = app.isPackaged && process.resourcesPath
+    ? process.resourcesPath
+    : path.join(__dirname, "resources");
+  const backendDir = path.join(resourceRoot, "backend");
+  
+  if (fs.existsSync(backendDir)) {
+    diagnostics.push(`✅ 随包后端目录存在: ${backendDir}`);
+    
+    const venvPython = [
+      path.join(backendDir, "venv", "Scripts", "python.exe"),
+      path.join(backendDir, "venv", "python.exe"),
+      path.join(backendDir, "venv", "bin", "python"),
+    ].find(p => fs.existsSync(p));
+    
+    if (venvPython) {
+      diagnostics.push(`✅ 随包 Python: ${venvPython}`);
+    } else {
+      diagnostics.push('⚠️ 随包 venv 中未找到 Python');
+    }
+    
+    if (fs.existsSync(path.join(backendDir, "src"))) {
+      diagnostics.push('✅ 随包源码存在');
+    } else {
+      diagnostics.push('❌ 随包源码缺失');
+    }
+  } else {
+    diagnostics.push(`⚠️ 随包后端目录不存在: ${backendDir}`);
+  }
+  
+  // 4. 检查 uv
+  try {
+    const uvVersion = execFileSync('uv', ['--version'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    }).trim();
+    diagnostics.push(`✅ uv: ${uvVersion}`);
+  } catch (err) {
+    diagnostics.push('⚠️ uv 未安装（开发模式需要）');
+  }
+  
+  return diagnostics.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // 状态
 // ---------------------------------------------------------------------------
@@ -112,32 +184,32 @@ function authHeaders() {
 // ---------------------------------------------------------------------------
 // 后端进程
 // ---------------------------------------------------------------------------
-/** 解析后端启动方式：优先随包后端（独立 exe 或随包 venv+源码），否则回退 uv run（开发模式）。 */
+/** 解析后端启动方式：优先随包后端（独立 exe 或随包 venv+源码），否则回退系统 Python/uv（开发模式）。 */
 function resolveBackendLaunch() {
   const repoRoot = REPO_ROOT;
-  const candidates = [];
+  
+  // 确定资源根目录：打包后使用 process.resourcesPath，开发时使用 __dirname/resources
   const resourceRoot = app.isPackaged && process.resourcesPath
     ? process.resourcesPath
     : path.join(__dirname, "resources");
 
+  log(`资源根目录: ${resourceRoot} (isPackaged=${app.isPackaged})`);
+
   // 1) 独立后端可执行文件（向后兼容 agent-cluster-backend.exe）
   if (app.isPackaged && process.resourcesPath) {
-    candidates.push(path.join(process.resourcesPath, "agent-cluster-backend.exe"));
-  }
-  candidates.push(path.join(__dirname, "resources", "agent-cluster-backend.exe"));
-  for (const exe of candidates) {
-    if (fs.existsSync(exe)) {
-      log(`使用随包后端：${exe}`);
-      return { command: exe, args: [], cwd: repoRoot, env: {} };
+    const standaloneExe = path.join(process.resourcesPath, "agent-cluster-backend.exe");
+    if (fs.existsSync(standaloneExe)) {
+      log(`使用随包后端可执行文件：${standaloneExe}`);
+      return { command: standaloneExe, args: [], cwd: repoRoot, env: {} };
     }
   }
 
   // 2) 随包 venv + 源码（extraResources：resources/backend/{venv,src,pyproject.toml}）
   const backendDir = path.join(resourceRoot, "backend");
   const pythonCandidates = [
-    path.join(backendDir, "venv", "Scripts", "python.exe"),
-    path.join(backendDir, "venv", "python.exe"),
-    path.join(backendDir, "venv", "bin", "python"),
+    path.join(backendDir, "venv", "Scripts", "python.exe"),  // Windows venv
+    path.join(backendDir, "venv", "python.exe"),              // Windows fallback
+    path.join(backendDir, "venv", "bin", "python"),           // Linux/Mac venv
   ];
   const python = pythonCandidates.find((cand) => fs.existsSync(cand));
   if (python && fs.existsSync(path.join(backendDir, "src"))) {
@@ -150,9 +222,37 @@ function resolveBackendLaunch() {
     };
   }
 
-  // 3) 开发模式回退（本机 uv + 项目源码）
-  log("未找到随包后端（agent-cluster-backend.exe / backend/venv），回退 uv run agent-cluster serve");
-  return { command: "uv", args: ["run", "agent-cluster", "serve"], cwd: repoRoot, env: {} };
+  // 3) 尝试系统 Python（如果已安装 agent-cluster）
+  try {
+    const systemPython = process.platform === 'win32' ? 'python' : 'python3';
+    const testCmd = process.platform === 'win32' 
+      ? 'python -c "import agent_cluster; print(agent_cluster.__file__)"'
+      : 'python3 -c "import agent_cluster; print(agent_cluster.__file__)"';
+    
+    execFileSync(systemPython, ['-c', 'import agent_cluster'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    
+    log(`使用系统 Python：${systemPython}（已安装 agent-cluster）`);
+    return {
+      command: systemPython,
+      args: ["-m", "agent_cluster.cli", "serve"],
+      cwd: repoRoot,
+      env: {},
+    };
+  } catch (err) {
+    log(`系统 Python 未安装 agent-cluster：${err.message}`);
+  }
+
+  // 4) 最后回退到 uv run（开发模式，需要用户安装 uv）
+  log("警告：未找到可用的后端运行时，尝试 uv run（需确保已安装 uv 并在项目根目录）");
+  return { 
+    command: "uv", 
+    args: ["run", "agent-cluster", "serve"], 
+    cwd: repoRoot, 
+    env: {} 
+  };
 }
 
 /** 轮询 /api/v1/status 等待后端就绪（最多约 30s）。 */
@@ -200,18 +300,62 @@ async function startBackend() {
   });
   backendProcess.on('error', (err) => {
     console.error('[desktop] 后端进程启动失败：', err.message);
+    const errorMsg = `后端启动失败：${err.message}\n\n` +
+      `可能原因：\n` +
+      `1. 未找到 Python 环境或 agent-cluster 包\n` +
+      `2. 依赖未安装（运行: pip install -e .）\n` +
+      `3. uv 未安装（开发模式需要）\n\n` +
+      `请查看控制台日志获取详细信息。`;
+    if (!isQuitting && !SMOKE_MODE) {
+      dialog.showErrorBox('DoAI Workbench - 后端启动失败', errorMsg);
+    }
   });
   backendProcess.on('exit', (code, signal) => {
     log(`后端进程退出 code=${code} signal=${signal}`);
     backendProcess = null;
     if (!isQuitting && !SMOKE_MODE) {
-      dialog.showErrorBox('DoAI Workbench', `agent-cluster serve 后端已退出（code=${code}）。\n请重新启动工作台。`);
+      let errorMsg = `agent-cluster serve 后端已退出（code=${code}）。\n\n`;
+      
+      if (code !== 0 && code !== null) {
+        errorMsg += `错误码 ${code} 通常表示：\n` +
+          `- 依赖缺失：运行 'pip install -e .' 或 'uv sync'\n` +
+          `- Python 版本不兼容：需要 Python 3.11+\n` +
+          `- 端口被占用：尝试重启应用或使用不同端口\n\n`;
+      }
+      
+      errorMsg += `请查看控制台日志获取详细错误信息。`;
+      dialog.showErrorBox('DoAI Workbench - 后端异常退出', errorMsg);
     }
   });
 
   backendUrl = `http://127.0.0.1:${port}`;
-  await waitForBackendReady(backendUrl, BACKEND_READY_TIMEOUT_MS);
-  log(`后端就绪：${backendUrl}${backendAuthToken ? '（认证已启用）' : ''}`);
+  
+  try {
+    await waitForBackendReady(backendUrl, BACKEND_READY_TIMEOUT_MS);
+    log(`后端就绪：${backendUrl}${backendAuthToken ? '（认证已启用）' : ''}`);
+  } catch (err) {
+    const errorMsg = `后端在 ${BACKEND_READY_TIMEOUT_MS/1000} 秒内未能启动。\n\n` +
+      `诊断信息：\n` +
+      `- 后端命令: ${launch.command}\n` +
+      `- 工作目录: ${launch.cwd}\n` +
+      `- 端口: ${port}\n\n` +
+      `可能原因：\n` +
+      `1. Python 环境配置问题（检查 Python 3.11+ 是否安装）\n` +
+      `2. agent-cluster 包未安装（运行: pip install -e .）\n` +
+      `3. 依赖冲突或缺失（运行: pip install pydantic langgraph PyYAML）\n` +
+      `4. 防火墙阻止本地连接\n\n` +
+      `建议操作：\n` +
+      `- 开发模式：在项目根目录运行 'uv sync' 或 'pip install -e .'\n` +
+      `- 生产模式：确保安装包包含完整的 backend/venv 资源\n\n` +
+      `详细错误: ${err.message}`;
+    
+    console.error('[desktop] 后端启动超时:', err);
+    if (!isQuitting && !SMOKE_MODE) {
+      dialog.showErrorBox('DoAI Workbench - 后端启动超时', errorMsg);
+    }
+    throw err;
+  }
+  
   return backendUrl;
 }
 
@@ -474,6 +618,12 @@ function handleUpdateStatus(status) {
 // 生命周期
 // ---------------------------------------------------------------------------
 app.whenReady().then(async () => {
+  // 输出环境诊断信息
+  log('=== 环境诊断 ===');
+  const diagnostics = diagnoseBackendEnvironment();
+  log(diagnostics);
+  log('================');
+  
   updater.init();
   updater.registerIpc();
   if (!SMOKE_MODE) {

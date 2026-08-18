@@ -24,7 +24,9 @@ describe('Creator conformance and permission audit', () => {
   it('trial-installs only in a disposable shadow Host', async () => {
     let cleaned = 0
     const report = await new CreatorConformanceKit({ 'candidate.service': 'exactly_one' })
-      .verify(candidate(() => { cleaned += 1 }), {})
+      .verify(candidate(() => { cleaned += 1 }), {}, [
+        { plugin: 'candidate', kind: 'network', resource: 'https://example.invalid' },
+      ])
 
     expect(report).toMatchObject({ valid: true, providersAfterDispose: 0, effectsAfterDispose: 0 })
     expect(cleaned).toBe(1)

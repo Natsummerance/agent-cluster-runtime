@@ -79,7 +79,9 @@ describe('DoAIHost lifecycle', () => {
     await host.activate([{ plugin: 'stable' }])
     expect(host.inspect().epoch).toBe(1)
 
-    await expect(host.activate([{ plugin: 'broken' }])).rejects.toThrow('boom')
+    await expect(host.activate([{ plugin: 'broken' }])).rejects.toMatchObject({
+      code: 'PLUGIN_START_FAILED', plugin: 'broken', pointer: '/plugins/broken/apply',
+    })
 
     expect(host.resolve('storage')).toBe('old')
     expect(host.inspect().epoch).toBe(1)
@@ -125,7 +127,9 @@ describe('DoAIHost lifecycle', () => {
     host.register(failingShadow)
     await host.activate([{ plugin: 'active' }])
 
-    await expect(host.activate([{ plugin: 'failing-shadow' }])).rejects.toThrow('shadow validation failed')
+    await expect(host.activate([{ plugin: 'failing-shadow' }])).rejects.toMatchObject({
+      code: 'PLUGIN_START_FAILED', plugin: 'failing-shadow', pointer: '/plugins/failing-shadow/apply',
+    })
 
     expect(providerSeenBeforeCommit).toBe('active')
     expect(onionSeenBeforeCommit).toBe('active:terminal')

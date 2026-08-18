@@ -63,7 +63,15 @@ describe('M2 Host integration', () => {
       { plugin: 'session-store-jsonl', config: { root: data } },
       { plugin: 'approval-provider' },
       { plugin: 'tool-audit-policy' },
-    ])
+    ], {
+      permissionGrants: [
+        { plugin: 'tools-local', kind: 'filesystem', resource: 'config.workspace' },
+        { plugin: 'tools-local', kind: 'process', resource: 'workspace-child' },
+        { plugin: 'model-provider', kind: 'credential', resource: 'model-provider' },
+        { plugin: 'session-store-jsonl', kind: 'filesystem', resource: 'config.root' },
+      ],
+      credentialProbe: async () => true,
+    })
     const agent = host.resolve<StandardAgent>('agent.invoke')
     const result = await agent.invoke({
       session_id: 'integrated',

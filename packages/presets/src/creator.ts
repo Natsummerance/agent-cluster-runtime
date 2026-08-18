@@ -1,6 +1,6 @@
 import { createHash, verify as verifySignature } from 'node:crypto'
 
-import { DoAIHost, type CapabilityPolicy, type DoAIPlugin } from '@doai/host'
+import { DoAIHost, type CapabilityPolicy, type DoAIPlugin, type PermissionGrantSet } from '@doai/host'
 import type { PluginManifest } from '@doai/protocol'
 
 export interface ConformanceReport {
@@ -13,11 +13,19 @@ export interface ConformanceReport {
 export class CreatorConformanceKit {
   constructor(readonly policies: Record<string, CapabilityPolicy>) {}
 
-  async verify(plugin: DoAIPlugin, config: Record<string, unknown>): Promise<ConformanceReport> {
+  async verify(
+    plugin: DoAIPlugin,
+    config: Record<string, unknown>,
+    permissionGrants: PermissionGrantSet = [],
+    credentialProbe?: (resource: string) => boolean | Promise<boolean>,
+  ): Promise<ConformanceReport> {
     const host = new DoAIHost({ capabilityPolicies: this.policies })
     try {
       host.register(plugin)
-      await host.activate([{ plugin: plugin.manifest.name, config }])
+      await host.activate([{ plugin: plugin.manifest.name, config }], {
+        permissionGrants,
+        ...(credentialProbe === undefined ? {} : { credentialProbe }),
+      })
       await host.deactivate()
       const inspection = host.inspect()
       return {

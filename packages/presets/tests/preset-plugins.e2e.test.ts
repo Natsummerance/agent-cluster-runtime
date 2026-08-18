@@ -49,7 +49,13 @@ describe('v1 preset plugins', () => {
       { plugin: `runtime-${language}`, ...(language === 'python' ? { config: { executable: python } } : {}) },
       { plugin: 'tools-local', config: { workspace } },
       { plugin: 'approval-provider' },
-    ])
+    ], {
+      permissionGrants: [
+        { plugin: `runtime-${language}`, kind: 'process', resource: language === 'python' ? 'config.executable' : 'bundled-node' },
+        { plugin: 'tools-local', kind: 'filesystem', resource: 'config.workspace' },
+        { plugin: 'tools-local', kind: 'process', resource: 'workspace-child' },
+      ],
+    })
 
     const tools = host.resolve<ToolRuntime>('tool.execute')
     const result = await tools.execute(`code.${language}`, language === 'python'
@@ -119,7 +125,13 @@ describe('v1 preset plugins', () => {
     await host.activate([
       { plugin: 'agent-minimal' }, { plugin: 'model-provider' },
       { plugin: 'session-store-jsonl', config: { root: data } },
-    ])
+    ], {
+      permissionGrants: [
+        { plugin: 'model-provider', kind: 'credential', resource: 'model-provider' },
+        { plugin: 'session-store-jsonl', kind: 'filesystem', resource: 'config.root' },
+      ],
+      credentialProbe: async () => true,
+    })
 
     const result = await host.resolve<StandardAgent>('agent.invoke').invoke({
       session_id: 'minimal', scope: { tenant_id: 't', project_id: 'p' }, input: 'hello', system_prompt: 'minimal',

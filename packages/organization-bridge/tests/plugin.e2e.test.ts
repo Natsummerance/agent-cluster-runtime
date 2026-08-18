@@ -58,7 +58,16 @@ describe('Python Organization Plane Host plugin', () => {
       { plugin: 'model-provider' },
       { plugin: 'session-store-jsonl', config: { root: data } },
       { plugin: 'approval-provider' },
-    ])
+    ], {
+      permissionGrants: [
+        { plugin: 'organization-plane-python', kind: 'process', resource: 'config.command' },
+        { plugin: 'tools-local', kind: 'filesystem', resource: 'config.workspace' },
+        { plugin: 'tools-local', kind: 'process', resource: 'workspace-child' },
+        { plugin: 'model-provider', kind: 'credential', resource: 'model-provider' },
+        { plugin: 'session-store-jsonl', kind: 'filesystem', resource: 'config.root' },
+      ],
+      credentialProbe: async () => true,
+    })
 
     const client = host.resolve<OrganizationRunClient>('organization.run')
     const mutation = { request_id: 'org-e2e-request', idempotency_key: 'org-e2e-run', session_revision: 0 }

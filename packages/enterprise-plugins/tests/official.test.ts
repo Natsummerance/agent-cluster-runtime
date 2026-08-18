@@ -17,7 +17,11 @@ describe('official enterprise plugins', () => {
     expect(new Set(plugins.map((plugin) => plugin.manifest.name)).size).toBe(9)
     const host = new DoAIHost({ capabilityPolicies: policies })
     plugins.forEach((plugin) => host.register(plugin))
-    await host.activate(plugins.map((plugin) => ({ plugin: plugin.manifest.name })))
+    await host.activate(plugins.map((plugin) => ({ plugin: plugin.manifest.name })), {
+      permissionGrants: plugins.flatMap((plugin) => plugin.manifest.permissions.flatMap((permission) =>
+        permission.resources.map((resource) => ({ plugin: plugin.manifest.name, kind: permission.kind, resource })))),
+      credentialProbe: async () => true,
+    })
 
     const projects = host.resolve<EnterpriseService>('project.registry')
     projects.put('tenant-a', 'same', { name: 'A' })

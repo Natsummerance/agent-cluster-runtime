@@ -304,6 +304,27 @@ describe('Host activation policy transaction', () => {
     await host.dispose()
   })
 
+  it.each([
+    { field: 'permissions', pointer: '/plugins/sparse-permissions/permissions/0' },
+    { field: 'requires', pointer: '/plugins/sparse-requires/requires/0' },
+    { field: 'provides', pointer: '/plugins/sparse-provides/provides/0' },
+  ] as const)('preserves sparse $field length and rejects its missing entry before apply', async ({ field, pointer }) => {
+    const apply = vi.fn()
+    const name = `sparse-${field}`
+    const raw = manifest(name) as unknown as Record<string, unknown>
+    raw[field] = new Array<unknown>(1)
+    const candidate = { manifest: raw, apply } as unknown as DoAIPlugin
+    const host = new DoAIHost({ capabilityPolicies: policies })
+    host.register(candidate)
+
+    await expect(host.activate([{ plugin: name }])).rejects.toMatchObject({
+      code: 'MANIFEST_INVALID', plugin: name, pointer, hint: expect.any(String),
+    })
+    expect(apply).not.toHaveBeenCalled()
+    expect(host.inspect()).toEqual({ active: false, epoch: 0, providers: 0, effects: 0 })
+    await host.dispose()
+  })
+
   it('validates every manifest and grant before any apply or credential probe', async () => {
     const firstApply = vi.fn()
     const secondApply = vi.fn()

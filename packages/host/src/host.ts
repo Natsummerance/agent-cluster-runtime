@@ -118,6 +118,19 @@ function snapshotOwnData(
   }
   const array = Array.isArray(value)
   const result: unknown[] | Record<string, unknown> = array ? [] : Object.create(null) as Record<string, unknown>
+  if (array) {
+    const length = descriptors.length
+    if (length === undefined || !('value' in length)
+      || !Number.isInteger(length.value) || length.value < 0 || length.value > 0xffff_ffff) {
+      manifestFailure(plugin, pointer)
+    }
+    Object.defineProperty(result, 'length', {
+      configurable: false,
+      enumerable: false,
+      value: length.value,
+      writable: length.writable ?? false,
+    })
+  }
   for (const key of Reflect.ownKeys(descriptors)) {
     if (key === 'length' && array) continue
     const descriptor = descriptors[key as keyof typeof descriptors]!

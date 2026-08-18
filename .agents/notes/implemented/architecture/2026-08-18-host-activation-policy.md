@@ -21,7 +21,8 @@ validated, frozen, and activated. Accessors, symbols, cyclic graphs, and descrip
 rejected with a stable manifest diagnostic, so validation cannot observe one value while the activation snapshot
 captures another. Snapshot records use a null prototype and every child is installed with
 `Object.defineProperty`; special data keys such as `__proto__` therefore remain inert own data and cannot create
-inherited manifest fields.
+inherited manifest fields. Array snapshots restore the captured non-accessor `length` descriptor before installing
+own indices, preserving both dense values and sparse holes for validation.
 
 Runtime validation keeps the repository's existing identifier vocabulary: plugin/dependency names are lowercase
 letters, digits, and hyphens with a leading letter; capabilities additionally allow dots. Permission resources
@@ -60,6 +61,8 @@ failed because an accessor returned valid semver during validation and invalid s
 yet activation resolved at epoch 1. The own-data snapshot change makes this focused test pass before any apply.
 The follow-up prototype-pollution RED likewise reached epoch 1 by synthesizing inherited `permissions`; the
 null-prototype/descriptor construction now rejects the missing own field before apply.
+The sparse-array follow-up showed permissions/requires/provides holes disappearing when `length` was skipped;
+preserving captured array length makes all three missing entries fail before apply.
 
 GREEN: `pnpm --filter @doai/host exec vitest run tests/activation-policy.test.ts`,
 `pnpm typecheck:host`, and `pnpm test:host`. Public signature/fail-closed caller acceptance also covers

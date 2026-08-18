@@ -39,6 +39,12 @@ interface ProviderEntry {
 class ScopeProviders {
   readonly #values = new Map<string, ProviderEntry[]>()
 
+  constructor(readonly parent?: ScopeProviders) {}
+
+  scope(): ScopeProviders {
+    return new ScopeProviders(this)
+  }
+
   add(capability: string, entry: ProviderEntry): () => void {
     const entries = this.#values.get(capability) ?? []
     entries.push(entry)
@@ -51,7 +57,7 @@ class ScopeProviders {
   }
 
   resolve<Value>(capability: string, policy: CapabilityPolicy | undefined): Value {
-    const entries = this.#values.get(capability) ?? []
+    const entries = policy === 'many' ? this.#chain(capability) : this.#nearest(capability)
     if (entries.length === 0) {
       throw new HostDiagnosticError({
         code: 'CAPABILITY_MISSING',
@@ -81,21 +87,31 @@ class ScopeProviders {
   countFor(capability: string): number {
     return this.#values.get(capability)?.length ?? 0
   }
+
+  #nearest(capability: string): ProviderEntry[] {
+    const entries = this.#values.get(capability)
+    if (entries !== undefined && entries.length > 0) return entries
+    return this.parent === undefined ? [] : this.parent.#nearest(capability)
+  }
+
+  #chain(capability: string): ProviderEntry[] {
+    return [
+      ...(this.parent === undefined ? [] : this.parent.#chain(capability)),
+      ...(this.#values.get(capability) ?? []),
+    ]
+  }
 }
 
 class PluginContext implements HostPluginContext {
-  readonly events: EventHub
-
   constructor(
     readonly cordis: Context,
     readonly scopeName: string,
     readonly plugin: DoAIPlugin,
     readonly providers: ScopeProviders,
     readonly policies: Record<string, CapabilityPolicy>,
+    readonly events: EventHub,
     readonly metadata: Record<string, unknown> = {},
-  ) {
-    this.events = new EventHub(cordis)
-  }
+  ) {}
 
   resolve<Value>(capability: string): Value {
     return this.providers.resolve<Value>(capability, this.policies[capability])
@@ -130,12 +146,14 @@ class PluginContext implements HostPluginContext {
   }
 
   scope(overrides: Record<string, unknown>): HostPluginContext {
+    const cordis = this.cordis.extend(overrides)
     return new PluginContext(
-      this.cordis.extend(overrides),
+      cordis,
       this.scopeName,
       this.plugin,
-      this.providers,
+      this.providers.scope(),
       this.policies,
+      this.events.scope(cordis),
       { ...this.metadata, ...overrides },
     )
   }
@@ -198,6 +216,7 @@ export class DoAIHost {
       name,
       apply: async (cordis) => {
         scopeContext = cordis.extend({ doaiScope: name })
+        const events = new EventHub(scopeContext).scope(scopeContext)
         for (const item of ordered) {
           const plugin = this.#plugins.get(item.plugin)!
           await scopeContext.plugin({
@@ -209,6 +228,7 @@ export class DoAIHost {
                 plugin,
                 providers,
                 this.#policies,
+                events.bind(pluginCordis),
               )
               const cleanup = await plugin.apply(context, item.config ?? {})
               if (cleanup !== undefined) context.effect(() => cleanup, 'plugin return cleanup')

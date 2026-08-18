@@ -9,9 +9,9 @@ import {
   createSessionStorePlugin,
   type ModelProvider,
   type StandardAgent,
-  type ToolRuntime,
+  ToolRuntime,
 } from '@doai/agent-runtime'
-import { DoAIHost, type CapabilityPolicy } from '@doai/host'
+import { DoAIHost, type CapabilityPolicy, type DoAIPlugin } from '@doai/host'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -20,6 +20,7 @@ import {
   createMinimalAgentPlugin,
   createPythonRuntimePlugin,
   createTypeScriptRuntimePlugin,
+  type CodeRuntime,
   type CreatorConformanceKit,
 } from '../src/index.ts'
 
@@ -55,6 +56,56 @@ describe('v1 preset plugins', () => {
       ? { code: 'result = bindings["value"] * 2', bindings: { value: 6 } }
       : { code: '(bindings: any) => bindings.value * 2', bindings: { value: 6 } })
     expect(result).toBe(12)
+    await host.dispose()
+  })
+
+  it('returns a shared ToolRuntime to baseline across 100 Code plugin load/unload cycles', async () => {
+    const sharedTools = new ToolRuntime()
+    sharedTools.register({
+      name: 'baseline', description: 'baseline', risk: 'read',
+      input_schema: { type: 'object', additionalProperties: false },
+      async execute() { return 'baseline' },
+    })
+    const baseline = sharedTools.list().length
+    const registry: DoAIPlugin = {
+      manifest: {
+        name: 'shared-tool-registry', version: '1.0.0', api_version: '1', dependencies: {}, requires: [],
+        provides: ['tool.registry'], permissions: [], config_schema: { type: 'object', additionalProperties: false },
+      },
+      apply(ctx) { ctx.provide('tool.registry', sharedTools) },
+    }
+    const codeRuntime: CodeRuntime = {
+      language: 'typescript',
+      async evaluate(request) { return request.bindings.value ?? null },
+    }
+    const runtime: DoAIPlugin = {
+      manifest: {
+        name: 'fast-typescript-runtime', version: '1.0.0', api_version: '1', dependencies: {}, requires: [],
+        provides: ['runtime.typescript'], permissions: [], config_schema: { type: 'object', additionalProperties: false },
+      },
+      apply(ctx) { ctx.provide('runtime.typescript', codeRuntime) },
+    }
+    const host = new DoAIHost({ capabilityPolicies: policies })
+    host.register(registry)
+    host.register(runtime)
+    host.register(createCodeToolPlugin('typescript'))
+
+    for (let cycle = 0; cycle < 100; cycle += 1) {
+      await host.activate([
+        { plugin: 'shared-tool-registry' },
+        { plugin: 'fast-typescript-runtime' },
+        { plugin: 'tools-code-typescript' },
+      ])
+      expect(sharedTools.list()).toHaveLength(baseline + 1)
+      expect(sharedTools.get('code.typescript').name).toBe('code.typescript')
+      expect(await sharedTools.execute('code.typescript', { code: '', bindings: { value: cycle } })).toBe(cycle)
+
+      await host.deactivate()
+      expect(sharedTools.list()).toHaveLength(baseline)
+      expect(() => sharedTools.get('code.typescript')).toThrow('unknown tool: code.typescript')
+      expect(await sharedTools.execute('baseline', {})).toBe('baseline')
+    }
+
     await host.dispose()
   })
 

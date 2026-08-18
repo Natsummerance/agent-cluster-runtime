@@ -10,6 +10,23 @@ declare module '@deepseek-ai/cordis' {
 }
 
 describe('EventHub', () => {
+  it('preserves synchronous broadcast and settled parallel dispatch', async () => {
+    const ctx = new Context()
+    const hub = new EventHub(ctx)
+    const trace: string[] = []
+    hub.on('broadcast', () => { trace.push('first') })
+    hub.on('broadcast', () => { trace.push('second') })
+    hub.on('parallel', async () => { await Promise.resolve(); trace.push('async') })
+    hub.on('parallel', () => { trace.push('sync') })
+
+    hub.broadcast('broadcast')
+    expect(trace).toEqual(['first', 'second'])
+    trace.length = 0
+    await hub.parallel('parallel')
+    expect(trace).toEqual(['sync', 'async'])
+    await ctx.fiber.dispose()
+  })
+
   it('matches Cordis serial and first-win behavior', async () => {
     const reference = new Context()
     const candidateContext = new Context()

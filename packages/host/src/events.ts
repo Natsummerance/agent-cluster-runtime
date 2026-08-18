@@ -7,55 +7,116 @@ export type OnionInterceptor<Payload, Result> = (
   next: OnionNext<Result>,
 ) => Result | Promise<Result>
 
-type InterceptorStore = Map<string, OnionInterceptor<unknown, unknown>[]>
-const interceptorStores = new WeakMap<Context, InterceptorStore>()
+interface ListenerEntry {
+  callback: EventListener
+}
+
+interface InterceptorEntry {
+  callback: OnionInterceptor<unknown, unknown>
+}
+
+class EventScope {
+  readonly listeners = new Map<string, ListenerEntry[]>()
+  readonly interceptors = new Map<string, InterceptorEntry[]>()
+
+  constructor(readonly parent?: EventScope) {}
+
+  listenerChain(name: string): ListenerEntry[] {
+    return [
+      ...(this.parent?.listenerChain(name) ?? []),
+      ...(this.listeners.get(name) ?? []),
+    ]
+  }
+
+  interceptorChain(name: string): InterceptorEntry[] {
+    return [
+      ...(this.parent?.interceptorChain(name) ?? []),
+      ...(this.interceptors.get(name) ?? []),
+    ]
+  }
+}
+
+const eventScopes = new WeakMap<Context, EventScope>()
+
+function isBailed(value: unknown): boolean {
+  return value !== null && value !== false && value !== undefined
+}
 
 export class EventHub {
-  readonly #interceptors: InterceptorStore
+  readonly #scope: EventScope
 
   constructor(readonly context: Context) {
     const root = context.root
-    const existing = interceptorStores.get(root)
-    if (existing !== undefined) this.#interceptors = existing
-    else {
-      this.#interceptors = new Map()
-      interceptorStores.set(root, this.#interceptors)
-    }
+    const scoped = eventScopes.get(context)
+    const rootScope = eventScopes.get(root)
+    this.#scope = scoped ?? rootScope ?? new EventScope()
+    if (rootScope === undefined) eventScopes.set(root, this.#scope)
+  }
+
+  bind(context: Context): EventHub {
+    eventScopes.set(context, this.#scope)
+    return new EventHub(context)
+  }
+
+  scope(context: Context): EventHub {
+    eventScopes.set(context, new EventScope(this.#scope))
+    return new EventHub(context)
   }
 
   on(name: string, listener: EventListener): () => void {
-    return this.context.on(name as never, listener as never)
+    const entry = { callback: this.context.reflect.bind(listener) }
+    return this.context.effect(() => {
+      const entries = this.#scope.listeners.get(name) ?? []
+      entries.push(entry)
+      this.#scope.listeners.set(name, entries)
+      return () => {
+        const index = entries.indexOf(entry)
+        if (index >= 0) entries.splice(index, 1)
+        if (entries.length === 0) this.#scope.listeners.delete(name)
+      }
+    }, `doai.on(${JSON.stringify(name)})`)
   }
 
   broadcast(name: string, ...args: unknown[]): void {
-    const emit = this.context.emit as unknown as (...values: unknown[]) => void
-    emit(name, ...args)
+    for (const { callback } of this.#scope.listenerChain(name)) callback(...args)
   }
 
   async parallel(name: string, ...args: unknown[]): Promise<void> {
-    const parallel = this.context.parallel as unknown as (...values: unknown[]) => Promise<void>
-    await parallel(name, ...args)
+    const results = await Promise.allSettled(
+      this.#scope.listenerChain(name).map(async ({ callback }) => await callback(...args)),
+    )
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map((result) => result.reason)
+    if (errors.length > 0) throw new AggregateError(errors)
   }
 
   async serial<Result>(name: string, ...args: unknown[]): Promise<Result | undefined> {
-    const serial = this.context.serial as unknown as (...values: unknown[]) => Promise<Result | undefined>
-    return await serial(name, ...args)
+    for (const { callback } of this.#scope.listenerChain(name)) {
+      const result = await callback(...args) as Result
+      if (isBailed(result)) return result
+    }
+    return undefined
   }
 
   first<Result>(name: string, ...args: unknown[]): Result | undefined {
-    const bail = this.context.bail as unknown as (...values: unknown[]) => Result | undefined
-    return bail(name, ...args)
+    for (const { callback } of this.#scope.listenerChain(name)) {
+      const result = callback(...args) as Result
+      if (isBailed(result)) return result
+    }
+    return undefined
   }
 
   intercept<Payload, Result>(name: string, interceptor: OnionInterceptor<Payload, Result>): () => Promise<void> {
+    const entry = { callback: interceptor as OnionInterceptor<unknown, unknown> }
     return this.context.effect(() => {
-      const entries = this.#interceptors.get(name) ?? []
-      entries.push(interceptor as OnionInterceptor<unknown, unknown>)
-      this.#interceptors.set(name, entries)
+      const entries = this.#scope.interceptors.get(name) ?? []
+      entries.push(entry)
+      this.#scope.interceptors.set(name, entries)
       return () => {
-        const index = entries.indexOf(interceptor as OnionInterceptor<unknown, unknown>)
+        const index = entries.indexOf(entry)
         if (index >= 0) entries.splice(index, 1)
-        if (entries.length === 0) this.#interceptors.delete(name)
+        if (entries.length === 0) this.#scope.interceptors.delete(name)
       }
     }, `doai.intercept(${JSON.stringify(name)})`)
   }
@@ -65,12 +126,12 @@ export class EventHub {
     payload: Payload,
     terminal: () => Result | Promise<Result>,
   ): Promise<Result> {
-    const entries = [...(this.#interceptors.get(name) ?? [])] as OnionInterceptor<Payload, Result>[]
+    const entries = this.#scope.interceptorChain(name)
     const dispatch = async (index: number): Promise<Result> => {
-      const interceptor = entries[index]
-      if (interceptor === undefined) return await terminal()
+      const entry = entries[index]
+      if (entry === undefined) return await terminal()
       let called = false
-      return await interceptor(payload, async () => {
+      return await (entry.callback as OnionInterceptor<Payload, Result>)(payload, async () => {
         if (called) throw new Error(`onion interceptor called next() twice: ${name}`)
         called = true
         return await dispatch(index + 1)

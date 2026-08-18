@@ -104,12 +104,19 @@ export class ToolRuntime {
 
   constructor(readonly events?: EventHub) {}
 
-  register(definition: ToolDefinition): void {
+  register(definition: ToolDefinition): () => void {
     if (this.#tools.has(definition.name)) throw new Error(`tool already registered: ${definition.name}`)
-    this.#tools.set(definition.name, {
+    const entry = {
       definition,
       validate: this.#ajv.compile(definition.input_schema),
-    })
+    }
+    this.#tools.set(definition.name, entry)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      if (this.#tools.get(definition.name) === entry) this.#tools.delete(definition.name)
+    }
   }
 
   get(name: string): ToolDefinition {

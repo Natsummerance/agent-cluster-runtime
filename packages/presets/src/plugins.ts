@@ -39,7 +39,8 @@ export function createCodeToolPlugin(language: 'python' | 'typescript'): DoAIPlu
     },
     apply(ctx) {
       const runtime = ctx.resolve<CodeRuntime>(capability)
-      ctx.resolve<ToolRuntime>('tool.registry').register({
+      const tools = ctx.resolve<ToolRuntime>('tool.registry')
+      ctx.effect(() => tools.register({
         name: `code.${language}`,
         description: `Evaluate ${language} code with JSON bindings`,
         risk: 'process',
@@ -53,7 +54,7 @@ export function createCodeToolPlugin(language: 'python' | 'typescript'): DoAIPlu
             bindings: args.bindings as { [key: string]: JsonValue },
           })
         },
-      })
+      }), `tool.register(${JSON.stringify(`code.${language}`)})`)
     },
   }
 }

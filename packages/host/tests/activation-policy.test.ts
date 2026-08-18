@@ -282,6 +282,28 @@ describe('Host activation policy transaction', () => {
     await host.dispose()
   })
 
+  it('cannot acquire missing manifest fields through snapshot prototype mutation', async () => {
+    const apply = vi.fn()
+    const raw = manifest('prototype-race') as unknown as Record<string, unknown>
+    delete raw.permissions
+    Object.defineProperty(raw, '__proto__', {
+      configurable: true,
+      enumerable: true,
+      value: { permissions: [] },
+    })
+    const candidate = { manifest: raw, apply } as unknown as DoAIPlugin
+    const host = new DoAIHost({ capabilityPolicies: policies })
+    host.register(candidate)
+
+    await expect(host.activate([{ plugin: 'prototype-race' }])).rejects.toMatchObject({
+      code: 'MANIFEST_INVALID', plugin: 'prototype-race', pointer: '/plugins/prototype-race/permissions',
+      hint: expect.any(String),
+    })
+    expect(apply).not.toHaveBeenCalled()
+    expect(host.inspect()).toEqual({ active: false, epoch: 0, providers: 0, effects: 0 })
+    await host.dispose()
+  })
+
   it('validates every manifest and grant before any apply or credential probe', async () => {
     const firstApply = vi.fn()
     const secondApply = vi.fn()

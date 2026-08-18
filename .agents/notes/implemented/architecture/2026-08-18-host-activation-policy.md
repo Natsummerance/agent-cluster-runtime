@@ -19,7 +19,9 @@ diagnostics that contain no raw `cause`.
 The effective manifest is first detached through its own data descriptors and then that exact inert snapshot is
 validated, frozen, and activated. Accessors, symbols, cyclic graphs, and descriptor/proxy inspection failures are
 rejected with a stable manifest diagnostic, so validation cannot observe one value while the activation snapshot
-captures another.
+captures another. Snapshot records use a null prototype and every child is installed with
+`Object.defineProperty`; special data keys such as `__proto__` therefore remain inert own data and cannot create
+inherited manifest fields.
 
 Runtime validation keeps the repository's existing identifier vocabulary: plugin/dependency names are lowercase
 letters, digits, and hyphens with a leading letter; capabilities additionally allow dots. Permission resources
@@ -56,6 +58,8 @@ Review follow-up RED:
 `pnpm --filter @doai/host exec vitest run tests/activation-policy.test.ts -t "cannot validate one accessor"`
 failed because an accessor returned valid semver during validation and invalid semver during `structuredClone`,
 yet activation resolved at epoch 1. The own-data snapshot change makes this focused test pass before any apply.
+The follow-up prototype-pollution RED likewise reached epoch 1 by synthesizing inherited `permissions`; the
+null-prototype/descriptor construction now rejects the missing own field before apply.
 
 GREEN: `pnpm --filter @doai/host exec vitest run tests/activation-policy.test.ts`,
 `pnpm typecheck:host`, and `pnpm test:host`. Public signature/fail-closed caller acceptance also covers

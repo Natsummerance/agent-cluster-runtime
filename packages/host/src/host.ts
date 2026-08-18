@@ -117,7 +117,7 @@ function snapshotOwnData(
     manifestFailure(plugin, pointer)
   }
   const array = Array.isArray(value)
-  const result: unknown[] | Record<string, unknown> = array ? [] : {}
+  const result: unknown[] | Record<string, unknown> = array ? [] : Object.create(null) as Record<string, unknown>
   for (const key of Reflect.ownKeys(descriptors)) {
     if (key === 'length' && array) continue
     const descriptor = descriptors[key as keyof typeof descriptors]!
@@ -127,8 +127,12 @@ function snapshotOwnData(
     }
     if (!descriptor.enumerable) continue
     const child = snapshotOwnData(descriptor.value, plugin, childPointer, active, snapshots)
-    if (array && /^\d+$/.test(key)) (result as unknown[])[Number(key)] = child
-    else (result as Record<string, unknown>)[key] = child
+    Object.defineProperty(result, key, {
+      configurable: true,
+      enumerable: true,
+      value: child,
+      writable: true,
+    })
   }
   active.delete(value)
   snapshots.set(value, result)

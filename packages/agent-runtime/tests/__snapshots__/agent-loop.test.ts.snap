@@ -1,0 +1,225 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StandardAgent vertical slice > repairs and snapshots every durable model-visible request through structured tools 1`] = `
+[
+  {
+    "request_index": 0,
+    "messages": [
+      {
+        "role": "system",
+        "content": "Use tools and verify.",
+      },
+      {
+        "role": "user",
+        "content": "Fix the failing addition test.",
+      },
+    ],
+    "tools": [
+      {
+        "name": "workspace.read",
+        "description": "Read a UTF-8 file inside the workspace",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+            },
+          },
+        },
+      },
+      {
+        "name": "workspace.write",
+        "description": "Replace a UTF-8 file inside the workspace",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "content",
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+            },
+            "content": {
+              "type": "string",
+            },
+          },
+        },
+      },
+      {
+        "name": "process.run",
+        "description": "Run an argv command without a shell",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "argv",
+          ],
+          "properties": {
+            "argv": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+              },
+            },
+          },
+        },
+      },
+      {
+        "name": "diagnostic.transient",
+        "description": "Inspect a nested diagnostic payload for this request only",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "diagnostic",
+          ],
+          "properties": {
+            "diagnostic": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "labels",
+              ],
+              "properties": {
+                "labels": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  },
+  {
+    "request_index": 1,
+    "messages": [
+      {
+        "role": "system",
+        "content": "Use tools and verify.",
+      },
+      {
+        "role": "user",
+        "content": "Fix the failing addition test.",
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "fix",
+            "name": "workspace.write",
+            "arguments": {
+              "path": "calc.cjs",
+              "content": "module.exports = (a, b) => a + b
+",
+            },
+          },
+          {
+            "id": "verify",
+            "name": "process.run",
+            "arguments": {
+              "argv": [
+                "<NODE_EXECUTABLE>",
+                "test.cjs",
+              ],
+            },
+          },
+        ],
+      },
+      {
+        "role": "system",
+        "content": "Approval for fix: approved (test policy)",
+      },
+      {
+        "role": "tool",
+        "content": "{"written":"calc.cjs"}",
+        "tool_call_id": "fix",
+        "name": "workspace.write",
+      },
+      {
+        "role": "system",
+        "content": "Approval for verify: approved (test policy)",
+      },
+      {
+        "role": "tool",
+        "content": "{"stdout":"","stderr":"","exit_code":0}",
+        "tool_call_id": "verify",
+        "name": "process.run",
+      },
+    ],
+    "tools": [
+      {
+        "name": "workspace.read",
+        "description": "Read a UTF-8 file inside the workspace",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+            },
+          },
+        },
+      },
+      {
+        "name": "workspace.write",
+        "description": "Replace a UTF-8 file inside the workspace",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "content",
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+            },
+            "content": {
+              "type": "string",
+            },
+          },
+        },
+      },
+      {
+        "name": "process.run",
+        "description": "Run an argv command without a shell",
+        "input_schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "argv",
+          ],
+          "properties": {
+            "argv": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+              },
+            },
+          },
+        },
+      },
+    ],
+  },
+]
+`;

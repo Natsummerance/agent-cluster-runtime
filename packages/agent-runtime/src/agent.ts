@@ -31,6 +31,96 @@ export interface AgentInvokeResult {
   revision: number
 }
 
+class ModelRequestToolSurfaceError extends Error {
+  readonly code = 'MODEL_REQUEST_TOOLS_INVALID'
+
+  constructor(readonly pointer: string) {
+    super(`model request tool surface is not JSON-safe at ${pointer}`)
+    this.name = 'ModelRequestToolSurfaceError'
+  }
+}
+
+type ModelVisibleTools = ReturnType<ToolRuntime['list']>
+
+function recordChildPointer(pointer: string, key: string): string {
+  if (/^\/tools\/\d+$/.test(pointer) && (key === 'name' || key === 'description' || key === 'input_schema')) {
+    return `${pointer}/${key}`
+  }
+  return `${pointer}/<property>`
+}
+
+function invalidToolSurface(pointer: string): never {
+  throw new ModelRequestToolSurfaceError(pointer)
+}
+
+function snapshotJson(value: unknown, pointer: string, active = new WeakSet<object>()): JsonValue {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return value
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || Object.is(value, -0)) invalidToolSurface(pointer)
+    return value
+  }
+  if (typeof value !== 'object') invalidToolSurface(pointer)
+  if (active.has(value)) invalidToolSurface(pointer)
+  active.add(value)
+  let descriptors: PropertyDescriptorMap
+  let prototype: object | null
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value)
+    prototype = Object.getPrototypeOf(value) as object | null
+  } catch {
+    invalidToolSurface(pointer)
+  }
+
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype) invalidToolSurface(pointer)
+    const length = descriptors.length
+    if (length === undefined || !('value' in length) || !Number.isSafeInteger(length.value) || length.value < 0) {
+      invalidToolSurface(pointer)
+    }
+    for (const key of Reflect.ownKeys(descriptors)) {
+      if (typeof key === 'symbol') invalidToolSurface(pointer)
+      if (key === 'length') continue
+      if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= length.value) {
+        invalidToolSurface(`${pointer}/${/^\d+$/.test(key) ? key : '<property>'}`)
+      }
+    }
+    const result: JsonValue[] = []
+    for (let index = 0; index < length.value; index += 1) {
+      const descriptor = descriptors[String(index)]
+      const itemPointer = `${pointer}/${index}`
+      if (descriptor === undefined || !descriptor.enumerable || !('value' in descriptor)) {
+        invalidToolSurface(itemPointer)
+      }
+      result.push(snapshotJson(descriptor.value, itemPointer, active))
+    }
+    active.delete(value)
+    Object.freeze(result)
+    return result
+  }
+
+  if (prototype !== Object.prototype && prototype !== null) invalidToolSurface(pointer)
+  const result: { [key: string]: JsonValue } = Object.create(null) as { [key: string]: JsonValue }
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key === 'symbol') invalidToolSurface(pointer)
+    const descriptor = descriptors[key]!
+    const childPointer = recordChildPointer(pointer, key)
+    if (!descriptor.enumerable || !('value' in descriptor)) invalidToolSurface(childPointer)
+    Object.defineProperty(result, key, {
+      configurable: false,
+      enumerable: true,
+      value: snapshotJson(descriptor.value, childPointer, active),
+      writable: false,
+    })
+  }
+  active.delete(value)
+  Object.freeze(result)
+  return result
+}
+
+function captureModelVisibleTools(tools: ModelVisibleTools): ModelVisibleTools {
+  return snapshotJson(tools, '/tools') as unknown as ModelVisibleTools
+}
+
 export class StandardAgent {
   readonly #store: SessionEventStore
   readonly #model: ModelProvider
@@ -95,12 +185,13 @@ export class StandardAgent {
       for (let step = 0; step < this.#maxSteps; step += 1) {
         if (request.signal?.aborted) throw request.signal.reason ?? new Error('agent invocation cancelled')
         const messages = projectModelMessages(events)
-        await append(event('model.requested', { step }))
+        const tools = captureModelVisibleTools(this.#tools.list())
+        await append(event('model.requested', { step, tools: tools as unknown as JsonValue }))
         let response: ModelResult
         try {
           response = await this.#model.generate({
             messages,
-            tools: this.#tools.list(),
+            tools,
             ...(request.signal === undefined ? {} : { signal: request.signal }),
           })
         } catch (cause) {

@@ -3,6 +3,18 @@
 > 本文件是当前最新 handoff。它记录 `v1-cordis-dual-plane` 的真实完成度、审查证据和
 > 后续实施顺序。v1 当前是可测试原型，不是可发布产品；不得用测试总数替代发布证据。
 
+## 0. 活动上游基线（2026-08-18 更新）
+
+- 当前固定参考：DeepSeek Harness `dsh-v0.1.0-rc.7`，commit
+  `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`；Cordis 仍为 `4.0.1`。
+- 原 `47f943859bef60e4160492346772ded9b24f765a`（`0.1.0-rc.5`）是历史基线；已有 imports
+  继续保留真实 source commit。
+- 决策、差分矩阵和后续提交边界分别见 `docs/adr/0004-upstream-baseline-rc7.md`、
+  `docs/porting/2026-08-18-dsh-rc7-delta.md` 和
+  `docs/superpowers/plans/2026-08-18-dsh-rc7-sync-implementation.md`。
+- 固定基线不会自动跟踪未来 preview。rc.7 没有 Windows Python single-exe，三平台双 runtime
+  installed-artifact 发布门不变。
+
 ## 1. 开工状态
 
 - 分支：`v1-cordis-dual-plane`
@@ -168,7 +180,9 @@ artifact 四个证据等级。
 1. **16.10 Scope 隔离回归测试与修复**：先写 shadow/active interceptor 串扰、子 scope provider
    串扰、Code tool 卸载残留的失败测试；让每个 scope 拥有独立 registry，所有注册返回 effect。
 2. **16.11 Host activation policy**：验证完整 manifest、API/semver、permission grants、credentials、
-   health checks；记录 dependency epoch，并在切换失败时保持旧 epoch。
+   health checks；记录 dependency epoch，并在切换失败时保持旧 epoch。Task 不重写；增加主
+   activation/health 失败与 rollback failure 同时保真、递归脱敏、旧 epoch 不推进的回归。
+   其后用独立测试提交固定每次真实 model request 的消息与 tool schema 可见面。
 3. **16.12 Typed events**：schema 生成 discriminated event union；append/RPC/replay 统一校验 owner、
    ignorable、payload 与状态转换，禁止手写重复事件类型。
 4. **16.13 Durable store**：增加 append transaction/batch、严格请求摘要、恢复 cursor、单写者或

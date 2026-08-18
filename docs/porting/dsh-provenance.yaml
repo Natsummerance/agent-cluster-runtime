@@ -1,10 +1,20 @@
 schema_version: 1
 upstream:
   project: deepseek-ai/deepseek-harness
+  commit: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+  release: 0.1.0-rc.7
+  license: MIT
+  license_url: https://github.com/deepseek-ai/deepseek-harness/blob/99f6f02fecdb7dff40c3fbc9470f5907c29f74ca/LICENSE
+  license_sha256: EBB4F09972AEE8608BE255DEBAF78451A68E95C290F55C240DEC2ECFA16EA6BE
+previous_baseline:
   commit: 47f943859bef60e4160492346772ded9b24f765a
   release: 0.1.0-rc.5
-  license: MIT
-  license_url: https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/LICENSE
+delta:
+  range: 47f943859bef60e4160492346772ded9b24f765a..99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
+  commits: 111
+  files_changed: 539
+  insertions: 8183
+  deletions: 1625
 policy:
   automatic_tracking: false
   permitted_actions: [reuse, port, adapt, differential-test]
@@ -13,7 +23,7 @@ cordis:
   package: "@deepseek-ai/cordis"
   version: 4.0.1
   source: vendor/cordis
-  commit: 47f943859bef60e4160492346772ded9b24f765a
+  commit: 99f6f02fecdb7dff40c3fbc9470f5907c29f74ca
   license: MIT
   action: pinned-runtime-dependency
   deviation: DoAI narrows the public context and adds transactional shadow activation.

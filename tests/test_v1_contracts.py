@@ -10,6 +10,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "protocol" / "schema" / "doai-v1.schema.json"
+CURRENT_DSH_COMMIT = "99f6f02fecdb7dff40c3fbc9470f5907c29f74ca"
+CURRENT_DSH_RELEASE = "0.1.0-rc.7"
+CURRENT_DSH_TAG = f"dsh-v{CURRENT_DSH_RELEASE}"
+PREVIOUS_DSH_COMMIT = "47f943859bef60e4160492346772ded9b24f765a"
+DSH_LICENSE_SHA256 = "EBB4F09972AEE8608BE255DEBAF78451A68E95C290F55C240DEC2ECFA16EA6BE"
 
 
 def test_protocol_schema_declares_the_durable_event_contract() -> None:
@@ -82,14 +87,66 @@ def test_dsh_provenance_is_pinned_and_licensed() -> None:
         (ROOT / "docs" / "porting" / "dsh-provenance.yaml").read_text(encoding="utf-8")
     )
 
-    assert provenance["upstream"]["commit"] == "47f943859bef60e4160492346772ded9b24f765a"
+    assert provenance["upstream"]["commit"] == CURRENT_DSH_COMMIT
+    assert provenance["upstream"]["release"] == CURRENT_DSH_RELEASE
     assert provenance["upstream"]["license"] == "MIT"
+    assert provenance["upstream"]["license_url"] == (
+        f"https://github.com/deepseek-ai/deepseek-harness/blob/{CURRENT_DSH_COMMIT}/LICENSE"
+    )
+    assert provenance["upstream"]["license_sha256"] == DSH_LICENSE_SHA256
+    assert provenance["previous_baseline"] == {
+        "commit": PREVIOUS_DSH_COMMIT,
+        "release": "0.1.0-rc.5",
+    }
+    assert provenance["delta"] == {
+        "range": f"{PREVIOUS_DSH_COMMIT}..{CURRENT_DSH_COMMIT}",
+        "commits": 111,
+        "files_changed": 539,
+        "insertions": 8183,
+        "deletions": 1625,
+    }
     assert provenance["policy"]["automatic_tracking"] is False
+    assert provenance["policy"]["permitted_actions"] == [
+        "reuse", "port", "adapt", "differential-test"
+    ]
+    assert provenance["policy"]["required_fields"] == [
+        "source", "commit", "license", "action", "deviation", "verification"
+    ]
+    assert provenance["cordis"]["version"] == "4.0.1"
+    assert provenance["cordis"]["commit"] == CURRENT_DSH_COMMIT
+    assert provenance["cordis"]["source"] == "vendor/cordis"
+    imports = {item["source"]: item for item in provenance["imports"]}
+    assert set(imports) == {
+        "vendor/cordis/src/events.ts",
+        "vendor/cordis/src/fiber.ts",
+        "vendor/cordis/src/context.ts",
+    }
+    assert {item["commit"] for item in imports.values()} == {PREVIOUS_DSH_COMMIT}
+    assert all(
+        all(item[field] for field in ("license", "action", "deviation", "verification"))
+        for item in imports.values()
+    )
 
     host_package = json.loads(
         (ROOT / "packages" / "host" / "package.json").read_text(encoding="utf-8")
     )
     assert host_package["dependencies"]["@deepseek-ai/cordis"] == provenance["cordis"]["version"]
+
+    active_documents = [
+        ROOT / "docs" / "adr" / "0004-upstream-baseline-rc7.md",
+        ROOT / "docs" / "superpowers" / "specs" / "2026-08-17-v1-cordis-dual-plane-design.md",
+        ROOT / "docs" / "v1" / "release-readiness.md",
+        ROOT / "docs" / "superpowers" / "handoff" / "2026-08-17-v1-cordis-continuation.md",
+        ROOT / "THIRD_PARTY_NOTICES.md",
+    ]
+    for path in active_documents:
+        text = path.read_text(encoding="utf-8")
+        assert CURRENT_DSH_COMMIT in text, path
+        assert CURRENT_DSH_TAG in text, path
+
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert "MIT" in notices
+    assert DSH_LICENSE_SHA256 in notices
 
 
 def test_generated_protocol_types_are_fresh() -> None:

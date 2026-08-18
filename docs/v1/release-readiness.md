@@ -5,6 +5,15 @@ Status: **alpha prototype — release and legacy deletion blocked** (2026-08-17)
 This file is the capability/deletion gate for the Cordis dual-plane migration. A checked item means
 the replacement path and its tests exist; it does not authorize deleting an unchecked legacy path.
 
+## Active upstream reference
+
+The fixed differential reference is DeepSeek Harness `dsh-v0.1.0-rc.7` at
+`99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`; Cordis remains `4.0.1`. The previous
+`47f943859bef60e4160492346772ded9b24f765a` (`0.1.0-rc.5`) baseline is historical.
+[ADR-0004](../adr/0004-upstream-baseline-rc7.md) and
+[`dsh-provenance.yaml`](../porting/dsh-provenance.yaml) are authoritative. This pin does not auto-track future
+previews and does not itself satisfy any runtime or installed-artifact checkbox below.
+
 ## Evidence available
 
 - [x] Canonical JSON schema generates TypeScript, frontend TypeScript, and Pydantic models.

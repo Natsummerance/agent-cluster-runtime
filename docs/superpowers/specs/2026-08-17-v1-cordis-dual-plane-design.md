@@ -4,7 +4,10 @@
 
 将 v0.7.2 的多条运行主链收敛为 TypeScript Cordis Agent Plane 与 Python Organization Plane。Cordis Host 成为插件、会话、模型、工具、沙箱、权限与事件的唯一运行时所有者；Python 保留 DoAI 的组织化研发差异，但只通过版本化 RPC 请求 Host 能力。
 
-本设计以 DeepSeek Harness/Cordis commit `47f943859bef60e4160492346772ded9b24f765a` 为固定参考，不自动追随上游预览版。公共契约详见 `docs/v1/runtime-contract.md`，能力目录详见 `docs/v1/capabilities.yaml`。
+本设计当前以 DeepSeek Harness `dsh-v0.1.0-rc.7` commit
+`99f6f02fecdb7dff40c3fbc9470f5907c29f74ca` 为固定参考；Cordis 仍为 `4.0.1`。
+不会自动追随上游预览版，基线升级受 [ADR-0004](../../adr/0004-upstream-baseline-rc7.md)
+约束。公共契约详见 `docs/v1/runtime-contract.md`，能力目录详见 `docs/v1/capabilities.yaml`。
 
 ## 里程碑
 

@@ -98,6 +98,43 @@ function manifestFailure(plugin: string, pointer: string): never {
   })
 }
 
+function snapshotOwnData(
+  value: unknown,
+  plugin: string,
+  pointer: string,
+  active = new WeakSet<object>(),
+  snapshots = new WeakMap<object, unknown>(),
+): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const previous = snapshots.get(value)
+  if (previous !== undefined) return previous
+  if (active.has(value)) manifestFailure(plugin, pointer)
+  active.add(value)
+  let descriptors: PropertyDescriptorMap
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value)
+  } catch {
+    manifestFailure(plugin, pointer)
+  }
+  const array = Array.isArray(value)
+  const result: unknown[] | Record<string, unknown> = array ? [] : {}
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (key === 'length' && array) continue
+    const descriptor = descriptors[key as keyof typeof descriptors]!
+    const childPointer = typeof key === 'symbol' ? pointer : `${pointer}/${key}`
+    if ('get' in descriptor || 'set' in descriptor || typeof key === 'symbol') {
+      manifestFailure(plugin, childPointer)
+    }
+    if (!descriptor.enumerable) continue
+    const child = snapshotOwnData(descriptor.value, plugin, childPointer, active, snapshots)
+    if (array && /^\d+$/.test(key)) (result as unknown[])[Number(key)] = child
+    else (result as Record<string, unknown>)[key] = child
+  }
+  active.delete(value)
+  snapshots.set(value, result)
+  return result
+}
+
 function validateStringArray(value: unknown, plugin: string, pointer: string): string[] {
   if (!Array.isArray(value)) manifestFailure(plugin, pointer)
   const seen = new Set<string>()
@@ -423,12 +460,14 @@ export class DoAIHost {
       if (plugin === undefined) {
         throw new HostDiagnosticError({ code: 'PLUGIN_NOT_FOUND', message: `plugin is not registered: ${item.plugin}`, plugin: item.plugin })
       }
-      const effectiveManifest = validateManifest(plugin.manifest, `/plugins/${item.plugin}`)
-      if (effectiveManifest.name !== item.plugin) manifestFailure(item.plugin, `/plugins/${item.plugin}/name`)
-      let manifest: PluginManifest
-      try { manifest = deepFreeze(structuredClone(effectiveManifest)) } catch {
+      let manifestValue: unknown
+      try { manifestValue = plugin.manifest } catch {
         manifestFailure(item.plugin, `/plugins/${item.plugin}`)
       }
+      const snapshot = snapshotOwnData(manifestValue, item.plugin, `/plugins/${item.plugin}`)
+      const effectiveManifest = validateManifest(snapshot, `/plugins/${item.plugin}`)
+      if (effectiveManifest.name !== item.plugin) manifestFailure(item.plugin, `/plugins/${item.plugin}/name`)
+      const manifest = deepFreeze(effectiveManifest)
       for (const capability of [...manifest.requires, ...manifest.provides]) {
         if (this.#policies[capability] === undefined) {
           throw new HostDiagnosticError({

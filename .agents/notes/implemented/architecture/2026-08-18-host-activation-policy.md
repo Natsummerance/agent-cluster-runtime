@@ -16,6 +16,11 @@ callers must provide every exact grant, and each credential grant additionally r
 probe receives only the opaque resource string. Probe, apply, and health exceptions are replaced with stable
 diagnostics that contain no raw `cause`.
 
+The effective manifest is first detached through its own data descriptors and then that exact inert snapshot is
+validated, frozen, and activated. Accessors, symbols, cyclic graphs, and descriptor/proxy inspection failures are
+rejected with a stable manifest diagnostic, so validation cannot observe one value while the activation snapshot
+captures another.
+
 Runtime validation keeps the repository's existing identifier vocabulary: plugin/dependency names are lowercase
 letters, digits, and hyphens with a leading letter; capabilities additionally allow dots. Permission resources
 remain opaque non-empty strings and are not format-restricted.
@@ -46,6 +51,11 @@ The initial focused RED groups failed as follows:
 - ordinary health rollback: 5 failed (health checks were ignored);
 - primary plus rollback failure: 5 failed (rollback failures were lost and raw primary data remained);
 - dependency epoch/restart: 2 failed (activation returned no report).
+
+Review follow-up RED:
+`pnpm --filter @doai/host exec vitest run tests/activation-policy.test.ts -t "cannot validate one accessor"`
+failed because an accessor returned valid semver during validation and invalid semver during `structuredClone`,
+yet activation resolved at epoch 1. The own-data snapshot change makes this focused test pass before any apply.
 
 GREEN: `pnpm --filter @doai/host exec vitest run tests/activation-policy.test.ts`,
 `pnpm typecheck:host`, and `pnpm test:host`. Public signature/fail-closed caller acceptance also covers

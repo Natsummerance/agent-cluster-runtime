@@ -258,6 +258,30 @@ describe('Host activation policy transaction', () => {
     await host.dispose()
   })
 
+  it('cannot validate one accessor value and activate a different manifest snapshot', async () => {
+    const apply = vi.fn()
+    const mutable = plugin('snapshot-race', { apply })
+    const host = new DoAIHost({ capabilityPolicies: policies })
+    host.register(mutable)
+    let reads = 0
+    Object.defineProperty(mutable.manifest, 'version', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1
+        return reads <= 2 ? '1.0.0' : 'invalid-after-validation'
+      },
+    })
+
+    await expect(host.activate([{ plugin: 'snapshot-race' }])).rejects.toMatchObject({
+      code: 'MANIFEST_INVALID', plugin: 'snapshot-race', pointer: '/plugins/snapshot-race/version',
+      hint: expect.any(String),
+    })
+    expect(apply).not.toHaveBeenCalled()
+    expect(host.inspect()).toEqual({ active: false, epoch: 0, providers: 0, effects: 0 })
+    await host.dispose()
+  })
+
   it('validates every manifest and grant before any apply or credential probe', async () => {
     const firstApply = vi.fn()
     const secondApply = vi.fn()

@@ -315,3 +315,101 @@ start → requirement_review(会议) → requirement_gate(需求确认门) → d
   `autogen` 为 CC-BY-4.0；两者仅作设计参考，本方案不复用其代码。
 - 致谢 MetaGPT / ChatDev / GPT Pilot / CrewAI / AutoGen / AgentScope / LangGraph /
   anthropic-skills 开源社区为多 Agent 协作提供的设计范式。
+
+## 🔧 故障排除
+
+### 桌面应用启动时后端无法连接
+
+如果打开 DoAI Workbench 后显示"后端无法启动"或"无法连接后端"，请按以下步骤排查：
+
+#### 1. 查看诊断日志
+
+应用启动时会在控制台输出环境诊断信息，包括：
+- ✅/❌ Python 是否安装及版本
+- ✅/❌ agent-cluster 包是否安装
+- ✅/⚠️/❌ 随包后端资源是否存在
+- ✅/⚠️ uv 是否安装
+
+#### 2. 常见原因与解决方案
+
+**问题 A：Python 未安装或版本过低**
+```bash
+# 检查 Python 版本（需要 3.11+）
+python --version        # Windows
+python3 --version       # macOS/Linux
+
+# 安装 Python 3.11+
+# Windows: https://www.python.org/downloads/
+# macOS: brew install python@3.11
+# Ubuntu: sudo apt install python3.11
+```
+
+**问题 B：agent-cluster 包未安装**
+```bash
+# 在项目根目录执行
+cd /path/to/doAI
+pip install -e .
+
+# 或使用 uv（推荐）
+uv sync
+```
+
+**问题 C：依赖缺失**
+```bash
+# 安装核心依赖
+pip install pydantic>=2.7 langgraph>=0.2.60 PyYAML>=6
+
+# 或使用 uv
+uv sync --no-dev
+```
+
+**问题 D：打包后的安装包缺少后端资源**
+
+如果是从 GitHub Release 下载的安装包出现此问题：
+
+1. **重新下载安装包**：确保下载的是最新版本（v0.7.1+ 包含随包后端）
+2. **手动安装 Python 环境**（临时方案）：
+   ```bash
+   # 安装 Python 3.11+
+   pip install agent-cluster
+   ```
+3. **报告 Issue**：在 [GitHub Issues](https://github.com/Natsummerance/doAI/issues) 中反馈
+
+#### 3. 开发模式调试
+
+如果你是从源码运行：
+
+```bash
+# 1. 准备后端运行时
+cd doAI
+bash desktop/scripts/prepare-backend.sh    # Linux/macOS
+# 或
+desktop\scripts\prepare-backend.ps1         # Windows PowerShell
+
+# 2. 构建前端
+cd frontend && npm ci && npm run build
+cd ..
+
+# 3. 启动桌面应用
+cd desktop && npm ci && npm start
+```
+
+#### 4. 查看详细错误日志
+
+后端启动的详细错误会输出到控制台。在 Windows 上可以：
+
+1. 右键点击托盘图标 → 选择"退出"
+2. 在命令行中运行：
+   ```powershell
+   cd "C:\Program Files\DoAI Workbench\resources\app.asar.unpacked"
+   electron .
+   ```
+3. 查看控制台输出的完整错误信息
+
+#### 5. 联系支持
+
+如果以上步骤都无法解决问题，请：
+
+1. 复制完整的诊断日志
+2. 附上操作系统版本和 Python 版本
+3. 在 [GitHub Issues](https://github.com/Natsummerance/doAI/issues) 中提交问题

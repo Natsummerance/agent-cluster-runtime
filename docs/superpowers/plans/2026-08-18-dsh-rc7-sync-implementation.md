@@ -80,11 +80,12 @@ pnpm test:agent
 受影响的 Host/Agent/Organization consumers；禁止 store durability、attachments、frontend/legacy 删除。
 
 **RED：** 扩展 canonical schema 与生成 freshness 测试，使 event 成为 owner/ignorable/payload/state
-受约束的 discriminated union；content block 与 replay envelope 是生成类型。assembler 测试必须证明
-content 与 per-block replay entry 使用同一个 keep/drop mask。durable content 永远权威。
+受约束的 discriminated union；content block 与 replay envelope 是生成类型，durable content 永远权威。
+本 Task 只验证 vocabulary、envelope shape/version 与 content-authority 边界；assembler alignment 的
+实现与测试属于 Task 16.13 B，不能提前。
 
 **GREEN：** 只改 schema、generator、generated artifacts、protocol/agent projection 与必要 consumers；
-禁止手写第二套事件 union，禁止顺带改 store durability。
+禁止手写第二套事件 union，禁止顺带改 store durability 或 assembler content/replay transform。
 
 **安全/许可/回滚门：** owner/ignorable/state/payload 校验 fail closed，unknown future event 只有显式
 ignorable 规则才可跳过；实际采用 replay 结构时记录 upstream commit/path/MIT/deviation。生成失败或

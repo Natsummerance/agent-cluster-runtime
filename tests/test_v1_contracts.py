@@ -149,6 +149,24 @@ def test_dsh_provenance_is_pinned_and_licensed() -> None:
     assert DSH_LICENSE_SHA256 in notices
 
 
+def test_dsh_rc7_plan_defers_replay_alignment_until_after_durable_store() -> None:
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-08-18-dsh-rc7-sync-implementation.md"
+    ).read_text(encoding="utf-8")
+    task_16_12 = plan.split("## 3. Task 16.12", 1)[1].split("## 4. Task 16.13", 1)[0]
+    task_16_13 = plan.split("## 4. Task 16.13", 1)[1].split("## 5. Task 16.14", 1)[0]
+
+    assert "replay envelope 是生成类型" in task_16_12
+    assert "durable content 永远权威" in task_16_12
+    assert "keep/drop mask" not in task_16_12
+    assert "以同一 mask 处理 content/replay" in task_16_13
+    assert "A 不绿不得开始 B" in task_16_13
+
+
 def test_generated_protocol_types_are_fresh() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/generate_protocol.py", "--check"],

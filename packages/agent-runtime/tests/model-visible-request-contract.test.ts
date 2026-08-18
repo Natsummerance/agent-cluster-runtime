@@ -2,7 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { SessionEvent } from '@doai/protocol'
+import type { JsonValue, MutationMeta, SessionEvent } from '@doai/protocol'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -106,6 +106,33 @@ function definition(name: string, marker: string): ToolDefinition {
     },
     risk: 'read',
     async execute() { return marker },
+  }
+}
+
+async function seedPartialModelRequest(
+  store: JsonlSessionEventStore,
+  sessionId: string,
+  mutation: MutationMeta,
+  tools: JsonValue | undefined,
+): Promise<void> {
+  const drafts: SessionEventDraft[] = [
+    { type: 'session.created', scope, payload: {}, ignorable: false },
+    { type: 'agent.system-prompt', scope, payload: { content: 'retry system' }, ignorable: false },
+    { type: 'input.received', scope, payload: { content: 'retry input' }, ignorable: false },
+    { type: 'agent.started', scope, payload: {}, ignorable: false },
+    {
+      type: 'model.requested',
+      scope,
+      payload: tools === undefined ? { step: 0 } : { step: 0, tools },
+      ignorable: false,
+    },
+  ]
+  for (let index = 0; index < drafts.length; index += 1) {
+    await store.appendIdempotent(sessionId, {
+      ...mutation,
+      idempotency_key: `${mutation.idempotency_key}:event:${index}`,
+      session_revision: index,
+    }, drafts[index]!)
   }
 }
 
@@ -317,6 +344,201 @@ describe('durable model request tool surface', () => {
     expect(events.filter((event) => event.type === 'model.failed')).toEqual([
       expect.objectContaining({ payload: { error: 'adapter unavailable' } }),
     ])
+  })
+
+  it('continues a partial idempotent retry only when durable and current tool surfaces match', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-model-retry-match-'))
+    const store = new JsonlSessionEventStore(root, () => new Date('2026-08-18T00:00:00Z'))
+    const mutation = { request_id: 'request-retry-match', idempotency_key: 'retry-match', session_revision: 0 }
+    const seededTools = new ToolRuntime()
+    seededTools.register(definition('surface.retry-match', 'same'))
+    await seedPartialModelRequest(
+      store,
+      'retry-match',
+      mutation,
+      structuredClone(seededTools.list()) as unknown as JsonValue,
+    )
+    const tools = new CountingToolRuntime()
+    tools.register(definition('surface.retry-match', 'same'))
+    const requests: RecordedRequest[] = []
+    const model: ModelProvider = {
+      async generate(request) {
+        requests.push(recordRequest(request))
+        return { content: 'retry complete', tool_calls: [] }
+      },
+    }
+    const agent = new StandardAgent({ store, model, tools, approval })
+
+    await agent.invoke({
+      session_id: 'retry-match', scope, input: 'retry input', system_prompt: 'retry system', mutation,
+    })
+
+    const events = await store.read('retry-match')
+    expect(tools.listCalls).toBe(1)
+    expect(requests).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'model.requested')).toHaveLength(1)
+    expect(projectDurableRequests(events)).toEqual(requests)
+    expect(events.at(-1)).toMatchObject({ type: 'agent.completed', payload: { content: 'retry complete' } })
+  })
+
+  it('fails a partial idempotent retry before the model when durable and current tools differ', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-model-retry-mismatch-'))
+    const store = new JsonlSessionEventStore(root, () => new Date('2026-08-18T00:00:00Z'))
+    const mutation = { request_id: 'request-retry-mismatch', idempotency_key: 'retry-mismatch', session_revision: 0 }
+    const seededTools = new ToolRuntime()
+    seededTools.register(definition('surface.persisted', 'PERSISTED_SENTINEL'))
+    const persistedTools = structuredClone(seededTools.list()) as unknown as JsonValue
+    await seedPartialModelRequest(store, 'retry-mismatch', mutation, persistedTools)
+    const tools = new CountingToolRuntime()
+    tools.register(definition('surface.current', 'CURRENT_SENTINEL'))
+    const generate = vi.fn(async () => ({ content: 'must not run', tool_calls: [] }))
+    const agent = new StandardAgent({ store, model: { generate }, tools, approval })
+
+    const error = await agent.invoke({
+      session_id: 'retry-mismatch', scope, input: 'retry input', system_prompt: 'retry system', mutation,
+    }).catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      name: 'ModelRequestToolSurfaceError', code: 'MODEL_REQUEST_TOOLS_DURABLE_MISMATCH', pointer: '/tools',
+    })
+    expect((error as Error).message).toBe('durable model request tools do not match current tool surface')
+    expect((error as Error).cause).toBeUndefined()
+    expect(tools.listCalls).toBe(1)
+    expect(generate).not.toHaveBeenCalled()
+    const events = await store.read('retry-mismatch')
+    const requested = events.filter((event) => event.type === 'model.requested')
+    expect(requested).toHaveLength(1)
+    expect(requested[0]!.payload.tools).toEqual(persistedTools)
+    expect(events.filter((event) => event.type === 'model.completed' || event.type === 'model.failed')).toHaveLength(0)
+    expect(events.at(-1)).toMatchObject({
+      type: 'agent.failed',
+      payload: { error: 'durable model request tools do not match current tool surface' },
+    })
+    expect(observableText({ error, failed: events.at(-1) })).not.toMatch(/PERSISTED_SENTINEL|CURRENT_SENTINEL/)
+  })
+
+  it('fails a partial retry when the same schema values have different own-key order', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-model-retry-key-order-'))
+    const store = new JsonlSessionEventStore(root, () => new Date('2026-08-18T00:00:00Z'))
+    const mutation = { request_id: 'request-retry-key-order', idempotency_key: 'retry-key-order', session_revision: 0 }
+    const persistedRuntime = new ToolRuntime()
+    const persisted = definition('surface.key-order', 'same')
+    persistedRuntime.register(persisted)
+    const persistedTools = structuredClone(persistedRuntime.list()) as unknown as JsonValue
+    await seedPartialModelRequest(store, 'retry-key-order', mutation, persistedTools)
+    const current = definition('surface.key-order', 'same')
+    const schema = current.input_schema
+    current.input_schema = {
+      properties: schema.properties,
+      required: schema.required,
+      additionalProperties: schema.additionalProperties,
+      type: schema.type,
+    }
+    const tools = new CountingToolRuntime()
+    tools.register(current)
+    const generate = vi.fn(async () => ({ content: 'must not run', tool_calls: [] }))
+    const agent = new StandardAgent({ store, model: { generate }, tools, approval })
+
+    const error = await agent.invoke({
+      session_id: 'retry-key-order', scope, input: 'retry input', system_prompt: 'retry system', mutation,
+    }).catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      name: 'ModelRequestToolSurfaceError', code: 'MODEL_REQUEST_TOOLS_DURABLE_MISMATCH', pointer: '/tools',
+    })
+    expect(generate).not.toHaveBeenCalled()
+    expect(tools.listCalls).toBe(1)
+    const events = await store.read('retry-key-order')
+    expect(events.filter((event) => event.type === 'model.requested')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'model.completed' || event.type === 'model.failed')).toHaveLength(0)
+    expect(events.at(-1)).toMatchObject({
+      type: 'agent.failed',
+      payload: { error: 'durable model request tools do not match current tool surface' },
+    })
+  })
+
+  it.each([
+    { label: 'missing', durable: undefined },
+    {
+      label: 'invalid shape',
+      durable: [{ name: 'surface.retry-invalid', description: 7, input_schema: {} }] as unknown as JsonValue,
+    },
+  ])('fails safely when a partial retry returns $label durable tools', async ({ label, durable }) => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-model-retry-invalid-'))
+    const store = new JsonlSessionEventStore(root, () => new Date('2026-08-18T00:00:00Z'))
+    const mutation = {
+      request_id: `request-retry-${label}`,
+      idempotency_key: `retry-${label.replace(' ', '-')}`,
+      session_revision: 0,
+    }
+    await seedPartialModelRequest(store, mutation.idempotency_key, mutation, durable)
+    const tools = new CountingToolRuntime()
+    tools.register(definition('surface.retry-invalid', 'CURRENT_RETRY_SENTINEL'))
+    const generate = vi.fn(async () => ({ content: 'must not run', tool_calls: [] }))
+    const agent = new StandardAgent({ store, model: { generate }, tools, approval })
+
+    const error = await agent.invoke({
+      session_id: mutation.idempotency_key,
+      scope,
+      input: 'retry input',
+      system_prompt: 'retry system',
+      mutation,
+    }).catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      name: 'ModelRequestToolSurfaceError', code: 'MODEL_REQUEST_TOOLS_DURABLE_MISMATCH', pointer: '/tools',
+    })
+    expect((error as Error).message).toBe('durable model request tools do not match current tool surface')
+    expect((error as Error).cause).toBeUndefined()
+    expect(tools.listCalls).toBe(1)
+    expect(generate).not.toHaveBeenCalled()
+    const events = await store.read(mutation.idempotency_key)
+    expect(events.filter((event) => event.type === 'model.requested')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'model.completed' || event.type === 'model.failed')).toHaveLength(0)
+    expect(events.at(-1)).toMatchObject({
+      type: 'agent.failed',
+      payload: { error: 'durable model request tools do not match current tool surface' },
+    })
+    expect(observableText({ error, failed: events.at(-1) })).not.toContain('CURRENT_RETRY_SENTINEL')
+  })
+
+  it.each([
+    {
+      label: 'name',
+      mutate(tool: ToolDefinition) { (tool as unknown as { name: unknown }).name = 7 },
+    },
+    {
+      label: 'description',
+      mutate(tool: ToolDefinition) { (tool as unknown as { description: unknown }).description = false },
+    },
+    {
+      label: 'input_schema',
+      mutate(tool: ToolDefinition) { (tool as unknown as { input_schema: unknown }).input_schema = [] },
+    },
+  ])('rejects an invalid required tool $label before persistence/model', async ({ label, mutate }) => {
+    const root = await mkdtemp(join(tmpdir(), 'doai-model-shape-invalid-'))
+    const store = new JsonlSessionEventStore(root, () => new Date('2026-08-18T00:00:00Z'))
+    const tools = new CountingToolRuntime()
+    const invalid = definition('surface.shape-invalid', 'SHAPE_SENTINEL')
+    tools.register(invalid)
+    mutate(invalid)
+    const generate = vi.fn(async () => ({ content: 'must not run', tool_calls: [] }))
+    const agent = new StandardAgent({ store, model: { generate }, tools, approval })
+
+    const error = await agent.invoke({
+      session_id: `shape-${label}`, scope, input: 'invalid shape', system_prompt: 'reject shape',
+    }).catch((cause: unknown) => cause)
+
+    expect(error).toMatchObject({
+      name: 'ModelRequestToolSurfaceError', code: 'MODEL_REQUEST_TOOLS_INVALID', pointer: `/tools/0/${label}`,
+    })
+    expect((error as Error).cause).toBeUndefined()
+    expect(tools.listCalls).toBe(1)
+    expect(generate).not.toHaveBeenCalled()
+    const events = await store.read(`shape-${label}`)
+    expect(events.filter((event) => event.type === 'model.requested')).toHaveLength(0)
+    expect(events.at(-1)).toMatchObject({ type: 'agent.failed' })
+    expect(observableText({ error, events })).not.toContain('SHAPE_SENTINEL')
   })
 
   it.each([

@@ -32,10 +32,12 @@ export interface AgentInvokeResult {
 }
 
 class ModelRequestToolSurfaceError extends Error {
-  readonly code = 'MODEL_REQUEST_TOOLS_INVALID'
-
-  constructor(readonly pointer: string) {
-    super(`model request tool surface is not JSON-safe at ${pointer}`)
+  constructor(
+    readonly pointer: string,
+    readonly code = 'MODEL_REQUEST_TOOLS_INVALID',
+    message = `model request tool surface is not JSON-safe at ${pointer}`,
+  ) {
+    super(message)
     this.name = 'ModelRequestToolSurfaceError'
   }
 }
@@ -51,6 +53,14 @@ function recordChildPointer(pointer: string, key: string): string {
 
 function invalidToolSurface(pointer: string): never {
   throw new ModelRequestToolSurfaceError(pointer)
+}
+
+function durableToolSurfaceMismatch(): never {
+  throw new ModelRequestToolSurfaceError(
+    '/tools',
+    'MODEL_REQUEST_TOOLS_DURABLE_MISMATCH',
+    'durable model request tools do not match current tool surface',
+  )
 }
 
 function snapshotJson(value: unknown, pointer: string, active = new WeakSet<object>()): JsonValue {
@@ -117,8 +127,72 @@ function snapshotJson(value: unknown, pointer: string, active = new WeakSet<obje
   return result
 }
 
+function validatedModelVisibleTools(
+  value: JsonValue,
+  invalid: (pointer: string) => never,
+): ModelVisibleTools {
+  if (!Array.isArray(value)) invalid('/tools')
+  for (let index = 0; index < value.length; index += 1) {
+    const tool = value[index]
+    const pointer = `/tools/${index}`
+    if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) invalid(pointer)
+    const keys = Object.keys(tool)
+    if (keys.length !== 3 || !Object.hasOwn(tool, 'name')
+      || !Object.hasOwn(tool, 'description') || !Object.hasOwn(tool, 'input_schema')) {
+      invalid(pointer)
+    }
+    if (typeof tool.name !== 'string') invalid(`${pointer}/name`)
+    if (typeof tool.description !== 'string') invalid(`${pointer}/description`)
+    if (tool.input_schema === null || typeof tool.input_schema !== 'object' || Array.isArray(tool.input_schema)) {
+      invalid(`${pointer}/input_schema`)
+    }
+  }
+  return value as unknown as ModelVisibleTools
+}
+
 function captureModelVisibleTools(tools: ModelVisibleTools): ModelVisibleTools {
-  return snapshotJson(tools, '/tools') as unknown as ModelVisibleTools
+  return validatedModelVisibleTools(snapshotJson(tools, '/tools'), invalidToolSurface)
+}
+
+function captureDurableModelVisibleTools(appended: SessionEvent): ModelVisibleTools {
+  try {
+    const eventDescriptors = Object.getOwnPropertyDescriptors(appended)
+    const type = eventDescriptors.type
+    const payload = eventDescriptors.payload
+    const typeValue: unknown = type === undefined || !('value' in type) ? undefined : type.value
+    if (type === undefined || !type.enumerable || typeValue !== 'model.requested') {
+      durableToolSurfaceMismatch()
+    }
+    const payloadValue: unknown = payload === undefined || !('value' in payload) ? undefined : payload.value
+    if (payload === undefined || !payload.enumerable
+      || payloadValue === null || typeof payloadValue !== 'object' || Array.isArray(payloadValue)) {
+      durableToolSurfaceMismatch()
+    }
+    const payloadPrototype = Object.getPrototypeOf(payloadValue) as object | null
+    if (payloadPrototype !== Object.prototype && payloadPrototype !== null) durableToolSurfaceMismatch()
+    const tools = Object.getOwnPropertyDescriptor(payloadValue, 'tools')
+    if (tools === undefined || !tools.enumerable || !('value' in tools)) durableToolSurfaceMismatch()
+    const toolValue: unknown = tools.value
+    const captured = snapshotJson(toolValue, '/tools')
+    return validatedModelVisibleTools(captured, durableToolSurfaceMismatch)
+  } catch {
+    durableToolSurfaceMismatch()
+  }
+}
+
+function sameJsonValue(left: JsonValue, right: JsonValue): boolean {
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return Object.is(left, right)
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => sameJsonValue(value, right[index]!))
+  }
+  const leftKeys = Object.keys(left)
+  const rightKeys = Object.keys(right)
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => (
+    key === rightKeys[index] && sameJsonValue(left[key]!, right[key]!)
+  ))
 }
 
 export class StandardAgent {
@@ -186,7 +260,11 @@ export class StandardAgent {
         if (request.signal?.aborted) throw request.signal.reason ?? new Error('agent invocation cancelled')
         const messages = projectModelMessages(events)
         const tools = captureModelVisibleTools(this.#tools.list())
-        await append(event('model.requested', { step, tools: tools as unknown as JsonValue }))
+        const requested = await append(event('model.requested', { step, tools: tools as unknown as JsonValue }))
+        const durableTools = captureDurableModelVisibleTools(requested)
+        if (!sameJsonValue(tools as unknown as JsonValue, durableTools as unknown as JsonValue)) {
+          durableToolSurfaceMismatch()
+        }
         let response: ModelResult
         try {
           response = await this.#model.generate({

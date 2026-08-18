@@ -5,6 +5,11 @@ Status: **alpha prototype — release and legacy deletion blocked** (2026-08-17)
 This file is the capability/deletion gate for the Cordis dual-plane migration. A checked item means
 the replacement path and its tests exist; it does not authorize deleting an unchecked legacy path.
 
+The active execution source is
+[`2026-08-18-doai-v1-full-delivery-roadmap.md`](../superpowers/plans/2026-08-18-doai-v1-full-delivery-roadmap.md).
+本文件仍是发布与 legacy 删除门禁；handoff 仍是现状/证据，rc.7 sync plan 仍是专项计划。只有 master
+roadmap 是活动执行源。
+
 ## Active upstream reference
 
 The fixed differential reference is DeepSeek Harness `dsh-v0.1.0-rc.7` at
@@ -29,8 +34,9 @@ previews and does not itself satisfy any runtime or installed-artifact checkbox 
 - [x] `doai migrate` supports dry-run, backup, validation, idempotency, atomic writes, and rollback.
 - [x] CI has a dedicated v1 core typecheck/test/protocol-freshness gate.
 
-These checks prove module wiring, not production readiness. The authoritative evidence and execution order are
-in `docs/superpowers/handoff/2026-08-17-v1-cordis-continuation.md`.
+These checks prove module wiring, not production readiness. The authoritative current-state evidence is in
+`docs/superpowers/handoff/2026-08-17-v1-cordis-continuation.md`; execution order is exclusively owned by the
+active master roadmap linked above.
 
 ## P0 contract blockers
 

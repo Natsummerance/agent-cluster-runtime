@@ -1,7 +1,11 @@
 # DoAI Workbench v1 Cordis 双平面续作交接（2026-08-17）
 
 > 本文件是当前最新 handoff。它记录 `v1-cordis-dual-plane` 的真实完成度、审查证据和
-> 后续实施顺序。v1 当前是可测试原型，不是可发布产品；不得用测试总数替代发布证据。
+> 审查时建议。v1 当前是可测试原型，不是可发布产品；不得用测试总数替代发布证据。
+
+活动执行源是 [`2026-08-18-doai-v1-full-delivery-roadmap.md`](../plans/2026-08-18-doai-v1-full-delivery-roadmap.md)。
+本 handoff 继续承担现状与证据职责；rc.7 sync plan 继续承担上游增量专项细节，二者都不是第二份
+活动 master roadmap。
 
 ## 0. 活动上游基线（2026-08-18 更新）
 
@@ -9,7 +13,7 @@
   `99f6f02fecdb7dff40c3fbc9470f5907c29f74ca`；Cordis 仍为 `4.0.1`。
 - 原 `47f943859bef60e4160492346772ded9b24f765a`（`0.1.0-rc.5`）是历史基线；已有 imports
   继续保留真实 source commit。
-- 决策、差分矩阵和后续提交边界分别见 `docs/adr/0004-upstream-baseline-rc7.md`、
+- 决策、差分矩阵和 rc.7 专项提交边界分别见 `docs/adr/0004-upstream-baseline-rc7.md`、
   `docs/porting/2026-08-18-dsh-rc7-delta.md` 和
   `docs/superpowers/plans/2026-08-18-dsh-rc7-sync-implementation.md`。
 - 固定基线不会自动跟踪未来 preview。rc.7 没有 Windows Python single-exe，三平台双 runtime
@@ -173,11 +177,14 @@ artifact 四个证据等级。
 
 删除必须独立提交；每个删除提交引用替代测试。最终增加零 legacy import 门才允许版本升为 1.0.0。
 
-## 6. 后续实施队列
+## 6. 2026-08-17 审查队列（历史证据）
+
+本节保留当时审查建议，不再是活动执行顺序；16.10 现已完成。当前稳定 ID、依赖和提交边界只以
+活动 master roadmap 为准，尤其 16.11a、16.13A/16.13B 不能按本节的早期合并编号执行。
 
 ### P0 基础契约（必须先完成）
 
-1. **16.10 Scope 隔离回归测试与修复**：先写 shadow/active interceptor 串扰、子 scope provider
+1. **16.10 Scope 隔离回归测试与修复（已完成）**：先写 shadow/active interceptor 串扰、子 scope provider
    串扰、Code tool 卸载残留的失败测试；让每个 scope 拥有独立 registry，所有注册返回 effect。
 2. **16.11 Host activation policy**：验证完整 manifest、API/semver、permission grants、credentials、
    health checks；记录 dependency epoch，并在切换失败时保持旧 epoch。Task 不重写；增加主
@@ -283,10 +290,8 @@ freshness 与 zero-legacy-import 命令；这些命令应随对应任务实现�
 
 ## 11. 下一位实现者第一步
 
-从 Task 16.10 开始，严格先红后绿：
-
-1. 在 Host 生命周期测试中构造 active 与 failing shadow 两套同名 onion interceptor，证明 shadow
-   在切换前不可观察。
-2. 激活/卸载 Code tool plugin 100 次，证明工具注册数回到基线且可再次注册。
-3. 构造 tenant child scope，证明 provider override 不泄漏到父 scope 或兄弟 scope。
-4. 失败证据稳定后再调整 registry ownership；不要先碰前端或删除 legacy。
+Task 16.10 已完成。立即按活动 master roadmap 执行 **H1 / Task 16.11 activation policy**；当前
+`packages/host/tests/activation-policy.test.ts` 只是未跟踪、未提交、未完成的 RED，不得作为完成证据。
+H1 审查通过后自动进入 H2 / Task 16.11a，再进入 H3 / Task 16.12；完整依赖、范围、验收和回滚边界
+以 [`2026-08-18-doai-v1-full-delivery-roadmap.md`](../plans/2026-08-18-doai-v1-full-delivery-roadmap.md)
+为准。

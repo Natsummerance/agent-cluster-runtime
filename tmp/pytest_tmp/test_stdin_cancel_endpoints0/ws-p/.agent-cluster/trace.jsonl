@@ -1,0 +1,2 @@
+{"id": "26d30f3686a7", "name": "approval.wait", "kind": "approval", "parent_id": "69847b867f40", "duration_ms": 0.0, "start": "2026-08-20T01:44:12+00:00", "meta": {"hint": "[审批门] requirement_confirmation 审批（requirement_confirmation，风险 medium）\n  等待人工审批：节点 requirement_gate（requirement_confirmation）\n请选择 [accept|reject|response <内容>|edit <内容>|/status|/budget|/skip|/abort]："}}
+{"id": "69847b867f40", "name": "session.run", "kind": "session", "parent_id": "", "duration_ms": 216.315, "start": "2026-08-20T01:44:12+00:00", "meta": {"goal": "待办应用"}}

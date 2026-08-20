@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "954665bd8f1f": {
+      "id": "954665bd8f1f",
+      "name": "p",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_stdin_cancel_endpoints0\\ws-p",
+      "status": "active",
+      "created_at": "2026-08-20T01:44:12+00:00"
+    }
+  },
+  "sessions": {
+    "e0b85ec4c997": {
+      "id": "e0b85ec4c997",
+      "project_id": "954665bd8f1f",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_stdin_cancel_endpoints0\\ws-p",
+      "goal": "待办应用",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:44:12+00:00"
+    }
+  }
+}

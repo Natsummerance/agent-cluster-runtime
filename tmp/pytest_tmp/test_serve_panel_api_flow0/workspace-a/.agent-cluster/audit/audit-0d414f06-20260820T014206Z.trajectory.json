@@ -1,0 +1,597 @@
+{
+  "session_id": "0d414f06f224",
+  "goal": "验收：确定性构建最小 CLI 工具 minitool",
+  "generated_at": "2026-08-20T01:42:06+00:00",
+  "format": "json",
+  "verified": true,
+  "retention_days": null,
+  "count": 50,
+  "records": [
+    {
+      "type": "session.start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "goal": "验收：确定性构建最小 CLI 工具 minitool"
+      },
+      "seq": 0,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "",
+      "hash": "1adb683b85658829377c3ffbe919d2d72feaafe8db52d581f9082d0f65668a84"
+    },
+    {
+      "type": "workflow_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 1,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "1adb683b85658829377c3ffbe919d2d72feaafe8db52d581f9082d0f65668a84",
+      "hash": "5b8ae506effdc382cd6c5361b3f8f4854c1fcdea4b52cbecddc4db0f6880f373"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "start",
+        "text": ""
+      },
+      "seq": 2,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "5b8ae506effdc382cd6c5361b3f8f4854c1fcdea4b52cbecddc4db0f6880f373",
+      "hash": "d6b8c9b61ba5b201e5d92f94372bf0f0e7fa4e81889c0eb91421acafc477b13e"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "start",
+        "text": ""
+      },
+      "seq": 3,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "d6b8c9b61ba5b201e5d92f94372bf0f0e7fa4e81889c0eb91421acafc477b13e",
+      "hash": "1df578d7baa335419bd38f9f1220af724c7d6878a38dc0dd60d28803252f89e7"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "kickoff",
+        "text": ""
+      },
+      "seq": 4,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "1df578d7baa335419bd38f9f1220af724c7d6878a38dc0dd60d28803252f89e7",
+      "hash": "66c339795c7bec60e343c10f59fb2c6cbec79c7ab0aa5937e148ddf6e6bc874c"
+    },
+    {
+      "type": "meeting_held",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 5,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "66c339795c7bec60e343c10f59fb2c6cbec79c7ab0aa5937e148ddf6e6bc874c",
+      "hash": "506d9e3849ea3245974252b108ae92425cf01a12a67ba657a60c1d16b556ec41"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "kickoff",
+        "text": ""
+      },
+      "seq": 6,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "506d9e3849ea3245974252b108ae92425cf01a12a67ba657a60c1d16b556ec41",
+      "hash": "a849cefe8178243a71ae59fc6fa50d839a9e595472cb70178c2c537efcaea28d"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 7,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "a849cefe8178243a71ae59fc6fa50d839a9e595472cb70178c2c537efcaea28d",
+      "hash": "01514dfd53ddf6f5e2db61bfc60eb41d2a99a852ac3b6e611add95a54d002167"
+    },
+    {
+      "type": "agent_step",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 8,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "01514dfd53ddf6f5e2db61bfc60eb41d2a99a852ac3b6e611add95a54d002167",
+      "hash": "2b6cb8dee85a087c83185932d30a96c44866048ba92980a8136796c830024e14"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 9,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "2b6cb8dee85a087c83185932d30a96c44866048ba92980a8136796c830024e14",
+      "hash": "4fea9611711b370b61e26fa1f38c649fa01c7028c754122575c664ad0184618a"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 10,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "4fea9611711b370b61e26fa1f38c649fa01c7028c754122575c664ad0184618a",
+      "hash": "c636b6446a29a1d820d6eac0d27ecef5bd0d7cc7b7872fdb20f1e05810eb18d2"
+    },
+    {
+      "type": "meeting_held",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 11,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "c636b6446a29a1d820d6eac0d27ecef5bd0d7cc7b7872fdb20f1e05810eb18d2",
+      "hash": "a49709f21f16c5319658c55a663af982ac4b5a3d81ef14853239f30eecded64d"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 12,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "a49709f21f16c5319658c55a663af982ac4b5a3d81ef14853239f30eecded64d",
+      "hash": "c2efbbeceebdbd57317da32342a11149789313660b91a35fd4e68deb50bee581"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 13,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "c2efbbeceebdbd57317da32342a11149789313660b91a35fd4e68deb50bee581",
+      "hash": "6ff3c6a8057e586876c7ccbb94d25174ca220272c07e2ae64abeb30312cf4849"
+    },
+    {
+      "type": "workflow_suspended",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 14,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "6ff3c6a8057e586876c7ccbb94d25174ca220272c07e2ae64abeb30312cf4849",
+      "hash": "2b931a5ad5e10720d74949987c4e67779c268dcb77139dd8a859f9d86e1f0130"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "  待审批请求：requirement_confirmation 审批"
+      },
+      "seq": 15,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "2b931a5ad5e10720d74949987c4e67779c268dcb77139dd8a859f9d86e1f0130",
+      "hash": "989b1ec6da11bd50175cf6d02f557ea311510fa60caa6d8d568fe01b28d6b54d"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    类别：requirement_confirmation | 风险：medium | bypass-immune：False"
+      },
+      "seq": 16,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "989b1ec6da11bd50175cf6d02f557ea311510fa60caa6d8d568fe01b28d6b54d",
+      "hash": "48219852aec4573c75f549d82821ceaa514c8c548bfefd31c18c5ba1a4f60c43"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    说明：v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end"
+      },
+      "seq": 17,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "48219852aec4573c75f549d82821ceaa514c8c548bfefd31c18c5ba1a4f60c43",
+      "hash": "c8b6795bcbdee0919ae10ac17a839a988010b95de7643dac8ade4a6198599d76"
+    },
+    {
+      "type": "approval.pending",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "hint": "[审批门] requirement_confirmation 审批（requirement_confirmation，风险 medium）\n  v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end\n请选择 [accept|reject|response <内容>|edit <内容>|/status|/budget|/skip|/abort]："
+      },
+      "seq": 18,
+      "ts": "2026-08-20T01:42:05+00:00",
+      "prev_hash": "c8b6795bcbdee0919ae10ac17a839a988010b95de7643dac8ade4a6198599d76",
+      "hash": "6edb44088981cfa2e2acbcf82f2b27ddd3b05a3efe6ef7531060a5108c2822ae"
+    },
+    {
+      "type": "workflow_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 19,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "6edb44088981cfa2e2acbcf82f2b27ddd3b05a3efe6ef7531060a5108c2822ae",
+      "hash": "e2307be2f037aa15230d85a359a50ed5ab6088147262b1ea71bfd19ae3c9fdf4"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 20,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "e2307be2f037aa15230d85a359a50ed5ab6088147262b1ea71bfd19ae3c9fdf4",
+      "hash": "4b5873e403cfd08f623da47e1152741cef2a5f4df28a3dda2fd14d6773f34e2d"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 21,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "4b5873e403cfd08f623da47e1152741cef2a5f4df28a3dda2fd14d6773f34e2d",
+      "hash": "6044480ab2adff262416ceed4018e6c868bfffb542f3244e8042cd8287de0d65"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 22,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "6044480ab2adff262416ceed4018e6c868bfffb542f3244e8042cd8287de0d65",
+      "hash": "1395d0e910492576f953707bf0a5fce501c9c6c26445954fa77f4e339483eeba"
+    },
+    {
+      "type": "agent_step",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 23,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "1395d0e910492576f953707bf0a5fce501c9c6c26445954fa77f4e339483eeba",
+      "hash": "00ab876675f7d9f2cc801eb579c560d72706f76aa467380524c16d400a21ba54"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 24,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "00ab876675f7d9f2cc801eb579c560d72706f76aa467380524c16d400a21ba54",
+      "hash": "38ccb428c78b42cce65d41ffaa87744f2b69c3d3ae470546a65c5a53404dc432"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 25,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "38ccb428c78b42cce65d41ffaa87744f2b69c3d3ae470546a65c5a53404dc432",
+      "hash": "14c104b80e3a3efbd6a8b36057658a1a8899cc24afeb7b78169fa30bd6536823"
+    },
+    {
+      "type": "meeting_held",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 26,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "14c104b80e3a3efbd6a8b36057658a1a8899cc24afeb7b78169fa30bd6536823",
+      "hash": "914ebc062fd4fbd97ffed8c8159d3d1b5387bf016b8e6b1553f36ef604579833"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 27,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "914ebc062fd4fbd97ffed8c8159d3d1b5387bf016b8e6b1553f36ef604579833",
+      "hash": "69b6e60ec6d753ff28f93d2600d93cb8700914babd21bed12793f05392b89c94"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 28,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "69b6e60ec6d753ff28f93d2600d93cb8700914babd21bed12793f05392b89c94",
+      "hash": "512a1378070c52bb0cb0538f15c7e5b931b8486fabc99faaae6c90f42fbc29aa"
+    },
+    {
+      "type": "workflow_suspended",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 29,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "512a1378070c52bb0cb0538f15c7e5b931b8486fabc99faaae6c90f42fbc29aa",
+      "hash": "408219efb95537f91f319ddfa8a0be2ed704bc9c5bcd769f67856225cf58ea87"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "  待审批请求：requirement_confirmation 审批"
+      },
+      "seq": 30,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "408219efb95537f91f319ddfa8a0be2ed704bc9c5bcd769f67856225cf58ea87",
+      "hash": "03a5e76e610ce6886500f0a21466de2f29fd62de98e3165a11474faffe7eaf85"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    类别：requirement_confirmation | 风险：medium | bypass-immune：False"
+      },
+      "seq": 31,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "03a5e76e610ce6886500f0a21466de2f29fd62de98e3165a11474faffe7eaf85",
+      "hash": "fb49dbd70ea55cbf17acd2cb32df95af6df88d31bc2b9b0d6a3529cdd0f5dcaa"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    说明：v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end"
+      },
+      "seq": 32,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "fb49dbd70ea55cbf17acd2cb32df95af6df88d31bc2b9b0d6a3529cdd0f5dcaa",
+      "hash": "f74a980453f8597111bf66f89bc50368852cfd4b791d3e29d891b2b64835a442"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "[需求变更] v1 已记录：增加 --json 输出参数"
+      },
+      "seq": 33,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "f74a980453f8597111bf66f89bc50368852cfd4b791d3e29d891b2b64835a442",
+      "hash": "03747ff130a9d3693ff90bd5a3f62372a7e70281beab8b9a74cd7ebba6c8e3e2"
+    },
+    {
+      "type": "workflow_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 34,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "03747ff130a9d3693ff90bd5a3f62372a7e70281beab8b9a74cd7ebba6c8e3e2",
+      "hash": "e6d10b74b7add615b9f86b872ccb8590b65297c226a38ef605d23c685b5d0fc3"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 35,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "e6d10b74b7add615b9f86b872ccb8590b65297c226a38ef605d23c685b5d0fc3",
+      "hash": "e11a11779d43cea9d0a0737b7e9a9444fcc6afccd0a6d8a0dde1276765ee0e9c"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 36,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "e11a11779d43cea9d0a0737b7e9a9444fcc6afccd0a6d8a0dde1276765ee0e9c",
+      "hash": "d728f8b0f691aa55cb92e703354b0872869bd035af635c39a6b698b39a323a4c"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 37,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "d728f8b0f691aa55cb92e703354b0872869bd035af635c39a6b698b39a323a4c",
+      "hash": "99c4ef88674253f5f205e8fbddbc30bd951bd4660a68ab47a68f35fb66a4bd40"
+    },
+    {
+      "type": "agent_step",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 38,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "99c4ef88674253f5f205e8fbddbc30bd951bd4660a68ab47a68f35fb66a4bd40",
+      "hash": "69d595f9694cb9d70285ac5b68fdf236e70a0b916ad2db57efe43755acd278c9"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      },
+      "seq": 39,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "69d595f9694cb9d70285ac5b68fdf236e70a0b916ad2db57efe43755acd278c9",
+      "hash": "b12876a8ee6ec9056249bc2146b948fac82a06db90fda665785e27eb3c3ec81c"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 40,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "b12876a8ee6ec9056249bc2146b948fac82a06db90fda665785e27eb3c3ec81c",
+      "hash": "91a7a7493547e7f06290efd569c0a35bac2e0cfa65a7069806de087020590eec"
+    },
+    {
+      "type": "meeting_held",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      },
+      "seq": 41,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "91a7a7493547e7f06290efd569c0a35bac2e0cfa65a7069806de087020590eec",
+      "hash": "3152b241bf5cad68d5af13d8537488315bc3923a006db0094769771d65bc6236"
+    },
+    {
+      "type": "node_end",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_review",
+        "text": ""
+      },
+      "seq": 42,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "3152b241bf5cad68d5af13d8537488315bc3923a006db0094769771d65bc6236",
+      "hash": "99fddff53b32fa221b0cad2dccd59de76da052bf1514afbdcf3eff8909fa2a9a"
+    },
+    {
+      "type": "node_start",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 43,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "99fddff53b32fa221b0cad2dccd59de76da052bf1514afbdcf3eff8909fa2a9a",
+      "hash": "aa17c30e05c66d806eba54cec4c65510a106cc024f8185bac804f6f61b5757f5"
+    },
+    {
+      "type": "workflow_suspended",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      },
+      "seq": 44,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "aa17c30e05c66d806eba54cec4c65510a106cc024f8185bac804f6f61b5757f5",
+      "hash": "9f28967ec3ed6b856c4d5eda88144c68f9b6271bd5cf8380f783cefb0f81d7ad"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "  待审批请求：requirement_confirmation 审批"
+      },
+      "seq": 45,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "9f28967ec3ed6b856c4d5eda88144c68f9b6271bd5cf8380f783cefb0f81d7ad",
+      "hash": "d6ef85617647788b8739e79c16a64efe0f1ff775747ae024615e95b069ceee34"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    类别：requirement_confirmation | 风险：medium | bypass-immune：False"
+      },
+      "seq": 46,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "d6ef85617647788b8739e79c16a64efe0f1ff775747ae024615e95b069ceee34",
+      "hash": "8f4261ff3100ad5b039fa22e561020d7bd4e7ab346d989796805690b7ecbfc8e"
+    },
+    {
+      "type": "log",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "text": "    说明：v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end"
+      },
+      "seq": 47,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "8f4261ff3100ad5b039fa22e561020d7bd4e7ab346d989796805690b7ecbfc8e",
+      "hash": "4694465507a3b996ae55900dab458f336f1e497e2864602cb21312d071cb3109"
+    },
+    {
+      "type": "approval.pending",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "hint": "[审批门] requirement_confirmation 审批（requirement_confirmation，风险 medium）\n  v0.3 会话式全生命周期：启动会 → PM 澄清+PRD（token 预估）→ 需求评审 → 需求门 → 架构设计（任务估点）→ 设计评审 → 设计门 → 前后端/算法并行开发 → 代码评审 → QA 测试 → 迭代验收门 → 文档 → 部署（产物+本地冒烟）→ 发布门 → 交付组装 → end\n请选择 [accept|reject|response <内容>|edit <内容>|/status|/budget|/skip|/abort]："
+      },
+      "seq": 48,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "4694465507a3b996ae55900dab458f336f1e497e2864602cb21312d071cb3109",
+      "hash": "bc5d2dd42a35abd410b3d52f7582698cde7dcee11ca763dbb09350ba8813d68a"
+    },
+    {
+      "type": "change.rollback",
+      "session_id": "0d414f06f224",
+      "payload": {
+        "version": 1
+      },
+      "seq": 49,
+      "ts": "2026-08-20T01:42:06+00:00",
+      "prev_hash": "bc5d2dd42a35abd410b3d52f7582698cde7dcee11ca763dbb09350ba8813d68a",
+      "hash": "8d9dcf06b43cfa903cedc2eb5d05f71adea31dc8af8c401fc5e45e1e4e01eb6f"
+    }
+  ]
+}

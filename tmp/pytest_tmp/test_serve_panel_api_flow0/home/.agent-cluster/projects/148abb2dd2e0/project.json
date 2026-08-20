@@ -1,0 +1,52 @@
+{
+  "project_id": "148abb2dd2e0",
+  "name": "t12-12",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_panel_api_flow0\\workspace-a"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 0,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": false,
+    "unlocks": [],
+    "warn_raised": false,
+    "last_warned_at": null
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [
+    {
+      "session_id": "0d414f06f224",
+      "goal": "验收：确定性构建最小 CLI 工具 minitool",
+      "status": "active",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_panel_api_flow0\\workspace-a",
+      "worktree": false,
+      "created_at": "2026-08-20T01:42:05.544942Z",
+      "updated_at": "2026-08-20T01:42:05.546262Z",
+      "metadata": {}
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-08-20T01:42:05.515802Z",
+  "updated_at": "2026-08-20T01:42:05.546262Z"
+}

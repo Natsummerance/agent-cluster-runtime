@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "legacy1": {
+      "id": "legacy1",
+      "name": "旧项目",
+      "workspace": "C:/tmp/legacy1",
+      "status": "active",
+      "created_at": "2026-08-20T01:41:55+00:00"
+    }
+  },
+  "sessions": {}
+}

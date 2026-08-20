@@ -37,16 +37,16 @@
     {
       "session_id": "aeeb95248244",
       "goal": "极速实现一个加法函数及测试",
-      "status": "active",
+      "status": "completed",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_full_server_and_api_flow0\\manual_workspace",
       "worktree": false,
-      "created_at": "2026-08-20T01:40:10.681316Z",
-      "updated_at": "2026-08-20T01:40:10.682320Z",
+      "created_at": "2026-08-20T01:40:12.049483Z",
+      "updated_at": "2026-08-20T01:40:12.049995Z",
       "metadata": {}
     }
   ],
   "metadata": {},
   "created_at": "2026-08-20T01:40:10.617291Z",
-  "updated_at": "2026-08-20T01:40:10.682320Z"
+  "updated_at": "2026-08-20T01:40:12.049995Z"
 }

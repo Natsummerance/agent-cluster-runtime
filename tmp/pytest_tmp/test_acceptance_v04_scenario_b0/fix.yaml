@@ -1,0 +1,11 @@
+name: t11.9-fix-repo
+thread_id: "t11.9:fix"
+nodes:
+  - {id: start, type: start}
+  - {id: fix, type: agent, role: backend}
+  - {id: test, type: agent, role: qa}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: fix}
+  - {from: fix, to: test}
+  - {from: test, to: end}

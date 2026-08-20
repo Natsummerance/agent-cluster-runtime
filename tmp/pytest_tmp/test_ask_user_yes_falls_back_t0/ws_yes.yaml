@@ -1,0 +1,11 @@
+name: t10.3-ask
+thread_id: "t:ask"
+nodes:
+  - {id: start, type: start}
+  - {id: requirements, type: agent, role: pm}
+  - {id: requirement_gate, type: gate, gate: requirement_confirmation}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: requirements}
+  - {from: requirements, to: requirement_gate}
+  - {from: requirement_gate, to: end, on_accept: end, on_reject: requirements}

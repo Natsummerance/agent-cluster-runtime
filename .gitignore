@@ -26,7 +26,8 @@ desktop/resources/agent-cluster-backend.exe
 !desktop/build/
 !desktop/build/**
 desktop/build/tools/
-`n# 本地运行日志（serve/vite）`nlogs/`n
 
-# 本地运行日志（serve/vite）
+# 本地运行日志与临时目录（serve/vite/tests）
 logs/
+tmp/
+scratch/

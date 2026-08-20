@@ -1,0 +1,1 @@
+{"name": "fail", "hooks": {"session_start": [{"command": "exit 3"}]}}

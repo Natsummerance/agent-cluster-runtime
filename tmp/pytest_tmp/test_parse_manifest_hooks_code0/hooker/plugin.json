@@ -1,0 +1,1 @@
+{"name": "hooker", "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo s"}]}], "Stop": [{"matcher": ".*", "hooks": [{"type": "command", "command": "echo e"}]}], "UserPromptSubmit": [{"type": "command", "command": "echo u"}]}}

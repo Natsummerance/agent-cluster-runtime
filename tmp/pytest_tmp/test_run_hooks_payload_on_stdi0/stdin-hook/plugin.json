@@ -1,0 +1,1 @@
+{"name": "stdin-hook", "hooks": {"SessionStart": [{"type": "command", "command": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\.venv\\Scripts\\python.exe T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_run_hooks_payload_on_stdi0\\stdin_reader.py"}]}}

@@ -1,0 +1,1 @@
+{"name": "alias-hooker", "hooks": {"turn_start": [{"command": "echo a"}]}}

@@ -1,0 +1,63 @@
+{
+  "session_id": "v05-session-0001",
+  "thread_id": "v05-thread-0001",
+  "goal": "构建一个 CLI",
+  "flow": "examples/flows/build-product.yaml",
+  "model": "codex",
+  "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_migrate_failure_rollback0\\workspace",
+  "created_at": "2026-08-20T01:40:19.933765Z",
+  "updated_at": "2026-08-20T01:40:19.933765Z",
+  "status": "completed",
+  "transcript": [
+    {
+      "id": "qa-1",
+      "ts": "2026-08-20T01:40:19.933765Z",
+      "question": "范围？",
+      "answer": "MVP",
+      "source": "human",
+      "node": "requirements"
+    }
+  ],
+  "gate_decisions": [
+    {
+      "node": "design_gate",
+      "kind": "design_review",
+      "attempts": 1,
+      "rejections": 0,
+      "last_decision": "accept",
+      "escalated": false
+    }
+  ],
+  "phases": {
+    "requirements": {
+      "name": "requirements",
+      "status": "done",
+      "tokens_used": 50
+    }
+  },
+  "token_ledger": {
+    "budget": 100000,
+    "entries": [
+      {
+        "ts": "2026-08-20T01:40:19.933765Z",
+        "role": "pm",
+        "phase": "requirements",
+        "model": "",
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 50,
+        "estimated": false,
+        "estimated_total": null,
+        "source": "model_call"
+      }
+    ]
+  },
+  "budget": 500000,
+  "rework_limit": 3,
+  "project_id": "06867830f6aa",
+  "parent_session_id": "",
+  "fork_depth": 0,
+  "inherited_tokens": 0,
+  "inherited_changes": [],
+  "metadata": {}
+}

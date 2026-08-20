@@ -1,0 +1,52 @@
+{
+  "project_id": "5aaaa80dd229",
+  "name": "proj",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_checkpoint_resume_after_m0\\project-ws"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 0,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": false,
+    "unlocks": [],
+    "warn_raised": false,
+    "last_warned_at": null
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [
+    {
+      "session_id": "v05-session-0001",
+      "goal": "构建一个 CLI",
+      "status": "active",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_checkpoint_resume_after_m0\\workspace",
+      "worktree": false,
+      "created_at": "2026-08-20T01:40:18.698192Z",
+      "updated_at": "2026-08-20T01:40:19.278198Z",
+      "metadata": {}
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-08-20T01:40:19.040552Z",
+  "updated_at": "2026-08-20T01:40:19.278198Z"
+}

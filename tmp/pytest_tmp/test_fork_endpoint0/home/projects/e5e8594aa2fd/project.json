@@ -1,9 +1,9 @@
 {
-  "project_id": "14bbf0615851",
+  "project_id": "e5e8594aa2fd",
   "name": "p",
   "description": "",
   "workspaces": [
-    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_dashboard_and_tasks0\\ws-p"
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_fork_endpoint0\\ws-p"
   ],
   "default_flow": "examples/flows/build-product.yaml",
   "status": "active",
@@ -35,18 +35,18 @@
   },
   "sessions": [
     {
-      "session_id": "3b2b95eb6728",
+      "session_id": "e68b8f4bafcd",
       "goal": "待办应用",
-      "status": "completed",
-      "assignee": "alice",
-      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_dashboard_and_tasks0\\ws-p",
+      "status": "active",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_fork_endpoint0\\ws-p",
       "worktree": false,
-      "created_at": "2026-08-20T01:44:01.911747Z",
-      "updated_at": "2026-08-20T01:44:01.995418Z",
+      "created_at": "2026-08-20T01:44:08.253051Z",
+      "updated_at": "2026-08-20T01:44:08.254053Z",
       "metadata": {}
     }
   ],
   "metadata": {},
-  "created_at": "2026-08-20T01:44:00.595714Z",
-  "updated_at": "2026-08-20T01:44:01.995418Z"
+  "created_at": "2026-08-20T01:44:08.221217Z",
+  "updated_at": "2026-08-20T01:44:08.254053Z"
 }

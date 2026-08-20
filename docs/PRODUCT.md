@@ -1,7 +1,7 @@
 # 产品介绍：DoAI Workbench（doAI）
 
 > DoAI Workbench（多 Agent 组织型全栈开发集群运行时）—— 让 AI 像一家成熟软件公司一样运转。
-> 版本：0.7.2 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
+> 版本：0.8.0 ｜ 底座：Python 3.11+ / LangGraph / pydantic v2 ｜ 前端：React+Vite+Electron ｜ 默认零 LLM 依赖可运行
 
 ---
 

@@ -151,11 +151,11 @@ flowchart TD
 ## 📦 下载与安装（桌面工作台发布版）
 
 无需源码的桌面工作台安装包发布在 [GitHub Releases](https://github.com/Natsummerance/doAI/releases)
-（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.7.2](https://github.com/Natsummerance/doAI/releases/tag/v0.7.2)）：
+（各版本资产与 Release Notes 见对应 tag，最新版为 [v0.8.0](https://github.com/Natsummerance/doAI/releases/tag/v0.8.0)）：
 
-- **Windows**：`DoAI-Workbench-Setup-0.7.2-x64.exe` / `DoAI-Workbench-Setup-0.7.2-arm64.exe`（另含合并包 `DoAI-Workbench-Setup-0.7.2.exe`）
-- **macOS**：`DoAI.Workbench-0.7.2-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
-- **Linux**：`DoAI.Workbench-0.7.2-amd64.deb`（Debian/Ubuntu x64）
+- **Windows**：`DoAI-Workbench-Setup-0.8.0-x64.exe` / `DoAI-Workbench-Setup-0.8.0-arm64.exe`（另含合并包 `DoAI-Workbench-Setup-0.8.0.exe`）
+- **macOS**：`DoAI.Workbench-0.8.0-<arch>-unsigned.dmg` / `.zip`（x64 与 arm64；本轮未签名，首次打开需右键「打开」绕过 Gatekeeper）
+- **Linux**：`DoAI.Workbench-0.8.0-amd64.deb`（Debian/Ubuntu x64）
 
 桌面应用内置 electron-updater 自动更新（启动时检查，读 Releases 的 `latest*.yml` 元数据），
 小版本升级无需手动下载；CLI 与源码运行方式见下节「安装与运行」。

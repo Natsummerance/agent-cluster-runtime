@@ -8,11 +8,32 @@
   "default_flow": "examples/flows/build-product.yaml",
   "status": "active",
   "budget_pool": {
-    "hard_limit_tokens": 874,
+    "hard_limit_tokens": 2374,
     "warn_ratio": 0.8,
     "warn_reenable_ratio": 0.7,
-    "unlock_requires_approval": false,
-    "unlocks": [],
+    "unlock_requires_approval": true,
+    "unlocks": [
+      {
+        "id": "9c30790a52b94cd392c689cbddd07eeb",
+        "session_id": "",
+        "additional_tokens": 1000,
+        "reason": "扩容",
+        "status": "granted",
+        "created_at": "2026-08-20T01:43:45.408291Z",
+        "decided_at": null,
+        "decided_by": "self"
+      },
+      {
+        "id": "6fc12b09e4f14ecb966cf0802bbc70a0",
+        "session_id": "",
+        "additional_tokens": 500,
+        "reason": "例外",
+        "status": "granted",
+        "created_at": "2026-08-20T01:43:45.457486Z",
+        "decided_at": "2026-08-20T01:43:45.498813Z",
+        "decided_by": "pm"
+      }
+    ],
     "warn_raised": true,
     "last_warned_at": "2026-08-20T01:43:44.219216Z"
   },
@@ -38,26 +59,26 @@
       "session_id": "76229db071f1",
       "goal": "待办应用",
       "status": "completed",
-      "assignee": "",
+      "assignee": "alice",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_events_unlock_dash0\\ws-budget",
       "worktree": false,
       "created_at": "2026-08-20T01:43:44.051839Z",
-      "updated_at": "2026-08-20T01:43:44.052838Z",
+      "updated_at": "2026-08-20T01:43:45.526775Z",
       "metadata": {}
     },
     {
       "session_id": "c1d04d21199b",
       "goal": "待办应用",
-      "status": "active",
+      "status": "completed",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_events_unlock_dash0\\ws-budget",
       "worktree": false,
-      "created_at": "2026-08-20T01:43:44.145554Z",
-      "updated_at": "2026-08-20T01:43:44.145554Z",
+      "created_at": "2026-08-20T01:43:45.354679Z",
+      "updated_at": "2026-08-20T01:43:45.355675Z",
       "metadata": {}
     }
   ],
   "metadata": {},
   "created_at": "2026-08-20T01:43:42.843937Z",
-  "updated_at": "2026-08-20T01:43:44.219722Z"
+  "updated_at": "2026-08-20T01:43:45.526775Z"
 }

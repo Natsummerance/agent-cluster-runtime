@@ -17,6 +17,15 @@
       "model": "deterministic",
       "status": "running",
       "created_at": "2026-08-20T01:43:37+00:00"
+    },
+    "630a03fb1b93": {
+      "id": "630a03fb1b93",
+      "project_id": "23a2e5d254dd",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_chain_session_stdin_fork0\\ws-p1",
+      "goal": "待办应用",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:43:39+00:00"
     }
   }
 }

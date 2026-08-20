@@ -1,0 +1,63 @@
+{
+  "project_id": "393fe30b8822",
+  "name": "p",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_exhausted_blocks_s0\\ws"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 550,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": false,
+    "unlocks": [
+      {
+        "id": "4456f5e2137b4c06a07ff663a23b58f4",
+        "session_id": "",
+        "additional_tokens": 500,
+        "reason": "解锁",
+        "status": "granted",
+        "created_at": "2026-08-20T01:40:53.507392Z",
+        "decided_at": null,
+        "decided_by": "self"
+      }
+    ],
+    "warn_raised": true,
+    "last_warned_at": "2026-08-20T01:40:53.619324Z"
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [
+    {
+      "session_id": "7ee101a1d133",
+      "goal": "待办应用",
+      "status": "active",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_exhausted_blocks_s0\\ws",
+      "worktree": false,
+      "created_at": "2026-08-20T01:40:53.797367Z",
+      "updated_at": "2026-08-20T01:40:53.798368Z",
+      "metadata": {}
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-08-20T01:40:53.431713Z",
+  "updated_at": "2026-08-20T01:40:53.798368Z"
+}

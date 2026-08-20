@@ -1,0 +1,51 @@
+{
+  "project_id": "0255dfa373db",
+  "name": "proj",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_exhausted_and_unlock0\\workspace"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 2000,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": false,
+    "unlocks": [
+      {
+        "id": "9b9aad142edc4870ad7caf3b6c491945",
+        "session_id": "",
+        "additional_tokens": 1000,
+        "reason": "超限豁免",
+        "status": "granted",
+        "created_at": "2026-08-20T01:39:11.345244Z",
+        "decided_at": null,
+        "decided_by": "self"
+      }
+    ],
+    "warn_raised": true,
+    "last_warned_at": "2026-08-20T01:39:11.321208Z"
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [],
+  "metadata": {},
+  "created_at": "2026-08-20T01:39:11.257790Z",
+  "updated_at": "2026-08-20T01:39:11.345244Z"
+}

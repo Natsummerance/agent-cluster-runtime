@@ -1,0 +1,71 @@
+{
+  "project_id": "8754ed208caa",
+  "name": "proj",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_self_service_vs_approval0\\workspace"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 800,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": true,
+    "unlocks": [
+      {
+        "id": "a8ad92d23364434e91874055afe4d68c",
+        "session_id": "",
+        "additional_tokens": 500,
+        "reason": "自服务",
+        "status": "granted",
+        "created_at": "2026-08-20T01:39:11.393319Z",
+        "decided_at": null,
+        "decided_by": "self"
+      },
+      {
+        "id": "1e8a7799d2954bb8bb1f9035c5693b7f",
+        "session_id": "",
+        "additional_tokens": 300,
+        "reason": "需要审批",
+        "status": "granted",
+        "created_at": "2026-08-20T01:39:11.440676Z",
+        "decided_at": "2026-08-20T01:39:11.459263Z",
+        "decided_by": "alice"
+      },
+      {
+        "id": "37af09ec484e402d8327255c29cf9d37",
+        "session_id": "",
+        "additional_tokens": 100,
+        "reason": "再申请",
+        "status": "denied",
+        "created_at": "2026-08-20T01:39:11.489373Z",
+        "decided_at": "2026-08-20T01:39:11.513111Z",
+        "decided_by": "bob"
+      }
+    ],
+    "warn_raised": false,
+    "last_warned_at": null
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [],
+  "metadata": {},
+  "created_at": "2026-08-20T01:39:11.376826Z",
+  "updated_at": "2026-08-20T01:39:11.513111Z"
+}

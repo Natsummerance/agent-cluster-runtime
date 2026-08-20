@@ -100,7 +100,7 @@ def test_full_server_and_api_flow(tmp_path, monkeypatch):
         # 7. 看板与任务面板
         code, resp = _req(port, "GET", f"/api/v1/projects/{pid}/dashboard")
         assert code == 200
-        assert "status" in resp["data"]
+        assert "cost" in resp["data"] and "progress" in resp["data"] and "health" in resp["data"]
 
         code, resp = _req(port, "GET", f"/api/v1/projects/{pid}/tasks")
         assert code == 200

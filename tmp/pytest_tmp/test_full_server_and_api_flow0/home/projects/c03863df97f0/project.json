@@ -1,5 +1,5 @@
 {
-  "project_id": "bb8433ba2f2a",
+  "project_id": "c03863df97f0",
   "name": "演示敏捷项目",
   "description": "",
   "workspaces": [
@@ -35,18 +35,18 @@
   },
   "sessions": [
     {
-      "session_id": "426e13121f8f",
+      "session_id": "1cf67d3eb00c",
       "goal": "极速实现一个加法函数及测试",
       "status": "active",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_full_server_and_api_flow0\\manual_workspace",
       "worktree": false,
-      "created_at": "2026-08-20T01:35:51.447921Z",
-      "updated_at": "2026-08-20T01:35:51.447921Z",
+      "created_at": "2026-08-20T01:36:05.007405Z",
+      "updated_at": "2026-08-20T01:36:05.007969Z",
       "metadata": {}
     }
   ],
   "metadata": {},
-  "created_at": "2026-08-20T01:35:51.418451Z",
-  "updated_at": "2026-08-20T01:35:51.448927Z"
+  "created_at": "2026-08-20T01:36:04.983408Z",
+  "updated_at": "2026-08-20T01:36:05.007969Z"
 }

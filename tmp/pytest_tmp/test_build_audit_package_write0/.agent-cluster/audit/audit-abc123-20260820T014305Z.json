@@ -1,0 +1,56 @@
+{
+  "session_id": "abc123",
+  "goal": "待办应用",
+  "generated_at": "2026-08-20T01:43:05+00:00",
+  "events": [
+    {
+      "type": "gate.waiting",
+      "actor": "",
+      "ts": "",
+      "payload": {
+        "node": "g"
+      }
+    }
+  ],
+  "approvals": [
+    {
+      "request_id": "",
+      "decision": "",
+      "ts": "",
+      "reason": ""
+    }
+  ],
+  "token_summary": {
+    "budget": 1000,
+    "used": 120,
+    "remaining": 880
+  },
+  "cost": {
+    "by_model": {
+      "deepseek-chat": 0.0001
+    },
+    "total": 0.0001,
+    "currency": "USD"
+  },
+  "changes": [
+    {
+      "version": 1,
+      "text": "增加登录",
+      "ts": "2026-01-01T00:00:00Z",
+      "node": "g",
+      "phase": "requirements",
+      "snapshot_dir": ""
+    }
+  ],
+  "spans": [
+    {
+      "id": "6cf9ed17ac5e",
+      "name": "session.run",
+      "kind": "session",
+      "parent_id": "",
+      "duration_ms": 0.0,
+      "start": "2026-08-20T01:43:05+00:00",
+      "meta": {}
+    }
+  ]
+}

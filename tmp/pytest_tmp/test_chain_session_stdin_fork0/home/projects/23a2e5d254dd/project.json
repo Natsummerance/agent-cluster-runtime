@@ -48,16 +48,27 @@
     {
       "session_id": "630a03fb1b93",
       "goal": "待办应用",
+      "status": "completed",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_chain_session_stdin_fork0\\ws-p1",
+      "worktree": false,
+      "created_at": "2026-08-20T01:43:40.727891Z",
+      "updated_at": "2026-08-20T01:43:40.727891Z",
+      "metadata": {}
+    },
+    {
+      "session_id": "5e24943c43da",
+      "goal": "衍生需求",
       "status": "active",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_chain_session_stdin_fork0\\ws-p1",
       "worktree": false,
-      "created_at": "2026-08-20T01:43:39.491735Z",
-      "updated_at": "2026-08-20T01:43:39.491735Z",
+      "created_at": "2026-08-20T01:43:40.802060Z",
+      "updated_at": "2026-08-20T01:43:40.803058Z",
       "metadata": {}
     }
   ],
   "metadata": {},
   "created_at": "2026-08-20T01:43:37.799432Z",
-  "updated_at": "2026-08-20T01:43:39.491735Z"
+  "updated_at": "2026-08-20T01:43:40.803058Z"
 }

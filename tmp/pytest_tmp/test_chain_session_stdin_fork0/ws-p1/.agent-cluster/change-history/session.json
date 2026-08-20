@@ -7,6 +7,14 @@
       "node": "start",
       "phase": "start",
       "snapshot_dir": ".agent-cluster/change-history/snapshots/v1"
+    },
+    {
+      "version": 2,
+      "text": "fork from 630a03fb1b93",
+      "ts": "2026-08-20T01:43:40+00:00",
+      "node": "",
+      "phase": "",
+      "snapshot_dir": ".agent-cluster/change-history/snapshots/v2"
     }
   ]
 }

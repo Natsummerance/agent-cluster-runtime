@@ -1,9 +1,9 @@
 {
-  "project_id": "824c99229306",
-  "name": "t12-12-yes",
+  "project_id": "0d5e0b2e71b5",
+  "name": "会话项目",
   "description": "",
   "workspaces": [
-    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_session_completes_w0\\workspace-b"
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_session_lifecycle_via_api0\\proj-a"
   ],
   "default_flow": "examples/flows/build-product.yaml",
   "status": "active",
@@ -35,18 +35,18 @@
   },
   "sessions": [
     {
-      "session_id": "2a49e215ae1a",
-      "goal": "验收：确定性构建最小 CLI 工具（自动审批）",
-      "status": "completed",
+      "session_id": "030dd0e52afa",
+      "goal": "做一个待办事项应用",
+      "status": "active",
       "assignee": "",
-      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_session_completes_w0\\workspace-b",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_session_lifecycle_via_api0\\proj-a",
       "worktree": false,
-      "created_at": "2026-08-20T01:42:11.199198Z",
-      "updated_at": "2026-08-20T01:42:11.199406Z",
+      "created_at": "2026-08-20T01:42:54.351158Z",
+      "updated_at": "2026-08-20T01:42:54.352158Z",
       "metadata": {}
     }
   ],
   "metadata": {},
-  "created_at": "2026-08-20T01:42:08.918798Z",
-  "updated_at": "2026-08-20T01:42:11.199406Z"
+  "created_at": "2026-08-20T01:42:54.315931Z",
+  "updated_at": "2026-08-20T01:42:54.352158Z"
 }

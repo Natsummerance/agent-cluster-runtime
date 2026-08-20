@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "00b4a073c87e": {
+      "id": "00b4a073c87e",
+      "name": "t12-12-approve",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_post_approve_resume0\\workspace-approve",
+      "status": "active",
+      "created_at": "2026-08-20T01:42:13+00:00"
+    }
+  },
+  "sessions": {
+    "811b4cc36710": {
+      "id": "811b4cc36710",
+      "project_id": "00b4a073c87e",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_serve_post_approve_resume0\\workspace-approve",
+      "goal": "验收：确定性构建最小 CLI 工具（人工审批）",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:42:13+00:00"
+    }
+  }
+}

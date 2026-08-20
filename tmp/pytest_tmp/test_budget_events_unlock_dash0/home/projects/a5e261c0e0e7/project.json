@@ -8,13 +8,13 @@
   "default_flow": "examples/flows/build-product.yaml",
   "status": "active",
   "budget_pool": {
-    "hard_limit_tokens": 0,
+    "hard_limit_tokens": 874,
     "warn_ratio": 0.8,
     "warn_reenable_ratio": 0.7,
     "unlock_requires_approval": false,
     "unlocks": [],
-    "warn_raised": false,
-    "last_warned_at": null
+    "warn_raised": true,
+    "last_warned_at": "2026-08-20T01:43:44.219216Z"
   },
   "gate_policy": {
     "auto_review": true,
@@ -37,16 +37,27 @@
     {
       "session_id": "76229db071f1",
       "goal": "待办应用",
+      "status": "completed",
+      "assignee": "",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_events_unlock_dash0\\ws-budget",
+      "worktree": false,
+      "created_at": "2026-08-20T01:43:44.051839Z",
+      "updated_at": "2026-08-20T01:43:44.052838Z",
+      "metadata": {}
+    },
+    {
+      "session_id": "c1d04d21199b",
+      "goal": "待办应用",
       "status": "active",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_events_unlock_dash0\\ws-budget",
       "worktree": false,
-      "created_at": "2026-08-20T01:43:42.874854Z",
-      "updated_at": "2026-08-20T01:43:42.874854Z",
+      "created_at": "2026-08-20T01:43:44.145554Z",
+      "updated_at": "2026-08-20T01:43:44.145554Z",
       "metadata": {}
     }
   ],
   "metadata": {},
   "created_at": "2026-08-20T01:43:42.843937Z",
-  "updated_at": "2026-08-20T01:43:42.874854Z"
+  "updated_at": "2026-08-20T01:43:44.219722Z"
 }

@@ -17,6 +17,15 @@
       "model": "deterministic",
       "status": "running",
       "created_at": "2026-08-20T01:43:42+00:00"
+    },
+    "c1d04d21199b": {
+      "id": "c1d04d21199b",
+      "project_id": "a5e261c0e0e7",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_budget_events_unlock_dash0\\ws-budget",
+      "goal": "待办应用",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:43:44+00:00"
     }
   }
 }

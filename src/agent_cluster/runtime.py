@@ -86,6 +86,7 @@ from agent_cluster.tools import (
     ToolPermission,
     ToolResult,
     ToolSession,
+    get_workspace_overview,
 )
 from agent_cluster.workflow import NodeContext, NodeHandler, WorkflowNode
 
@@ -1404,12 +1405,20 @@ async def _tool_mode_agent_step(
     allowed = _allowed_tool_names(role, catalog, session.registry)
     schemas = session.registry.as_openai_schemas(names=allowed)
 
+    overview = get_workspace_overview(session.workspace_root)
     system_parts = [
         f"{role.name}：{role.goal}",
         f"岗位背景：{role.backstory}",
         f"工作区根目录：{session.workspace_root}",
         f"可用工具：{', '.join(allowed) or '（无）'}",
+        "执行准则：",
+        "- 先查后改：修改代码前先通过 read_file / grep 确认目标文件结构与上下文位置。",
+        "- 精准修改：优先使用 edit_file 进行局部替换或 write_file 写入，避免破坏无关代码与注释。",
+        "- 测试自验：代码修改完成后，积极调用 run_tests 执行测试，保证功能正确与测试通过。",
+        "- 容错自愈：当工具返回错误或语法警告提示时，结合提示信息分析原因并在本轮修复，禁止盲目重复相同错误调用。",
     ]
+    if overview:
+        system_parts.append(f"工作区目录概览：\n{overview}")
     if catalog is not None:
         for skill in catalog.mounted_skills(role):
             system_parts.append(format_skill_context(skill, DisclosureLevel.LEVEL_2))
@@ -1435,6 +1444,7 @@ async def _tool_mode_agent_step(
     approvals: list[ApprovalRecord] = []
     ledger = Ledger(task_id=task.id)
     written_paths: list[str] = []
+    ran_tests = False
     test_passed = False
     final_text = ""
     tool_calls_count = 0
@@ -1528,8 +1538,10 @@ async def _tool_mode_agent_step(
                 rel = str(call.args.get("path", "")).strip()
                 if rel and rel not in written_paths:
                     written_paths.append(rel)
-            if call.name == "run_tests" and result.ok:
-                test_passed = True
+            if call.name == "run_tests":
+                ran_tests = True
+                if result.ok:
+                    test_passed = True
             messages.append(
                 {"role": "user", "content": f"[工具结果 {call.name} ok={result.ok}] {result.output[:1500]}"}
             )
@@ -1537,7 +1549,13 @@ async def _tool_mode_agent_step(
     # ---- 分岗位质量门槛 ----
     qa_like = role.id in ("qa", "reviewer", "debugger") or role.kind.value in ("qa",)
     if qa_like:
-        task_status = TaskStatus.DONE if test_passed else TaskStatus.REVIEW
+        if ran_tests:
+            task_status = TaskStatus.DONE if test_passed else TaskStatus.REVIEW
+        else:
+            produced = bool(written_paths) or bool(final_text)
+            task_status = (
+                TaskStatus.DONE if (produced and loop_error is None and not exhausted) else TaskStatus.REVIEW
+            )
     else:
         produced = bool(written_paths) or bool(final_text)
         task_status = (

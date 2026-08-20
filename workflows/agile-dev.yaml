@@ -1,0 +1,47 @@
+name: agile-dev
+description: 极速敏捷开发流程（PM 需求规划 -> Dev 极速开发 -> QA 测试自验 -> 验收确认门禁）
+max_iterations: 20
+thread_id: agile-dev-thread
+
+nodes:
+  - id: start
+    type: start
+
+  - id: pm_plan
+    type: agent
+    role: pm
+
+  - id: dev_build
+    type: agent
+    role: backend
+
+  - id: qa_verify
+    type: agent
+    role: qa
+
+  - id: acceptance_gate
+    type: gate
+    gate: iteration_acceptance
+
+  - id: end
+    type: end
+
+edges:
+  - from: start
+    to: pm_plan
+
+  - from: pm_plan
+    to: dev_build
+
+  - from: dev_build
+    to: qa_verify
+
+  - from: qa_verify
+    to: acceptance_gate
+
+  - from: acceptance_gate
+    to: end
+    on_accept: end
+    on_reject: dev_build
+    on_edit: dev_build
+    on_response: dev_build

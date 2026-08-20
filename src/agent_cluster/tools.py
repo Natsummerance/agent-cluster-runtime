@@ -29,7 +29,9 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import difflib
 import json
 import os
 import re
@@ -63,6 +65,8 @@ __all__ = [
     "apply_patch_text",
     "result_ok",
     "DEFAULT_SHELL_WHITELIST",
+    "detect_project_test_commands",
+    "get_workspace_overview",
     "load_agents_md",
     "MCP_TOOL_PREFIX",
 ]
@@ -84,6 +88,56 @@ DEFAULT_SHELL_WHITELIST: tuple[str, ...] = (
     "docker compose config",
     "docker-compose config",
 )
+
+
+def detect_project_test_commands(workspace: str | Path) -> list[str]:
+    """根据工作区特征文件动态发现并扩展合法的测试/构建命令前缀。"""
+    ws = Path(workspace).expanduser().resolve()
+    commands: list[str] = list(DEFAULT_SHELL_WHITELIST)
+
+    # Node.js / Web 前端生态
+    if (ws / "package.json").is_file():
+        commands.extend([
+            "npm test", "npm run test", "npm run build", "npm run lint", "npm run dev",
+            "pnpm test", "pnpm run test", "pnpm run build", "pnpm run lint",
+            "yarn test", "yarn run test", "yarn run build", "yarn run lint",
+            "npx vitest", "npx jest", "npx playwright", "bun test", "bun run test",
+        ])
+
+    # Python 生态
+    if (ws / "pyproject.toml").is_file() or (ws / "setup.py").is_file() or (ws / "requirements.txt").is_file():
+        commands.extend([
+            "pytest", "uv run pytest", "uv run pytest -q", "python -m pytest",
+            "python -m unittest", "uv run python", "uv run ruff", "python test.py",
+        ])
+
+    # Rust / Cargo
+    if (ws / "Cargo.toml").is_file():
+        commands.extend([
+            "cargo test", "cargo check", "cargo build", "cargo clippy", "cargo run",
+        ])
+
+    # Go
+    if (ws / "go.mod").is_file():
+        commands.extend([
+            "go test", "go test ./...", "go build", "go vet", "go run",
+        ])
+
+    # Java / Kotlin / JVM
+    if (ws / "pom.xml").is_file():
+        commands.extend(["mvn test", "mvn compile", "mvn package", "mvn verify"])
+    if (ws / "build.gradle").is_file() or (ws / "build.gradle.kts").is_file():
+        commands.extend(["gradle test", "gradle build", "./gradlew test", "./gradlew build"])
+
+    # 去重且保序
+    seen: set[str] = set()
+    result: list[str] = []
+    for cmd in commands:
+        lowered = cmd.strip().lower()
+        if lowered and lowered not in seen:
+            seen.add(lowered)
+            result.append(cmd.strip())
+    return result
 
 # 单次工具输出截断上限（防止模型上下文被刷爆）
 MAX_OUTPUT_CHARS = 20000
@@ -262,6 +316,40 @@ def load_agents_md(workspace: str | Path) -> str:
     return text
 
 
+def get_workspace_overview(workspace: str | Path, max_depth: int = 2, max_entries: int = 30) -> str:
+    """生成工作区顶层目录结构概览（忽略隐藏目录与常见依赖缓存目录）。"""
+    root = Path(workspace).expanduser().resolve()
+    if not root.is_dir():
+        return ""
+    ignored = {
+        ".git", ".pytest_cache", ".venv", ".venv-pack", "__pycache__",
+        "node_modules", "dist", "build", ".idea", ".vscode", "coverage"
+    }
+    entries: list[str] = []
+
+    def _walk(cur: Path, depth: int, prefix: str) -> None:
+        if depth > max_depth or len(entries) >= max_entries:
+            return
+        try:
+            items = sorted(cur.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except OSError:
+            return
+        for item in items:
+            if item.name in ignored or (item.name.startswith(".") and item.name != ".env.example"):
+                continue
+            if len(entries) >= max_entries:
+                entries.append("...（目录结构过长已截断）")
+                return
+            if item.is_dir():
+                entries.append(f"{prefix}📁 {item.name}/")
+                _walk(item, depth + 1, prefix + "  ")
+            else:
+                entries.append(f"{prefix}📄 {item.name}")
+
+    _walk(root, 1, "")
+    return "\n".join(entries)
+
+
 def _run_subprocess(
     cmd: list[str],
     *,
@@ -325,7 +413,12 @@ class ToolSession:
         self.workspace_root = root.resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.registry = registry if registry is not None else build_default_tools()
-        self.shell_whitelist: tuple[str, ...] = tuple(shell_whitelist or DEFAULT_SHELL_WHITELIST)
+        detected_cmds = detect_project_test_commands(self.workspace_root)
+        base_whitelist = list(shell_whitelist or DEFAULT_SHELL_WHITELIST)
+        for cmd in detected_cmds:
+            if cmd not in base_whitelist:
+                base_whitelist.append(cmd)
+        self.shell_whitelist: tuple[str, ...] = tuple(base_whitelist)
         self.sandbox: Any = sandbox
         # AGENTS.md 项目记忆（工具模式注入 system 上下文；无文件时为 None）
         self.agents_md: str | None = agents_md
@@ -603,12 +696,28 @@ async def _tool_git_diff(session: ToolSession, args: dict) -> dict[str, Any]:
     return {"ok": True, "output": output or "(无差异)"}
 
 
+def _check_syntax_warning(path: Path, content: str) -> str:
+    """轻量语法预检（针对 Python 和 JSON），提供即时自愈反馈。"""
+    if path.suffix == ".py":
+        try:
+            ast.parse(content)
+        except SyntaxError as exc:
+            return f" [警告：检测到 Python 语法错误（第 {exc.lineno} 行：{exc.msg}），请在下一步修复]"
+    elif path.suffix == ".json":
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as exc:
+            return f" [警告：检测到 JSON 格式错误（第 {exc.lineno} 行：{exc.msg}），请在下一步修复]"
+    return ""
+
+
 async def _tool_write_file(session: ToolSession, args: dict) -> dict[str, Any]:
     path = _resolve_within(session.workspace_root, str(args.get("path", "")))
     content = str(args.get("content", ""))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return {"ok": True, "output": f"已写入 {_relative(session.workspace_root, path)}（{len(content)} 字符）"}
+    syntax_warn = _check_syntax_warning(path, content)
+    return {"ok": True, "output": f"已写入 {_relative(session.workspace_root, path)}（{len(content)} 字符）{syntax_warn}"}
 
 
 async def _tool_mkdir(session: ToolSession, args: dict) -> dict[str, Any]:
@@ -617,13 +726,97 @@ async def _tool_mkdir(session: ToolSession, args: dict) -> dict[str, Any]:
     return {"ok": True, "output": f"已创建目录 {_relative(session.workspace_root, path)}"}
 
 
+def _normalize_line(line: str) -> str:
+    """去除行尾空白并归一化。"""
+    return line.rstrip()
+
+
+def _fuzzy_find_hunk(
+    text_lines: list[str],
+    old_lines: list[str],
+    min_similarity: float = 0.85,
+) -> tuple[int, int] | None:
+    """在 text_lines 中寻找与 old_lines 最相似的连续行块范围 [start, end)。"""
+    if not old_lines or not text_lines:
+        return None
+    n = len(old_lines)
+    old_block = "\n".join(old_lines)
+    best_ratio = 0.0
+    best_range: tuple[int, int] | None = None
+
+    # 滑动窗口查找：尝试窗口大小为 n, n-1, n+1, n+2
+    for delta in (0, -1, 1, 2):
+        win_size = n + delta
+        if win_size <= 0 or win_size > len(text_lines):
+            continue
+        for i in range(len(text_lines) - win_size + 1):
+            window = "\n".join(text_lines[i : i + win_size])
+            ratio = difflib.SequenceMatcher(None, old_block, window).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_range = (i, i + win_size)
+
+    if best_ratio >= min_similarity and best_range is not None:
+        return best_range
+    return None
+
+
+def _find_old_in_text(text: str, old: str) -> tuple[int, int] | None:
+    """多级容错定位 old 在 text 中的字符区间 [start, end)。
+
+    - Level 1: 精确查找
+    - Level 2: 换行符（CRLF/LF）与行尾空白归一化查找
+    - Level 3: 模糊行级锚点查找 (similarity >= 0.85)
+    """
+    if not old or not text:
+        return None
+
+    # Level 1: 精确匹配
+    pos = text.find(old)
+    if pos != -1:
+        return (pos, pos + len(old))
+
+    # Level 2: 行尾空白与换行符容错
+    text_lines = text.splitlines(keepends=True)
+    old_lines = old.splitlines(keepends=False)
+    stripped_text_lines = [_normalize_line(line) for line in text.splitlines(keepends=False)]
+    stripped_old_lines = [_normalize_line(line) for line in old_lines]
+
+    n = len(stripped_old_lines)
+    if n > 0 and len(stripped_text_lines) >= n:
+        for i in range(len(stripped_text_lines) - n + 1):
+            if stripped_text_lines[i : i + n] == stripped_old_lines:
+                start_char = sum(len(line) for line in text_lines[:i])
+                matched_lines = text_lines[i : i + n]
+                len_chars = sum(len(line) for line in matched_lines)
+                if not old.endswith(("\n", "\r")) and matched_lines and matched_lines[-1].endswith(("\n", "\r")):
+                    trailing_nl = 2 if matched_lines[-1].endswith("\r\n") else 1
+                    len_chars -= trailing_nl
+                return (start_char, start_char + len_chars)
+
+    # Level 3: 模糊行锚点匹配
+    fuzzy_range = _fuzzy_find_hunk(stripped_text_lines, stripped_old_lines, min_similarity=0.85)
+    if fuzzy_range is not None:
+        start_line, end_line = fuzzy_range
+        start_char = sum(len(line) for line in text_lines[:start_line])
+        matched_lines = text_lines[start_line:end_line]
+        len_chars = sum(len(line) for line in matched_lines)
+        if not old.endswith(("\n", "\r")) and matched_lines and matched_lines[-1].endswith(("\n", "\r")):
+            trailing_nl = 2 if matched_lines[-1].endswith("\r\n") else 1
+            len_chars -= trailing_nl
+        return (start_char, start_char + max(0, len_chars))
+
+    return None
+
+
 def apply_text_edits(text: str, edits: list[dict]) -> str:
-    """apply_text_edits 多 hunk：顺序替换首次出现的 ``old`` 为 ``new``。
+    """apply_text_edits 多 hunk：顺序替换首次出现的 ``old`` 为 ``new``（支持弹性容错）。
 
     - 每个 edit 必须含非空 ``old``；``new`` 缺省为空串。
     - ``count`` 可选：替换前 N 次出现（缺省 1）。
-    - 任一 edit 未找到 ``old`` 即抛 ToolError，且不产生部分修改
-      （先整体校验再应用，保证原子性）。
+    - 容错机制：精确匹配 -> 行尾空白/换行符归一化匹配 -> 模糊锚点匹配 (similarity >= 0.85)。
+    - 任一 edit 未找到 ``old`` 即抛 ToolError（提供详细行号与上下文定位提示），
+      且不产生部分修改（先整体校验再应用，保证原子性）。
     """
     if not edits:
         raise ToolError("edit_file 需要至少一个 edit（{old, new}）")
@@ -633,18 +826,41 @@ def apply_text_edits(text: str, edits: list[dict]) -> str:
             raise ToolError(f"edit[{index}] 的 old 必须为非空字符串")
         if "new" in edit and not isinstance(edit["new"], str):
             raise ToolError(f"edit[{index}] 的 new 必须是字符串")
+
+    # 校验阶段：在副本上预演全部 hunk 匹配
+    probe = text
     for index, edit in enumerate(edits):
-        if text.count(edit["old"]) == 0:
-            raise ToolError(f"edit[{index}] 未找到 old 文本：{edit['old'][:80]!r}")
+        old = edit["old"]
+        match_range = _find_old_in_text(probe, old)
+        if match_range is None:
+            first_line = old.strip().splitlines()[0] if old.strip().splitlines() else ""
+            hint = ""
+            if first_line:
+                for line_idx, line in enumerate(probe.splitlines(), start=1):
+                    if first_line in line or line.strip() == first_line.strip():
+                        hint = f"；提示：首行内容在当前文件第 {line_idx} 行附近出现过，但前后文不匹配"
+                        break
+            raise ToolError(f"edit[{index}] 未找到 old 文本：{old[:80]!r}{hint}")
+        start, end = match_range
+        new = edit.get("new", "")
+        probe = probe[:start] + new + probe[end:]
+
+    # 实际应用阶段
     result = text
     for index, edit in enumerate(edits):
         old = edit["old"]
         new = edit.get("new", "")
         count = int(edit.get("count") or 1)
-        occurrences = result.count(old)
-        if count > occurrences:
-            raise ToolError(f"edit[{index}] 需要替换 {count} 次，但 old 仅出现 {occurrences} 次")
-        result = result.replace(old, new, count)
+        if count > 1 and result.count(old) >= count:
+            result = result.replace(old, new, count)
+            continue
+        match_range = _find_old_in_text(result, old)
+        if match_range is not None:
+            start, end = match_range
+            result = result[:start] + new + result[end:]
+        else:
+            result = result.replace(old, new, 1)
+
     return result
 
 
@@ -804,7 +1020,8 @@ async def _tool_edit_file(session: ToolSession, args: dict) -> dict[str, Any]:
         return {"ok": True, "output": "无需修改（edits 未改变文件内容）"}
     path.write_text(updated, encoding="utf-8")
     changed = sum(1 for edit in edits if edit.get("new", "") != edit["old"])
-    return {"ok": True, "output": f"已编辑 {_relative(session.workspace_root, path)}（{len(edits)} 个 hunk，{changed} 处变更）"}
+    syntax_warn = _check_syntax_warning(path, updated)
+    return {"ok": True, "output": f"已编辑 {_relative(session.workspace_root, path)}（{len(edits)} 个 hunk，{changed} 处变更）{syntax_warn}"}
 
 
 def _match_whitelist(command: str, whitelist: tuple[str, ...]) -> bool:

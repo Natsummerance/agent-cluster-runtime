@@ -2,7 +2,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createIntl } from 'react-intl';
-import { ApiError, configureApi, DEFAULT_BASE_URL } from '../api/client';
+import { ApiError, configureApi, DEFAULT_BASE_URL, detectDefaultBaseUrl } from '../api/client';
 import * as api from '../api/endpoints';
 import { DEFAULT_LOCALE, errorCodeOf, MESSAGES } from '../i18n';
 import type { Locale } from '../i18n';
@@ -199,7 +199,14 @@ export const useAppStore = create<AppState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          configureApi({ baseUrl: state.serverUrl, authToken: state.authToken || null });
+          const detected = detectDefaultBaseUrl();
+          if (detected && detected !== 'http://127.0.0.1:8765') {
+            state.serverUrl = detected;
+          }
+          configureApi({
+            baseUrl: state.serverUrl,
+            authToken: state.accessToken ? `Bearer ${state.accessToken}` : state.authToken || null,
+          });
         }
       },
     },

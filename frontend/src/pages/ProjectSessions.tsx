@@ -28,10 +28,14 @@ import PageHeader from '../components/PageHeader';
 import StatusTag from '../components/StatusTag';
 import type { AxisStatus, TaskEntry } from '../api/types';
 
-const MODEL_OPTIONS = ['codex', 'chat', 'responses', 'anthropic', 'deterministic'].map((m) => ({
-  value: m,
-  label: m,
-}));
+const MODEL_OPTIONS = [
+  { value: 'deepseek-chat', label: '🔥 DeepSeek-V3 (deepseek-chat)' },
+  { value: 'deepseek-reasoner', label: '🧠 DeepSeek-R1 (deepseek-reasoner)' },
+  { value: 'codex', label: '💻 Codex CLI (本地配置)' },
+  { value: 'deterministic', label: '⚡ 确定性离线模拟 (deterministic)' },
+  { value: 'openai', label: 'OpenAI (GPT-4o)' },
+  { value: 'anthropic', label: 'Anthropic (Claude)' },
+];
 
 const STATUS_OPTIONS = ['running', 'waiting_approval', 'completed', 'failed', 'aborted'].map(
   (value) => ({ value, label: value }),
@@ -400,8 +404,13 @@ export default function ProjectSessions() {
             />
           </Form.Item>
           <Form.Item name="flow" label={intl.formatMessage({ id: 'ps.modal.flow', defaultMessage: 'Flow file' })}>
-            <Input
-              placeholder="examples/flows/build-product.yaml"
+            <Select
+              allowClear
+              placeholder="选择流程模板（缺省为极速敏捷开发）"
+              options={[
+                { value: 'workflows/agile-dev.yaml', label: '⚡ 极速敏捷开发流程 (agile-dev.yaml)' },
+                { value: 'examples/flows/build-product.yaml', label: '🏢 15 节点企业组织全流程 (build-product.yaml)' },
+              ]}
               data-testid="session-flow-input"
             />
           </Form.Item>

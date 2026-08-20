@@ -423,6 +423,41 @@ function killBackend() {
 // ---------------------------------------------------------------------------
 // 窗口 / 托盘 / 快捷键 / 通知
 // ---------------------------------------------------------------------------
+function probeUrl(url, timeoutMs = 400) {
+  return new Promise((resolve) => {
+    try {
+      const u = new URL(url);
+      const req = http.get({
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname || '/',
+        timeout: timeoutMs,
+      }, (res) => {
+        resolve(res.statusCode >= 200 && res.statusCode < 500);
+      });
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.on('error', () => resolve(false));
+    } catch (_err) {
+      resolve(false);
+    }
+  });
+}
+
+function registerMainIpc() {
+  const { ipcMain } = require('electron');
+  ipcMain.handle('dialog:selectDirectory', async () => {
+    const win = mainWindow || BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: '选择工作区目录',
+    });
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -452,15 +487,69 @@ function createWindow() {
   });
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  const prodIndex = path.join(__dirname, 'dist-frontend', 'index.html');
-  if (app.isPackaged && fs.existsSync(prodIndex)) {
-    log(`加载生产前端：${prodIndex}`);
-    mainWindow.loadFile(prodIndex);
-  } else {
-    const devUrl = process.env.AGENT_CLUSTER_FRONTEND_URL || 'http://127.0.0.1:5173';
-    log(`加载开发前端：${devUrl}`);
-    mainWindow.loadURL(devUrl);
+  async function loadFrontend() {
+    const explicitDevUrl = process.env.AGENT_CLUSTER_FRONTEND_URL;
+    if (explicitDevUrl) {
+      log(`加载指定前端：${explicitDevUrl}`);
+      mainWindow.loadURL(explicitDevUrl);
+      return;
+    }
+
+    const defaultDevUrl = 'http://127.0.0.1:5173';
+    const isDevServerRunning = await probeUrl(defaultDevUrl, 400);
+    if (isDevServerRunning) {
+      log(`探测到开发服务正在运行：${defaultDevUrl}`);
+      mainWindow.loadURL(defaultDevUrl);
+      return;
+    }
+
+    const localDistIndex = path.join(__dirname, 'dist-frontend', 'index.html');
+    if (fs.existsSync(localDistIndex)) {
+      log(`加载随包前端：${localDistIndex}`);
+      mainWindow.loadFile(localDistIndex);
+      return;
+    }
+
+    const repoDistIndex = path.join(REPO_ROOT, 'frontend', 'dist', 'index.html');
+    if (fs.existsSync(repoDistIndex)) {
+      log(`加载源码构建前端：${repoDistIndex}`);
+      mainWindow.loadFile(repoDistIndex);
+      return;
+    }
+
+    log('未找到已构建的前端产物或开发服务，加载内置就绪引导页');
+    const readyHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>DoAI Workbench - 正在准备前端</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+          .card { background: #1e293b; padding: 32px; border-radius: 12px; border: 1px solid #334155; max-width: 520px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5); }
+          h2 { margin-top: 0; color: #38bdf8; }
+          p { color: #94a3b8; line-height: 1.6; }
+          code { background: #0f172a; padding: 3px 6px; border-radius: 4px; color: #f43f5e; font-family: monospace; }
+          .btn { background: #0284c7; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 16px; font-weight: 500; }
+          .btn:hover { background: #0369a1; }
+          .badge { display: inline-block; background: #10b98122; color: #10b981; border: 1px solid #10b98144; padding: 4px 10px; border-radius: 20px; font-size: 12px; margin-bottom: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="badge">后端已就绪：${backendUrl}</div>
+          <h2>前端工作台准备中</h2>
+          <p>桌面端后端已成功在端口 <code>${new URL(backendUrl).port}</code> 启动并监听。</p>
+          <p>若在开发模式，请在 <code>frontend</code> 目录执行 <code>npm run dev</code> 或 <code>npm run build</code>。</p>
+          <button class="btn" onclick="location.reload()">重新探测前端</button>
+        </div>
+      </body>
+      </html>
+    `;
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(readyHtml)}`);
   }
+
+  loadFrontend();
 }
 
 function trayIcon() {
@@ -626,6 +715,7 @@ app.whenReady().then(async () => {
   
   updater.init();
   updater.registerIpc();
+  registerMainIpc();
   if (!SMOKE_MODE) {
     updater.watchdogStartup();
     updater.onStatus(handleUpdateStatus);

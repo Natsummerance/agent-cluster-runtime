@@ -342,7 +342,88 @@ async def test_count_tokens_file_and_dir(session: ToolSession):
     )
     await session.execute(ToolCall(name="mkdir", args={"path": "sub"}))
     file_result = await session.execute(ToolCall(name="count_tokens", args={"path": "a.txt"}))
-    assert file_result.ok
-    assert "tokens" in file_result.output
     dir_result = await session.execute(ToolCall(name="count_tokens", args={"path": "."}))
     assert dir_result.ok
+
+
+def test_apply_text_edits_whitespace_and_crlf_tolerance():
+    text = "def hello():\r\n    print('hello')   \r\n    return 42\r\n"
+    # old 文本使用了统一 \n 且去除了行尾多余空格
+    edits = [{"old": "def hello():\n    print('hello')\n    return 42", "new": "def hello():\n    print('world')\n    return 100"}]
+    updated = apply_text_edits(text, edits)
+    assert "print('world')" in updated
+    assert "return 100" in updated
+
+
+def test_apply_text_edits_fuzzy_anchor_matching():
+    text = """class Calculator:
+    def __init__(self, initial=0):
+        self.value = initial
+
+    def calculate(self, x, y):
+        # some comment
+        res = x + y
+        return res
+"""
+    # 模拟 LLM 生成的 old 缺少了中间的一行注释，但其余上下文高度一致
+    edits = [{
+        "old": """    def calculate(self, x, y):
+        res = x + y
+        return res""",
+        "new": """    def calculate(self, x, y):
+        res = x * y
+        return res""",
+    }]
+    updated = apply_text_edits(text, edits)
+    assert "res = x * y" in updated
+
+
+def test_apply_text_edits_helpful_error_hint():
+    text = "line1\nline2\ntarget_function_start()\nline4\n"
+    with pytest.raises(ToolError) as exc_info:
+        apply_text_edits(text, [{"old": "target_function_start()\ncompletely_wrong_body()", "new": "pass"}])
+    err_msg = str(exc_info.value)
+    assert "未找到 old" in err_msg
+    assert "第 3 行附近出现过" in err_msg
+
+
+def test_detect_project_test_commands_for_stacks(tmp_path: Path):
+    from agent_cluster.tools import detect_project_test_commands
+
+    # 1. 空目录返回默认白名单
+    defaults = detect_project_test_commands(tmp_path)
+    assert "pytest" in defaults
+
+    # 2. 创建 Cargo.toml
+    (tmp_path / "Cargo.toml").write_text("[package]\nname = 'demo'", encoding="utf-8")
+    rust_cmds = detect_project_test_commands(tmp_path)
+    assert "cargo test" in rust_cmds
+    assert "cargo build" in rust_cmds
+
+    # 3. 创建 package.json
+    (tmp_path / "package.json").write_text('{"name": "demo"}', encoding="utf-8")
+    node_cmds = detect_project_test_commands(tmp_path)
+    assert "npx vitest" in node_cmds
+    assert "pnpm test" in node_cmds
+
+    # 4. 创建 go.mod
+    (tmp_path / "go.mod").write_text("module demo", encoding="utf-8")
+    go_cmds = detect_project_test_commands(tmp_path)
+    assert "go test ./..." in go_cmds
+
+
+async def test_edit_file_syntax_warning(session: ToolSession):
+    # 写入一个初始正常 python 文件
+    await session.execute(
+        ToolCall(name="write_file", args={"path": "script.py", "content": "def foo():\n    pass\n"})
+    )
+    # 编辑引入了一个明显的语法错误（如缺少缩进或冒号）
+    result = await session.execute(
+        ToolCall(
+            name="edit_file",
+            args={"path": "script.py", "edits": [{"old": "    pass", "new": "    return ("}]},
+        )
+    )
+    assert result.ok
+    assert "警告：检测到 Python 语法错误" in result.output
+

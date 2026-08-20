@@ -8,8 +8,8 @@ import { I18nProvider } from './i18n';
 import { buildTheme } from './theme/theme';
 import ErrorBoundary from './components/ErrorBoundary';
 import AppLayout from './layout/AppLayout';
-import Dashboard from './pages/Dashboard';
-
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const QuickRun = lazy(() => import('./pages/QuickRun'));
 const Projects = lazy(() => import('./pages/Projects'));
 const ProjectSessions = lazy(() => import('./pages/ProjectSessions'));
 const SessionDetail = lazy(() => import('./pages/SessionDetail'));
@@ -66,8 +66,9 @@ export default function App() {
                   <Route path="/login" element={<Login />} />
                   <Route element={<RequireAuth />}>
                     <Route element={<AppLayout />}>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/projects" element={<Projects />} />
+                      <Route path="/" element={<QuickRun />} />
+                      <Route path="/dashboard" element={<Dashboard />} />
+                      <Route path="/projects" element={<Projects />} />
                     <Route path="/projects/:pid/sessions" element={<ProjectSessions />} />
                     <Route path="/projects/:pid/sessions/:sid" element={<SessionDetail />} />
                     <Route path="/artifacts" element={<Artifacts />} />

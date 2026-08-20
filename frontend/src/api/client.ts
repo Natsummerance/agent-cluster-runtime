@@ -1,7 +1,27 @@
 // fetch 封装：baseURL 可配置 + X-Auth-Token + JSON 解包 + 错误处理
 import type { ApiEnvelope } from './types';
 
-export const DEFAULT_BASE_URL = 'http://127.0.0.1:8765';
+export function detectDefaultBaseUrl(): string {
+  // 1. Electron Preload API
+  if (typeof window !== 'undefined') {
+    const electronApi = (window as unknown as { agentCluster?: { getBackendUrl?: () => string } }).agentCluster;
+    const injectedUrl = electronApi?.getBackendUrl?.();
+    if (injectedUrl && injectedUrl.trim()) return injectedUrl.trim();
+  }
+  // 2. URL Query Param (?backend=...)
+  if (typeof window !== 'undefined' && window.location?.search) {
+    const params = new URLSearchParams(window.location.search);
+    const b = params.get('backend');
+    if (b && b.trim()) return b.trim();
+  }
+  // 3. Web Host (when served through proxy or same-origin)
+  if (typeof window !== 'undefined' && window.location?.origin && !window.location.origin.includes(':5173') && !window.location.origin.startsWith('file:')) {
+    return window.location.origin;
+  }
+  return 'http://127.0.0.1:8765';
+}
+
+export const DEFAULT_BASE_URL = detectDefaultBaseUrl();
 
 export type FetchLike = (
   input: string | URL | Request,
@@ -43,11 +63,11 @@ export function getFetchImpl(): FetchLike {
   return fetchImpl;
 }
 
-let ctx: ApiContext = { baseUrl: DEFAULT_BASE_URL, authToken: null };
+let ctx: ApiContext = { baseUrl: detectDefaultBaseUrl(), authToken: null };
 
 export function configureApi(next: Partial<ApiContext>): ApiContext {
   ctx = { ...ctx, ...next };
-  if (!ctx.baseUrl) ctx.baseUrl = DEFAULT_BASE_URL;
+  if (!ctx.baseUrl) ctx.baseUrl = detectDefaultBaseUrl();
   return ctx;
 }
 

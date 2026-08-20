@@ -7,6 +7,9 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "build:frontend": "cd ../frontend && npm run build",
+    "sync:frontend": "node -e \"const fs=require('fs'); const path=require('path'); const src=path.resolve(__dirname, '../frontend/dist'); const dst=path.resolve(__dirname, 'dist-frontend'); fs.rmSync(dst, {recursive: true, force: true}); fs.cpSync(src, dst, {recursive: true}); console.log('Frontend synced to desktop/dist-frontend');\"",
+    "build:all": "npm run build:frontend && npm run sync:frontend",
     "pack": "electron-builder --dir",
     "build:win": "electron-builder --win nsis --x64 --arm64",
     "build:mac": "electron-builder --mac --arm64 --x64",

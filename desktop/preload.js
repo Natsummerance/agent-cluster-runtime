@@ -10,6 +10,8 @@ const backendUrl = backendArg ? backendArg.slice('--agent-cluster-backend-url='.
 
 contextBridge.exposeInMainWorld('agentCluster', {
   getBackendUrl: () => backendUrl,
+  // 文件夹选择器
+  selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   // 自动更新：设置读写（autoUpdateEnabled/channel）、手动检查、状态订阅
   getUpdateSettings: () => ipcRenderer.invoke('update:getSettings'),
   setUpdateSettings: (next) => ipcRenderer.invoke('update:setSettings', next),

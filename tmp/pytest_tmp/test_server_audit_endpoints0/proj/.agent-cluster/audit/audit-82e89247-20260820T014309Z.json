@@ -1,0 +1,214 @@
+{
+  "session_id": "82e892476cbc",
+  "goal": "待办应用",
+  "generated_at": "2026-08-20T01:43:09+00:00",
+  "events": [
+    {
+      "type": "session.start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "goal": "待办应用"
+      }
+    },
+    {
+      "type": "workflow_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "start",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "start",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      }
+    },
+    {
+      "type": "agent_step",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirements",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      }
+    },
+    {
+      "type": "workflow_suspended",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      }
+    },
+    {
+      "type": "log",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "text": "  待审批请求：requirement_confirmation 审批"
+      }
+    },
+    {
+      "type": "log",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "text": "    类别：requirement_confirmation | 风险：medium | bypass-immune：False"
+      }
+    },
+    {
+      "type": "log",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "text": "    说明：等待人工审批：节点 requirement_gate（requirement_confirmation）"
+      }
+    },
+    {
+      "type": "workflow_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "requirement_gate",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_start",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "end",
+        "text": ""
+      }
+    },
+    {
+      "type": "node_end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "end",
+        "text": ""
+      }
+    },
+    {
+      "type": "workflow_end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:08+00:00",
+      "payload": {
+        "node_id": "",
+        "text": ""
+      }
+    },
+    {
+      "type": "session.end",
+      "actor": "",
+      "ts": "2026-08-20T01:43:09+00:00",
+      "payload": {
+        "status": "completed",
+        "exit_code": 0
+      }
+    }
+  ],
+  "approvals": [
+    {
+      "request_id": "",
+      "decision": "",
+      "ts": "",
+      "reason": ""
+    }
+  ],
+  "token_summary": {
+    "budget": 500000,
+    "used": 872,
+    "remaining": 499128,
+    "over_budget": false,
+    "by_role": {
+      "pm": 872
+    },
+    "by_phase": {
+      "requirements": 872
+    },
+    "estimate_accuracy": null
+  },
+  "cost": {
+    "by_model": {},
+    "total": 0,
+    "currency": "USD"
+  },
+  "changes": [],
+  "spans": [
+    {
+      "id": "e141f05054e3",
+      "name": "session.run",
+      "kind": "session",
+      "parent_id": "",
+      "duration_ms": 1252.457,
+      "start": "2026-08-20T01:43:09+00:00",
+      "meta": {
+        "goal": "待办应用"
+      }
+    }
+  ]
+}

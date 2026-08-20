@@ -2198,7 +2198,23 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         _send_json(
             self,
             200,
-            {"ok": True, "data": {"path": str(target), "name": target.name, "mime": mime or "text/plain", "text": text}},
+            {
+                "ok": True,
+                "data": {
+                    "path": str(target),
+                    "name": target.name,
+                    "mime": mime or "text/plain",
+                    "text": text,
+                    "content": text,
+                    "size": target.stat().st_size,
+                    "file": {
+                        "name": target.name,
+                        "size": target.stat().st_size,
+                        "content": text,
+                        "mime": mime or "text/plain",
+                    },
+                },
+            },
         )
 
     def _handle_metrics(self) -> None:

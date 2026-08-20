@@ -180,7 +180,12 @@ export interface WorkspaceFileInfo {
 
 export interface WorkspaceFile {
   path: string;
-  file: WorkspaceFileInfo;
+  name?: string;
+  size?: number;
+  mime?: string;
+  text?: string;
+  content?: string;
+  file?: WorkspaceFileInfo;
 }
 
 export interface MemoryItem {

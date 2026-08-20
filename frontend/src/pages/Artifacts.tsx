@@ -159,11 +159,13 @@ export default function Artifacts() {
         {file && (
           <>
             <Typography.Paragraph type="secondary">
-              {file.file.mime} · {file.file.size}{' '}
-              {intl.formatMessage({ id: 'artifacts.bytes', defaultMessage: 'bytes' })} · {file.file.name}
+              {file.mime || file.file?.mime || 'text/plain'} ·{' '}
+              {file.size ?? file.file?.size ?? file.text?.length ?? file.content?.length ?? 0}{' '}
+              {intl.formatMessage({ id: 'artifacts.bytes', defaultMessage: 'bytes' })} ·{' '}
+              {file.name || file.file?.name || ''}
             </Typography.Paragraph>
             <pre className="code-preview" data-testid="file-content">
-              {file.file.content}
+              {file.text ?? file.content ?? file.file?.content ?? ''}
             </pre>
           </>
         )}

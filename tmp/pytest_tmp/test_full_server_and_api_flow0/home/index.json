@@ -1,22 +1,22 @@
 {
   "projects": {
-    "c03863df97f0": {
-      "id": "c03863df97f0",
+    "ed670f506d82": {
+      "id": "ed670f506d82",
       "name": "演示敏捷项目",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_full_server_and_api_flow0\\manual_workspace",
       "status": "active",
-      "created_at": "2026-08-20T01:36:04+00:00"
+      "created_at": "2026-08-20T01:37:21+00:00"
     }
   },
   "sessions": {
-    "1cf67d3eb00c": {
-      "id": "1cf67d3eb00c",
-      "project_id": "c03863df97f0",
+    "c5a5faa218aa": {
+      "id": "c5a5faa218aa",
+      "project_id": "ed670f506d82",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_full_server_and_api_flow0\\manual_workspace",
       "goal": "极速实现一个加法函数及测试",
       "model": "deterministic",
       "status": "running",
-      "created_at": "2026-08-20T01:36:05+00:00"
+      "created_at": "2026-08-20T01:37:21+00:00"
     }
   }
 }

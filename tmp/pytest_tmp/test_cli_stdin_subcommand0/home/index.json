@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "c60f32874324": {
+      "id": "c60f32874324",
+      "name": "p",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_cli_stdin_subcommand0\\ws-cli",
+      "status": "active",
+      "created_at": "2026-08-20T01:41:00+00:00"
+    }
+  },
+  "sessions": {
+    "5332dbc7ccce": {
+      "id": "5332dbc7ccce",
+      "project_id": "c60f32874324",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_cli_stdin_subcommand0\\ws-cli",
+      "goal": "待办应用",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:41:00+00:00"
+    }
+  }
+}

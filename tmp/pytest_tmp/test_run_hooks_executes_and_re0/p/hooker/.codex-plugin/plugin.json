@@ -1,1 +1,0 @@
-{"name": "hooker", "hooks": {"session_start": [{"command": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\.venv\\Scripts\\python.exe T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_run_hooks_executes_and_re0\\hook_script.py"}]}}

@@ -1,1 +1,0 @@
-{"name": "unsup", "hooks": {"SessionStart": [{"type": "mcp_tool", "server": "s", "tool": "t", "input": {}}, {"type": "command", "command": "echo ok"}]}}

@@ -1,7 +1,0 @@
-name: t11.5-sandbox
-thread_id: 't:sandbox'
-nodes:
-  - {id: start, type: start}
-  - {id: end, type: end}
-edges:
-  - {from: start, to: end}

@@ -1,9 +1,0 @@
-name: t11.7
-thread_id: 't:sub'
-nodes:
-  - {id: start, type: start}
-  - {id: dev, type: agent, role: backend}
-  - {id: end, type: end}
-edges:
-  - {from: start, to: dev}
-  - {from: dev, to: end}

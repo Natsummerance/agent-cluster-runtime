@@ -1,1 +1,0 @@
-{"name": "demo-market", "plugins": [{"name": "doc-skills", "description": "文档技能", "source": "./", "skills": ["./skills/xlsx", "./skills/pdf"]}]}

@@ -1,1 +1,0 @@
-{"id": "610082de5b47", "name": "session.run", "kind": "session", "parent_id": "", "duration_ms": 2241.057, "start": "2026-08-20T01:42:11+00:00", "meta": {"goal": "验收：确定性构建最小 CLI 工具（自动审批）"}}

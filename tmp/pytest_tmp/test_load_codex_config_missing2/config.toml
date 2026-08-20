@@ -1,4 +1,0 @@
-model = "deepseek-v4-flash"
-model_provider = "custom"
-[model_providers.custom]
-base_url = "https://api.deepseek.com"

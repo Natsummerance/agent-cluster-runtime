@@ -82,6 +82,7 @@ class WorktreeManager:
                 return {"ok": False, "output": f"git init 失败：{init['output']}"}
         head = _git(["rev-parse", "--verify", "HEAD"], cwd=self.workspace_root)
         if head["exit_code"] != 0:
+            _git(["add", "-A"], cwd=self.workspace_root)
             commit = _git(["commit", "--allow-empty", "-m", "acs: initial"], cwd=self.workspace_root)
             if not commit["ok"]:
                 return {

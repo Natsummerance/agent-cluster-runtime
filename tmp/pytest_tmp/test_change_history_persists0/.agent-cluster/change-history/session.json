@@ -1,0 +1,12 @@
+{
+  "records": [
+    {
+      "version": 1,
+      "text": "变更",
+      "ts": "2026-08-20T01:42:58+00:00",
+      "node": "g",
+      "phase": "",
+      "snapshot_dir": ".agent-cluster/change-history/snapshots/v1"
+    }
+  ]
+}

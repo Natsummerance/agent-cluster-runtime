@@ -1,0 +1,36 @@
+[
+  {
+    "id": "635a7df1c7554e2c8953630cfe53ec9a",
+    "title": "[记忆] 返工根因",
+    "author_role": "pm",
+    "category": "knowledge",
+    "target": "返工根因",
+    "change_diff": {
+      "kind": "improve",
+      "target": "返工根因",
+      "memory_id": "28a1059e11d4",
+      "note": "验收标准缺失。"
+    },
+    "affected_roles": [
+      "pm"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "pm",
+    "status": "rolled_back",
+    "gray": true,
+    "effective_version": "v1",
+    "votes": [
+      {
+        "by_role": "governance",
+        "verdict": "approve",
+        "reason": "进化提案自动评审通过",
+        "ts": "2026-08-20T09:43:27.941015"
+      }
+    ],
+    "created_ts": "2026-08-20T09:43:27.873427",
+    "updated_ts": "2026-08-20T09:43:27.994238"
+  }
+]

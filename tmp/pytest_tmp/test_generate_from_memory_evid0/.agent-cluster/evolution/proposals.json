@@ -1,0 +1,29 @@
+[
+  {
+    "id": "f506dcb57f0f4c398188e42c6c29548f",
+    "title": "[记忆] 低频经验",
+    "author_role": "evolution",
+    "category": "process",
+    "target": "低频经验",
+    "change_diff": {
+      "kind": "improve",
+      "target": "低频经验",
+      "memory_id": "433eca397b8b",
+      "note": "偶尔命中的经验。"
+    },
+    "affected_roles": [
+      "evolution"
+    ],
+    "affected_workflows": [],
+    "risk_level": "medium",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "evolution",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:23.061772",
+    "updated_ts": "2026-08-20T09:43:23.061772"
+  }
+]

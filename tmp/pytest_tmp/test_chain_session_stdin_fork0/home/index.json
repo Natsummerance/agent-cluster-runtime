@@ -1,0 +1,22 @@
+{
+  "projects": {
+    "23a2e5d254dd": {
+      "id": "23a2e5d254dd",
+      "name": "p1",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_chain_session_stdin_fork0\\ws-p1",
+      "status": "active",
+      "created_at": "2026-08-20T01:43:37+00:00"
+    }
+  },
+  "sessions": {
+    "fe9bee440108": {
+      "id": "fe9bee440108",
+      "project_id": "23a2e5d254dd",
+      "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_chain_session_stdin_fork0\\ws-p1",
+      "goal": "待办应用",
+      "model": "deterministic",
+      "status": "running",
+      "created_at": "2026-08-20T01:43:37+00:00"
+    }
+  }
+}

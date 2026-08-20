@@ -1,0 +1,56 @@
+[
+  {
+    "id": "573ae7a76b39409590818d12cd08f1b6",
+    "title": "[记忆] A",
+    "author_role": "qa",
+    "category": "skill",
+    "target": "A",
+    "change_diff": {
+      "kind": "improve",
+      "target": "A",
+      "memory_id": "4bd0a5531b07",
+      "note": "内容。"
+    },
+    "affected_roles": [
+      "qa"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "qa",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:24.312957",
+    "updated_ts": "2026-08-20T09:43:24.312957"
+  },
+  {
+    "id": "314b889276bf43348ad06fafa824d203",
+    "title": "[记忆] B",
+    "author_role": "qa",
+    "category": "knowledge",
+    "target": "B",
+    "change_diff": {
+      "kind": "improve",
+      "target": "B",
+      "memory_id": "8f115ac1d103",
+      "note": "内容。"
+    },
+    "affected_roles": [
+      "qa"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "qa",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:24.314462",
+    "updated_ts": "2026-08-20T09:43:24.314462"
+  }
+]

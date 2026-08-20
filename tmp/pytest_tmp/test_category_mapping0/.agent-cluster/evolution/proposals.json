@@ -1,0 +1,83 @@
+[
+  {
+    "id": "2e3679f0037d43d187caef5ea9a5d598",
+    "title": "[记忆] SOP 改进",
+    "author_role": "pm",
+    "category": "process",
+    "target": "SOP 改进",
+    "change_diff": {
+      "kind": "improve",
+      "target": "SOP 改进",
+      "memory_id": "06563a3c9afe",
+      "note": "改进测试流程。"
+    },
+    "affected_roles": [
+      "pm"
+    ],
+    "affected_workflows": [],
+    "risk_level": "medium",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "pm",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:23.290121",
+    "updated_ts": "2026-08-20T09:43:23.290121"
+  },
+  {
+    "id": "e05f00409bea4e44bb44590e7c61204c",
+    "title": "[记忆] 跨项目坑",
+    "author_role": "dev",
+    "category": "knowledge",
+    "target": "跨项目坑",
+    "change_diff": {
+      "kind": "improve",
+      "target": "跨项目坑",
+      "memory_id": "a0beb35f7bcd",
+      "note": "Redis 大 key 阻塞。"
+    },
+    "affected_roles": [
+      "dev"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "dev",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:23.309795",
+    "updated_ts": "2026-08-20T09:43:23.309795"
+  },
+  {
+    "id": "0f6e0fc8d58d4db0bfb9cfc26fd35102",
+    "title": "[记忆] QA 经验",
+    "author_role": "qa",
+    "category": "skill",
+    "target": "QA 经验",
+    "change_diff": {
+      "kind": "improve",
+      "target": "QA 经验",
+      "memory_id": "50018dc8ccba",
+      "note": "断言应先写。"
+    },
+    "affected_roles": [
+      "qa"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "qa",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:23.325195",
+    "updated_ts": "2026-08-20T09:43:23.325195"
+  }
+]

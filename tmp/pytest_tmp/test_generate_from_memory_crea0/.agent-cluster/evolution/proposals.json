@@ -1,0 +1,56 @@
+[
+  {
+    "id": "7afd93743543455288d2d4e31944e636",
+    "title": "[记忆] 需求歧义导致返工",
+    "author_role": "pm",
+    "category": "process",
+    "target": "需求歧义导致返工",
+    "change_diff": {
+      "kind": "improve",
+      "target": "需求歧义导致返工",
+      "memory_id": "0fa25c49e6ad",
+      "note": "PRD 未定义验收标准，导致设计阶段返工 2 次。"
+    },
+    "affected_roles": [
+      "pm"
+    ],
+    "affected_workflows": [],
+    "risk_level": "medium",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "pm",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:22.890948",
+    "updated_ts": "2026-08-20T09:43:22.890948"
+  },
+  {
+    "id": "459e4df3f76f45bd953f36cc6e2ffa69",
+    "title": "[记忆] 测试环境缺少依赖",
+    "author_role": "qa",
+    "category": "skill",
+    "target": "测试环境缺少依赖",
+    "change_diff": {
+      "kind": "improve",
+      "target": "测试环境缺少依赖",
+      "memory_id": "0aa85ba376e2",
+      "note": "CI 未安装 pytest，测试全部失败。"
+    },
+    "affected_roles": [
+      "qa"
+    ],
+    "affected_workflows": [],
+    "risk_level": "low",
+    "validation_plan": "灰度 1 个迭代验证后再全量",
+    "rollback_plan": "回滚：撤销该进化提案（恢复上一版本 SOP/流程配置并保留审计记录）",
+    "owner": "qa",
+    "status": "draft",
+    "gray": false,
+    "effective_version": "v0",
+    "votes": [],
+    "created_ts": "2026-08-20T09:43:22.910539",
+    "updated_ts": "2026-08-20T09:43:22.910539"
+  }
+]

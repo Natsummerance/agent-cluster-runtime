@@ -1,0 +1,26 @@
+{
+  "session_id": "v05-abc123",
+  "thread_id": "t:legacy",
+  "goal": "遗留待办",
+  "flow": "",
+  "model": "codex",
+  "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_v05_migration_registry0\\ws-legacy",
+  "created_at": "2026-08-20T01:43:34.185692Z",
+  "updated_at": "2026-08-20T01:43:34.185692Z",
+  "status": "completed",
+  "transcript": [],
+  "gate_decisions": [],
+  "phases": {},
+  "token_ledger": {
+    "budget": 500000,
+    "entries": []
+  },
+  "budget": 500000,
+  "rework_limit": 3,
+  "project_id": "c0693d1b4888",
+  "parent_session_id": "",
+  "fork_depth": 0,
+  "inherited_tokens": 0,
+  "inherited_changes": [],
+  "metadata": {}
+}

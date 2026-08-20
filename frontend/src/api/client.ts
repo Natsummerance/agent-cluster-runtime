@@ -14,10 +14,6 @@ export function detectDefaultBaseUrl(): string {
     const b = params.get('backend');
     if (b && b.trim()) return b.trim();
   }
-  // 3. Web Host (when served through proxy or same-origin)
-  if (typeof window !== 'undefined' && window.location?.origin && !window.location.origin.includes(':5173') && !window.location.origin.startsWith('file:')) {
-    return window.location.origin;
-  }
   return 'http://127.0.0.1:8765';
 }
 

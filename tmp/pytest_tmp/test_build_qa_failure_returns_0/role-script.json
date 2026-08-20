@@ -1,0 +1,1 @@
+{"qa": [{"name": "run_tests", "args": {"command": "pytest -q"}}]}

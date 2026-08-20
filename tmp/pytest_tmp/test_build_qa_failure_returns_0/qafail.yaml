@@ -1,0 +1,9 @@
+name: t10.4-qa-fail
+thread_id: "t:qafail"
+nodes:
+  - {id: start, type: start}
+  - {id: test, type: agent, role: qa}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: test}
+  - {from: test, to: end}

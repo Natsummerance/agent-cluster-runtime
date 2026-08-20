@@ -37,16 +37,16 @@
     {
       "session_id": "b9155d3d8d68",
       "goal": "待办应用",
-      "status": "active",
+      "status": "completed",
       "assignee": "",
       "workspace": "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_metrics_includes_health0\\proj",
       "worktree": false,
-      "created_at": "2026-08-20T01:43:13.792576Z",
-      "updated_at": "2026-08-20T01:43:13.793121Z",
+      "created_at": "2026-08-20T01:43:15.120840Z",
+      "updated_at": "2026-08-20T01:43:15.121477Z",
       "metadata": {}
     }
   ],
   "metadata": {},
   "created_at": "2026-08-20T01:43:13.743497Z",
-  "updated_at": "2026-08-20T01:43:13.793121Z"
+  "updated_at": "2026-08-20T01:43:15.121477Z"
 }

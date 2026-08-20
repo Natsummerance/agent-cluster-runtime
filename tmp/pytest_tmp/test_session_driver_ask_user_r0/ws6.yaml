@@ -1,0 +1,13 @@
+name: t10.2-short
+thread_id: "t:short"
+nodes:
+  - {id: start, type: start}
+  - {id: kickoff, type: meeting, meeting: kickoff, participants: [pm, pmo]}
+  - {id: requirements, type: agent, role: pm}
+  - {id: requirement_gate, type: gate, gate: requirement_confirmation}
+  - {id: end, type: end}
+edges:
+  - {from: start, to: kickoff}
+  - {from: kickoff, to: requirements}
+  - {from: requirements, to: requirement_gate}
+  - {from: requirement_gate, to: end, on_accept: end, on_reject: requirements}

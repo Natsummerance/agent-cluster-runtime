@@ -1,0 +1,1 @@
+{"name": "slow", "hooks": {"session_start": [{"command": "python -c \"import time; time.sleep(5)\"", "timeout": 0.5}]}}

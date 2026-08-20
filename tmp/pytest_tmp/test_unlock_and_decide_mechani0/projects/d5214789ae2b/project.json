@@ -1,0 +1,71 @@
+{
+  "project_id": "d5214789ae2b",
+  "name": "budget",
+  "description": "",
+  "workspaces": [
+    "T:\\Programming\\Project\\codex\\agent\\agent-cluster-runtime\\tmp\\pytest_tmp\\test_unlock_and_decide_mechani0\\workspace"
+  ],
+  "default_flow": "examples/flows/build-product.yaml",
+  "status": "active",
+  "budget_pool": {
+    "hard_limit_tokens": 1700,
+    "warn_ratio": 0.8,
+    "warn_reenable_ratio": 0.7,
+    "unlock_requires_approval": false,
+    "unlocks": [
+      {
+        "id": "90e2550282d84ab9af69d3a25036946f",
+        "session_id": "s1",
+        "additional_tokens": 500,
+        "reason": "需要更多预算",
+        "status": "granted",
+        "created_at": "2026-08-20T01:40:35.354611Z",
+        "decided_at": null,
+        "decided_by": "self"
+      },
+      {
+        "id": "34289a8df236430daef5dc6e0984d85d",
+        "session_id": "s2",
+        "additional_tokens": 300,
+        "reason": "例外",
+        "status": "denied",
+        "created_at": "2026-08-20T01:40:35.368608Z",
+        "decided_at": "2026-08-20T01:40:35.392799Z",
+        "decided_by": "reviewer"
+      },
+      {
+        "id": "f31e1edaa55240ffb47f3246c274d93b",
+        "session_id": "s3",
+        "additional_tokens": 200,
+        "reason": "例外2",
+        "status": "granted",
+        "created_at": "2026-08-20T01:40:35.406586Z",
+        "decided_at": "2026-08-20T01:40:35.431945Z",
+        "decided_by": "reviewer"
+      }
+    ],
+    "warn_raised": false,
+    "last_warned_at": null
+  },
+  "gate_policy": {
+    "auto_review": true,
+    "auto_kinds": [
+      "design_review",
+      "code_review",
+      "iteration_acceptance"
+    ],
+    "human_kinds": [
+      "requirement_confirmation",
+      "release",
+      "dangerous_tool",
+      "evolution_apply"
+    ],
+    "review_confidence_threshold": 0.7,
+    "rework_escalation": 3,
+    "review_prompt": ""
+  },
+  "sessions": [],
+  "metadata": {},
+  "created_at": "2026-08-20T01:40:35.301549Z",
+  "updated_at": "2026-08-20T01:40:35.431945Z"
+}
